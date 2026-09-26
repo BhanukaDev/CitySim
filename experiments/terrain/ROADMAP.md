@@ -307,13 +307,61 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
 - Later: rivers/lakes (flow simulation or painted water sources); buildable = above water
 - Water queries in `Terrain`: `IsUnderwater(x, z)`, water depth
 
-### ⬜ M6: Performance & scale
-- Level of detail per chunk: geomorphing, or skirts to hide cracks between detail levels
-- Frustum culling is automatic per MeshInstance3D; check draw calls at larger maps
-- Try 4096×4096 cells (for example 16 km at 4 m). Measure generation time, memory and FPS.
-- Profile generation and rebuild; candidates for multithreading (`Parallel.For` on
-  height generation using per-thread noise or precomputed noise images) or C++ GDExtension
-- Consider a GPU heightmap (vertex shader displacement from a texture) as an alternative to CPU meshes
+### 🔶 M6: Performance & scale (Phase 0 done)
+Target (user): a 70 × 70 km map on an 8 GB M1. Tiered like CS2: a **28,672 m build area** (8192 cells × 3.5 m, an "8k"
+heightmap) sculptable and buildable, centred in a coarse 70 km background (4096 cells ≈ 17 m, scenery only).
+Rendering moves to the **Terrain3D** addon (v1.0.2, `addons/terrain_3d/`, MIT; GPU clipmap, 1024² regions). `HeightMap`
+stays the source of truth for queries, tools and saves, and Terrain3D is only the render copy.
+
+Phases (tick off as they land):
+- [x] **0. Terrain3D spike**: go/no-go on 4.7.2 + 8 GB. Passed, numbers below.
+- [ ] **1. Data at build-area scale** (engine-agnostic, `src/Terrain/`)
+  - Size preset "28 km" (8192 × 3.5 m) in `MainMenu.Sizes`/`GenSettings`; keep 2/4 km for quick tests; `Terrain.DefaultCellSize` → 3.5.
+  - Generation on a worker with progress (like the generator panel's Live mode). `TerrainGen.Fill` writes straight into the map
+    (no extra copy); `HeightMap.Smooth` row-parallel with row buffers instead of a full `tmp` array. Target < 3 s at 8193².
+  - Scale-aware noise: presets/frequencies relative to map size (or world-space features that still read at 28 km).
+  - `UndoStack`: no full-map `Snapshot()` per stroke. Copy-on-write 128² tiles on first touch; entries keep only those tiles
+    (heights and splat). `PushHeights` (generator) keeps one full snapshot.
+  - Compact paint: 8 floats/vertex (2.1 GB at 8193²) → 32-bit control per vertex matching Terrain3D's control map (base id,
+    overlay id, blend), stored as sparse 256² tiles allocated only where painted. `SplatMap` keeps its API; `PaintOps` updated.
+  - `HeightMap.GetRange` cached and updated from dirty rects (no 67M-float scan per stroke).
+  - `MapFile` v2: u16 heights + min/max, control tiles, background map, zlib per tile; still reads v1.
+  - Heightmap size: Terrain3D regions are powers of two (8192 px), `HeightMap` is 8193². Decide: drop the last row/col in the
+    render copy, or make the build area 8192 vertices.
+- [ ] **2. Terrain3D renderer**
+  - New `Terrain3DBridge.cs`: the only file with Terrain3D `Call("...")` strings (create node, `change_region_size` *after*
+    `AddChild`, `vertex_spacing`, collision `DISABLED`, import, push dirty rect, `update_maps`, material params).
+  - `Terrain.cs`: remove `TerrainChunk` + per-chunk rebuild. `MarkDirty` collects a rect; `_Process` pushes it once per frame
+    (`set_height` loop or region image) + `update_maps`. Paint the same way via the control map. Delete splat `ImageTexture` upload.
+  - Port the look (tints, auto layers, height blend, triplanar rock, custom `light()`, brush ring, anchor, contours, grid, edge fog)
+    into a Terrain3D shader override. This is the biggest risk. Compare screenshots with `--cam=1300,700,120,25,30`.
+  - Queries/raycast stay on `HeightMap`; maybe a coarser first march step for long rays.
+- [ ] **3. 70 km background**
+  - `BackgroundMap`: 4097² `HeightMap` over 70 km from the same `TerrainGen` settings (world coords), build area downsampled into the centre.
+  - Own coarse ring mesh (17 → 70 → 280 m cells) with a hole for the build area, welded to its border; replaces `TerrainSkirt`.
+  - Edge fog moves to the 70 km border; subtle marker on the build border. `CityCamera`: `MaxDistance` → 8–10 km, `Far` → ~80 km,
+    pivot stays inside the build area.
+- [ ] **4. Measure + document**: add a `--demo-scale` flag (generate/push/stroke/save/load timings + peak RAM). Targets on the M1:
+  60 FPS at every zoom, generate < 3 s, load < 2 s, stroke < 4 ms/frame, RAM < 2.5 GB. All `--demo-*` flags still pass at 2 km and 28 km.
+
+Open question: commit the addon (51 MB, every platform) as-is, trim it to macOS, or fetch it with a script like the textures.
+
+Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; run
+`$G --path . res://scenes/Spike.tscn -- --spike-size=8192 --spike-out=dir`). M1 8 GB, Terrain3D **debug** library:
+| | 2048² (7 km) | 8192² (28.7 km) |
+|---|---|---|
+| generate (`TerrainGen.Create`) | 0.58 s | 6.2 s |
+| `import_images` (1024 regions) | 0.15 s | 2.5 s |
+| FPS overview / 1.5 km / ground 20 m | 135 / 65 / 88 | 82 / 62 / 82 |
+| draw calls, triangles | ~100, ~640k (constant) | same |
+| video memory | 283 MB | 1088 MB |
+| peak memory footprint | – | 3.6 GB (transient copies during generate + import) |
+- Loads fine in Godot 4.7.2 .NET (officially 4.4–4.6). Heights match `HeightMap` exactly (`vertex_spacing` 3.5).
+- `change_region_size` is ignored before the node is in the tree: call it after `AddChild`.
+- Brush-sized edit (35² px): `set_height` ×1225 via `Call` ~1 ms, or rewrite a region image ~15 ms; `update_maps` ~0 ms.
+- `get_height` via `Call` is ~2 µs vs 0.09 µs for `HeightMap.SampleHeight`: queries must stay on our side.
+- Terrain3D keeps a CPU copy of every region map plus height/control/colour on the GPU (≈ 12 B/px).
+- Noise presets are tuned for 2 km maps: at 28 km the hills look like pimples. The generator needs scale-aware settings.
 
 ### ⬜ M7: City-building queries (prep for merging)
 - `IsBuildable(rect, maxSlope)`, `GetAverageHeight(rect)`, `FlattenForPlacement(rect or polygon)`
@@ -351,4 +399,6 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
   editor features (map files, New Map, heightmap import) come before UI polish. The editor/game mode flag landed in M4.
 - M4.2: the generator lives in the Map Editor (panel with preview + live 3D), not the start menu. No water plane yet for
   island/coast presets: the user chose to wait for M5. Live generator updates are one undo step, not one per change.
+- M6: 70 km map = 28 km build area at 3.5 m (8192²) + coarse 70 km background, like CS2. Uniform 2 m over 70 km would be
+  1.2B heights (4.9 GB) plus 39 GB of paint weights. Rendering via the Terrain3D addon (user's choice over our own clipmap).
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.
