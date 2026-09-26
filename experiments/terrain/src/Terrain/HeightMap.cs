@@ -123,14 +123,8 @@ public sealed class HeightMap
     }
 
     /// <summary>Vertices within the square bounding a circle at a local position (world units), clamped to the map.</summary>
-    public VertexRect CircleRect(float cx, float cz, float radius)
-    {
-        int minX = Math.Max(0, (int)MathF.Floor((cx - radius) / CellSize));
-        int minZ = Math.Max(0, (int)MathF.Floor((cz - radius) / CellSize));
-        int maxX = Math.Min(Width - 1, (int)MathF.Ceiling((cx + radius) / CellSize));
-        int maxZ = Math.Min(Depth - 1, (int)MathF.Ceiling((cz + radius) / CellSize));
-        return new VertexRect(minX, minZ, maxX, maxZ);
-    }
+    public VertexRect CircleRect(float cx, float cz, float radius) =>
+        VertexRect.Circle(cx, cz, radius, CellSize, Width, Depth);
 
     /// <summary>Copy of every height, row-major. Used as the "before" state of an edit.</summary>
     public float[] Snapshot() => (float[])_heights.Clone();

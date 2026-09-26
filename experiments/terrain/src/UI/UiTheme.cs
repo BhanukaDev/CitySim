@@ -75,7 +75,10 @@ public static class UiTheme
         }
         else
         {
+            // Placeholder until icons arrive: wrap longer names onto two lines instead of clipping.
             b.Text = label;
+            b.ClipText = false;
+            b.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         }
         return b;
     }

@@ -1,10 +1,15 @@
+using System.Linq;
 using Godot;
+using CitySim.TerrainSystem;
 using CitySim.Tools;
 
 namespace CitySim.UI;
 
-/// <summary>One tool button in the tool panel. <see cref="Icon"/> is null until real icons are added.</summary>
-public sealed record ToolDef(string Name, string Tooltip, TerrainTool Tool, Texture2D? Icon = null);
+/// <summary>
+/// One tool button in the tool panel. <see cref="Layer"/> is the ground layer for Paint buttons (-1 otherwise).
+/// <see cref="Icon"/> is null until real icons are added.
+/// </summary>
+public sealed record ToolDef(string Name, string Tooltip, TerrainTool Tool, Texture2D? Icon = null, int Layer = -1);
 
 /// <summary>A tab in the tool panel, grouping related tools.</summary>
 public sealed record ToolTab(string Name, ToolDef[] Tools, Texture2D? Icon = null);
@@ -23,6 +28,9 @@ public static class ToolCatalog
             new ToolDef("Smooth", "Smooth: left-drag softens bumps and creases", TerrainTool.Smooth),
             new ToolDef("Slope", "Slope: right-click sets the start point, left-drag builds a ramp to where you pressed", TerrainTool.Slope),
         ]),
+        new ToolTab("Paint", TerrainLayers.All.Where(l => l.Paintable).Select(l =>
+            new ToolDef(l.DisplayName, $"Paint {l.DisplayName}: left-drag paints, right-drag erases back to automatic ground",
+                TerrainTool.Paint, Layer: l.Index)).ToArray()),
         // Later: more tabs here (e.g. Vegetation, Resources) once those tools exist.
     ]);
 

@@ -16,9 +16,10 @@ public partial class ToolPanel : PanelContainer
     private readonly HBoxContainer _tabsRow;
     private readonly HBoxContainer _toolsRow;
     private readonly List<Button> _tabButtons = new();
-    private readonly Dictionary<TerrainTool, Button> _toolButtons = new();
+    private readonly Dictionary<ToolDef, Button> _toolButtons = new();
     private ToolCategory? _category;
     private TerrainTool _selected;
+    private int _selectedLayer = -1;
 
     public event Action<ToolDef>? ToolPressed;
     public event Action? CloseRequested;
@@ -79,15 +80,22 @@ public partial class ToolPanel : PanelContainer
             _tabsRow.AddChild(b);
             _tabButtons.Add(b);
         }
-        SelectTab(0);
+        // Open the tab holding the selected tool, if any.
+        int tabIndex = Array.FindIndex(category.Tabs, t => Array.Exists(t.Tools, IsSelected));
+        SelectTab(Math.Max(tabIndex, 0));
     }
 
-    public void SetSelectedTool(TerrainTool tool)
+    /// <summary>Highlights the button for <paramref name="tool"/> (and, for Paint, <paramref name="layer"/>).</summary>
+    public void SetSelectedTool(TerrainTool tool, int layer)
     {
         _selected = tool;
-        foreach (var (t, b) in _toolButtons)
-            b.SetPressedNoSignal(t == tool);
+        _selectedLayer = layer;
+        foreach (var (def, b) in _toolButtons)
+            b.SetPressedNoSignal(IsSelected(def));
     }
+
+    private bool IsSelected(ToolDef def) =>
+        def.Tool == _selected && (_selected != TerrainTool.Paint || def.Layer == _selectedLayer);
 
     private void SelectTab(int index)
     {
@@ -103,8 +111,8 @@ public partial class ToolPanel : PanelContainer
             var b = UiTheme.IconButton(def.Name, def.Icon, ToolButtonSize, def.Tooltip);
             b.Pressed += () => ToolPressed?.Invoke(def);
             _toolsRow.AddChild(b);
-            _toolButtons[def.Tool] = b;
+            _toolButtons[def] = b;
         }
-        SetSelectedTool(_selected);
+        SetSelectedTool(_selected, _selectedLayer);
     }
 }

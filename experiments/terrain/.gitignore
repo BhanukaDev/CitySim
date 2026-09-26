@@ -5,3 +5,9 @@ obj/
 *.user
 .DS_Store
 screenshots/
+
+# Downloaded CC0 textures and the strips baked from them; recreate with tools/fetch_textures.sh.
+# The strips' .import files are committed (they set up the texture-array import).
+assets/textures/terrain/**/*.jpg
+assets/textures/terrain/**/.gdignore
+assets/textures/terrain/*.png

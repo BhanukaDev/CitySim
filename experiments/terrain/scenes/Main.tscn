@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://src/Terrain/Terrain.cs" id="1_terrain"]
 [ext_resource type="Script" path="res://src/Camera/CityCamera.cs" id="2_camera"]
@@ -6,13 +6,32 @@
 [ext_resource type="Script" path="res://src/Debug/DebugOverlay.cs" id="4_debug"]
 [ext_resource type="Script" path="res://src/Tools/TerrainToolController.cs" id="5_tools"]
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
+[ext_resource type="CompressedTexture2DArray" uid="uid://n2525gmynqm6" path="res://assets/textures/terrain/terrain_albedo_height.png" id="7_albedo"]
+[ext_resource type="CompressedTexture2DArray" uid="uid://b7g5jclvb0gso" path="res://assets/textures/terrain/terrain_normal.png" id="8_normal"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
+frequency = 0.008
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_macro"]
+width = 512
+height = 512
+seamless = true
+noise = SubResource("FastNoiseLite_macro")
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_terrain"]
 shader = ExtResource("3_shader")
+shader_parameter/albedo_height_array = ExtResource("7_albedo")
+shader_parameter/normal_array = ExtResource("8_normal")
+shader_parameter/macro_noise = SubResource("NoiseTexture2D_macro")
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
-sky_horizon_color = Color(0.66, 0.72, 0.8, 1)
-ground_horizon_color = Color(0.66, 0.72, 0.8, 1)
+sky_top_color = Color(0.36, 0.56, 0.84, 1)
+sky_horizon_color = Color(0.8, 0.85, 0.88, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.62, 0.68, 0.7, 1)
+ground_horizon_color = Color(0.8, 0.85, 0.88, 1)
+sun_angle_max = 20.0
 
 [sub_resource type="Sky" id="Sky_main"]
 sky_material = SubResource("ProceduralSkyMaterial_sky")
@@ -21,11 +40,14 @@ sky_material = SubResource("ProceduralSkyMaterial_sky")
 background_mode = 2
 sky = SubResource("Sky_main")
 ambient_light_source = 3
-tonemap_mode = 2
+tonemap_mode = 4
 fog_enabled = true
-fog_light_color = Color(0.66, 0.72, 0.8, 1)
-fog_density = 0.00015
+fog_light_color = Color(0.7, 0.8, 0.92, 1)
+fog_density = 0.00016
+fog_aerial_perspective = 0.3
 fog_sky_affect = 0.0
+adjustment_enabled = true
+adjustment_saturation = 1.1
 
 [node name="Main" type="Node3D"]
 
@@ -33,8 +55,11 @@ fog_sky_affect = 0.0
 environment = SubResource("Environment_main")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
-rotation = Vector3(-0.9, 0.6, 0)
+rotation = Vector3(-0.72, 0.6, 0)
+light_color = Color(1, 0.94, 0.84, 1)
+light_energy = 1.1
 shadow_enabled = true
+shadow_blur = 1.5
 directional_shadow_max_distance = 1500.0
 
 [node name="Terrain" type="Node3D" parent="."]

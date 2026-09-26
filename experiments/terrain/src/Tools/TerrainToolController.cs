@@ -6,15 +6,16 @@ using CitySim.TerrainSystem.Sculpt;
 
 namespace CitySim.Tools;
 
-public enum TerrainTool { None, Shift, Level, Smooth, Slope }
+public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint }
 
 /// <summary>
 /// Turns mouse input into sculpt strokes on the terrain.
 ///
 /// Shift: LMB raise, RMB lower. Level: RMB picks the target height; with none picked, each stroke
 /// levels to the dominant height under the brush. Smooth: LMB. Slope: RMB sets the start point,
-/// LMB-drag builds a ramp from it to where you pressed.
-/// Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength. Ctrl/Cmd+Z undo, +Shift (or Ctrl+Y) redo.
+/// LMB-drag builds a ramp from it to where you pressed. Paint: LMB paints <see cref="PaintLayer"/>,
+/// RMB erases painting (the ground goes back to the automatic layers).
+/// G toggles the grid. Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength. Ctrl/Cmd+Z undo, +Shift (or Ctrl+Y) redo.
 /// </summary>
 public partial class TerrainToolController : Node
 {
@@ -36,6 +37,8 @@ public partial class TerrainToolController : Node
     private bool _showContours;
     private float _maxSlope = SculptOps.DefaultMaxSlopeDegrees;
     private int _contourIndex = 2;
+    private int _paintLayer = TerrainLayers.Dirt;
+    private bool _showGrid;
 
     /// <summary>Contour spacings offered in the UI, in metres.</summary>
     public static readonly float[] ContourIntervals = [1f, 2f, 5f, 10f, 20f];
@@ -114,6 +117,20 @@ public partial class TerrainToolController : Node
 
     public float ContourInterval => ContourIntervals[_contourIndex];
 
+    /// <summary>Layer the Paint tool paints (an index into <see cref="TerrainLayers.All"/>, paintable only).</summary>
+    public int PaintLayer
+    {
+        get => _paintLayer;
+        set { _paintLayer = Math.Clamp(value, 0, TerrainLayers.PaintableCount - 1); Changed(); }
+    }
+
+    /// <summary>Shows the placement grid on the terrain (any tool, or none).</summary>
+    public bool ShowGrid
+    {
+        get => _showGrid;
+        set { _showGrid = value; Changed(); }
+    }
+
     /// <summary>Steps through <see cref="ContourIntervals"/>.</summary>
     public void StepContourInterval(int dir)
     {
@@ -146,6 +163,8 @@ public partial class TerrainToolController : Node
             BrushRadius *= 1.15f;
         else if (key.Keycode == Key.Escape && _tool != TerrainTool.None)
             Tool = TerrainTool.None;
+        else if (key.Keycode == Key.G && !key.IsCommandOrControlPressed() && !key.Echo)
+            ShowGrid = !ShowGrid;
         else
             handled = false;
         if (handled) GetViewport().SetInputAsHandled();
@@ -187,6 +206,9 @@ public partial class TerrainToolController : Node
                 break;
             case TerrainTool.Smooth:
                 if (left) BeginStroke(mb.ButtonIndex);
+                break;
+            case TerrainTool.Paint:
+                BeginStroke(mb.ButtonIndex, left ? 1f : -1f);
                 break;
             case TerrainTool.Slope:
                 if (!left) SlopeAnchor = hit;
@@ -232,6 +254,7 @@ public partial class TerrainToolController : Node
         Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush);
         Terrain.SetAnchor(_tool == TerrainTool.Slope ? _slopeAnchor : null);
         Terrain.SetContours(_showContours && _tool != TerrainTool.None, ContourInterval);
+        Terrain.SetGrid(_showGrid);
     }
 
     private void UpdateCursor()
@@ -259,16 +282,17 @@ public partial class TerrainToolController : Node
         if (_tool == TerrainTool.Level)
             _strokeLevelTarget = _levelTarget
                 ?? SculptOps.DominantHeight(map, ToLocal2(hit), CurrentBrush) + Terrain.GlobalPosition.Y;
-        History.BeginStroke(map);
+        if (_tool == TerrainTool.Paint) History.BeginStroke(null, Terrain.Splat);
+        else History.BeginStroke(map);
     }
 
     private void EndStroke()
     {
         if (!IsStroking) return;
         _strokeButton = MouseButton.None;
-        if (Terrain?.Map is { } map)
+        if (Terrain?.Map is { } map && Terrain.Splat is { } splat)
         {
-            History.EndStroke(map);
+            History.EndStroke(map, splat);
             Terrain.RefreshHeightRange();
         }
     }
@@ -278,6 +302,16 @@ public partial class TerrainToolController : Node
         if (Terrain?.Map is not { } map) return;
         var c = ToLocal2(hit);
         var brush = CurrentBrush;
+        if (_tool == TerrainTool.Paint)
+        {
+            if (Terrain.Splat is not { } splat) return;
+            var painted = _strokeSign > 0f
+                ? PaintOps.Paint(splat, c, brush, _paintLayer, dt)
+                : PaintOps.Erase(splat, c, brush, dt);
+            History.Touch(painted);
+            Terrain.MarkSplatDirty(painted);
+            return;
+        }
         float oy = Terrain.GlobalPosition.Y;
         var rect = _tool switch
         {
@@ -295,12 +329,13 @@ public partial class TerrainToolController : Node
     public void Undo() => ApplyHistory(History.Undo);
     public void Redo() => ApplyHistory(History.Redo);
 
-    private void ApplyHistory(Func<HeightMap, VertexRect> op)
+    private void ApplyHistory(Func<HeightMap, SplatMap, UndoChange> op)
     {
-        if (IsStroking || Terrain?.Map is not { } map) return;
-        var rect = op(map);
-        if (rect.IsEmpty) return;
-        Terrain.MarkDirty(rect);
+        if (IsStroking || Terrain?.Map is not { } map || Terrain.Splat is not { } splat) return;
+        var change = op(map, splat);
+        if (change.Splat) Terrain.MarkSplatDirty(change.Rect);
+        if (!change.Heights) return;
+        Terrain.MarkDirty(change.Rect);
         Terrain.RefreshHeightRange();
     }
 
@@ -315,14 +350,14 @@ public partial class TerrainToolController : Node
     // --- Scripted demo for automated screenshots (--demo-sculpt) ---
 
     /// <summary>Runs one stroke of <paramref name="ticks"/> ticks, moving the brush from <paramref name="from"/> to <paramref name="to"/>.</summary>
-    private void DemoStroke(TerrainTool tool, Vector2 from, Vector2 to, int ticks, float sign = 1f)
+    private void DemoStroke(TerrainTool tool, Vector2 from, Vector2 to, int ticks, float sign = 1f, MouseButton button = MouseButton.Left)
     {
         if (Terrain?.Map is not { } map) return;
         Tool = tool;
         Vector3 At(Vector2 p) => new(p.X, Terrain.GetHeight(p.X, p.Y), p.Y);
         ForcedCursor = At(from);
         UpdateCursor();
-        BeginStroke(MouseButton.Left, sign);
+        BeginStroke(button, sign);
         for (int i = 0; i < ticks; i++)
             ApplyTick(At(from.Lerp(to, ticks > 1 ? i / (float)(ticks - 1) : 0f)), Tick);
         EndStroke();
@@ -368,6 +403,44 @@ public partial class TerrainToolController : Node
         ShowContours = true;
         BrushRadius = 60f;
         var cursor = c + new Vector2(20, 120);
+        ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);
+    }
+
+    /// <summary>Paints a dirt path, a sand patch and a gravel patch near the map centre, then checks undo/redo.</summary>
+    public void RunPaintDemo()
+    {
+        if (Terrain?.Map is null || Terrain.Splat is null) return;
+        _map = Terrain.Map;
+        var c = Terrain.Bounds.GetCenter();
+
+        BrushStrength = 0.8f;
+        BrushRadius = 12f;
+        PaintLayer = TerrainLayers.Dirt;
+        DemoStroke(TerrainTool.Paint, c + new Vector2(-250, -120), c + new Vector2(250, 60), 240);
+        BrushRadius = 60f;
+        PaintLayer = TerrainLayers.Sand;
+        DemoStroke(TerrainTool.Paint, c + new Vector2(-120, 120), c + new Vector2(-60, 140), 90);
+        PaintLayer = TerrainLayers.Gravel;
+        DemoStroke(TerrainTool.Paint, c + new Vector2(150, 150), c + new Vector2(150, 150), 60);
+        BrushRadius = 30f;
+        DemoStroke(TerrainTool.Paint, c + new Vector2(150, 150), c + new Vector2(150, 150), 40, -1f, MouseButton.Right);
+
+        // Undo/redo self-check on an extra stroke.
+        var splat = Terrain.Splat;
+        var before = splat.Snapshot();
+        PaintLayer = TerrainLayers.Snow;
+        DemoStroke(TerrainTool.Paint, c, c + new Vector2(80, 0), 30);
+        var after = splat.Snapshot();
+        Undo();
+        bool undoOk = splat.Snapshot().AsSpan().SequenceEqual(before);
+        Redo();
+        bool redoOk = splat.Snapshot().AsSpan().SequenceEqual(after);
+        Undo();
+        GD.Print($"Demo paint: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
+
+        PaintLayer = TerrainLayers.Dirt;
+        BrushRadius = 40f;
+        var cursor = c + new Vector2(0, -40);
         ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);
     }
 }

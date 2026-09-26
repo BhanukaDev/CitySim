@@ -43,7 +43,8 @@ dotnet build                                                   # compile check
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
-# extra flags: --demo-sculpt (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
+# extra flags: --demo-sculpt / --demo-paint (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
+tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 ```
 
 The screenshot flag is handled in `src/Debug/DebugOverlay.cs`. Use it to check visual changes
@@ -115,11 +116,53 @@ Next:
 - Real icons (user will provide) → set `Icon` in `ToolCatalog`
 - Later tabs/categories (vegetation etc.) plug into `ToolCatalog`
 
-### ⬜ M3: Better texturing
-- Texture splatting (grass, dirt, rock, sand) with triplanar mapping on steep slopes
-- A paintable splat map (RGBA `ImageTexture`) with a paint brush that reuses the M2 brush code
-- Detail/normal textures; hide tiling with distance blending
-- Keep the grid overlay as a toggle, since it's useful for building placement later
+### 🔶 M3: Texturing (implemented, waiting for the user to test)
+Look: between realism and toon, leaning Ghibli. The shader tints each texture with a hand-picked colour and
+keeps only its detail, so the palette lives in the material (`Style` uniforms), not in the photos.
+
+Texture pipeline:
+- `tools/fetch_textures.sh` downloads 9 CC0 ambientCG sets (2K Color, NormalGL, Displacement) into
+  `assets/textures/terrain/<layer>/` (gitignored, with a `.gdignore` so Godot doesn't import them). It then runs
+  `--bake-terrain-textures` (`TextureBaker`) and `--import`. To swap a texture, edit the ID list in the script.
+- The baker writes two 1024²×9 vertical strips: `terrain_albedo_height.png` (colour normalised to a 0.4 grey
+  average, height in A) and `terrain_normal.png`. Their committed `.import` files import them as BC7
+  `CompressedTexture2DArray`s with mipmaps (about 25 MB of GPU memory).
+
+Layers (`TerrainLayers.cs`, same indices in the shader):
+| # | Layer | Texture | Paint | Automatic rule |
+|---|---|---|---|---|
+| 0 | grass | Grass005 | ✔ | base |
+| 1 | grass_dry | Grass004 | ✔ | noise patches, more on high ground |
+| 2 | grass_dirt | Ground037 | ✔ | medium slopes (`dirt_slope`) |
+| 3 | dirt | Ground103 | ✔ | – |
+| 4 | gravel | Ground062S | ✔ | scree just below rock, broken up by noise |
+| 5 | sand | Ground080 | ✔ | below `sand_height` (future shorelines) |
+| 6 | rock | Rock051 | ✔ | slope > `rock_slope`, triplanar |
+| 7 | snow | Snow010A | ✔ | above `snow_height` on gentle slopes |
+| 8 | snow_grass | Snow015 | – | band just below the snow line |
+
+Done:
+- Shader: automatic weights from height, slope and noise. Painted weights override them by their coverage.
+  The 4 strongest layers are sampled and height-blended (`height_blend`, `blend_softness`). Planar XZ
+  sampling at two scales, blended by distance (`tile_near`, `tile_far`) to hide tiling; rock is triplanar.
+  Large-scale and mid-scale noise vary brightness and warmth. A custom `light()` adds wrapped diffuse, an
+  optional soft toon ramp (`toon_bands`) and a warm terminator.
+- `SplatMap` (engine-agnostic): 8 float weights per heightmap vertex, summing to ≤ 1. `Terrain` uploads it as
+  two RGBA8 textures once per frame when dirty. The whole texture is uploaded each time; partial upload is
+  left for M6.
+- Paint tool: a "Paint" tab with 8 layer buttons. LMB paints, RMB erases back to automatic, and it reuses the
+  brush size and strength. `UndoStack` now holds height and/or splat regions, so sculpt and paint share
+  one undo history.
+- The grid is off by default: toggle with `G` or the config panel.
+- Atmosphere: warm sun, softer shadows, blue sky with a pale horizon, lighter blue aerial fog, AgX tonemap,
+  saturation 1.1.
+- `--demo-paint`: dirt path, sand patch, gravel patch and erase, plus an undo check.
+- 60 FPS (vsync) on M1 at 1600×900.
+
+Next:
+- User tests in Godot and tunes the `Style`/`AutoLayers` uniforms on the terrain material, then commit
+- Splat save/load belongs with M4
+- Possibly: per-layer tile sizes, a brush that paints only on slopes above or below an angle
 
 ### ⬜ M4: Save / load + heightmap import
 - Binary save of the heightmap and splat map (versioned header), load back
@@ -162,3 +205,7 @@ Next:
 - Cell size changed from 4 m to 2 m (1024×1024 cells, still a 2,048 m map), so small brushes have
   enough vertices to look round. The extra cost is accepted until LOD/performance work in M6.
 - Level with no picked height uses the "dominant" height (weighted histogram), not the plain average.
+- M3: stylized, not photoreal. Textures are only a detail source, and colour comes from per-layer tints in the
+  material. Ground textures are downloaded by a script, not committed (about 150 MB). Painted layers are
+  stored per vertex (2 m), and height blending adds sharper detail at the borders.
+- M3: rock swapped from Rock060 (marble-like veins) to Rock051 (layered ledges, which read better as cliffs).

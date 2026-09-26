@@ -8,7 +8,8 @@ namespace CitySim.Debug;
 /// <summary>
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
-/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw and --demo-sculpt.
+/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint,
+/// and --bake-terrain-textures (packs the layer textures for import, then quits; see TextureBaker).
 /// </summary>
 public partial class DebugOverlay : CanvasLayer
 {
@@ -45,6 +46,13 @@ public partial class DebugOverlay : CanvasLayer
             }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
+            else if (arg == "--demo-paint" && Tools is not null)
+                Callable.From(Tools.RunPaintDemo).CallDeferred();
+            else if (arg == "--bake-terrain-textures")
+            {
+                bool ok = TextureBaker.Bake();
+                GetTree().Quit(ok ? 0 : 1);
+            }
         }
     }
 
@@ -80,7 +88,7 @@ public partial class DebugOverlay : CanvasLayer
             text += $"\nLast rebuild {Terrain.LastRebuildChunks} chunks in {Terrain.LastRebuildMs:0.0} ms";
         }
         text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
-                "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool";
+                "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool · G grid";
         _label.Text = text;
     }
 }

@@ -36,7 +36,16 @@ public partial class Terrain : Node3D
     private readonly Dictionary<Vector2I, TerrainChunk> _chunks = new();
     private readonly HashSet<Vector2I> _dirty = new();
 
+    // Painted layer weights, uploaded to the shader as two RGBA8 textures (layers 0-3 and 4-7).
+    private byte[] _splatBytes0 = [], _splatBytes1 = [];
+    private Image? _splatImage0, _splatImage1;
+    private ImageTexture? _splatTex0, _splatTex1;
+    private VertexRect _splatDirty = VertexRect.Empty;
+
     public HeightMap? Map { get; private set; }
+
+    /// <summary>Painted ground layers, one weight set per heightmap vertex.</summary>
+    public SplatMap? Splat { get; private set; }
 
     /// <summary>World-space XZ rectangle covered by the terrain.</summary>
     public Rect2 Bounds => Map is null
@@ -52,10 +61,22 @@ public partial class Terrain : Node3D
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
         Generate();
+        CheckTextures();
+    }
+
+    /// <summary>Warns when the material has no ground textures (the shader then shows flat, over-bright tints).</summary>
+    private void CheckTextures()
+    {
+        if (Material is not ShaderMaterial sm) return;
+        foreach (var param in new[] { "albedo_height_array", "normal_array" })
+            if (sm.GetShaderParameter(param).VariantType == Variant.Type.Nil)
+                GD.PushWarning($"Terrain: material has no '{param}'. Run tools/fetch_textures.sh, and check that " +
+                               "Main.tscn still assigns the texture arrays (an editor tab with an old copy of the scene can overwrite it).");
     }
 
     public override void _Process(double delta)
     {
+        UploadSplat();
         if (_dirty.Count == 0) return;
         var sw = Stopwatch.StartNew();
         LastRebuildChunks = _dirty.Count;
@@ -78,6 +99,8 @@ public partial class Terrain : Node3D
         TerrainGenerator.Generate(Map, new TerrainGenSettings(Seed, Frequency, Octaves, HeightScale, Flatness, WarpAmplitude, Gain, SmoothPasses));
         long genMs = sw.ElapsedMilliseconds;
 
+        Splat = new SplatMap(Map.Width, Map.Depth, Map.CellSize);
+        CreateSplatTextures();
         UpdateMaterialRange();
 
         int chunksX = (CellsX + ChunkCells - 1) / ChunkCells;
@@ -206,6 +229,15 @@ public partial class Terrain : Node3D
         sm.SetShaderParameter("brush_radius", radius);
     }
 
+    /// <summary>Marks painted splat weights in a vertex rectangle for upload at the end of the frame.</summary>
+    public void MarkSplatDirty(VertexRect r) => _splatDirty = _splatDirty.Union(r);
+
+    /// <summary>Toggles the placement grid overlay.</summary>
+    public void SetGrid(bool visible)
+    {
+        if (Material is ShaderMaterial sm) sm.SetShaderParameter("show_grid", visible);
+    }
+
     /// <summary>Toggles height contour lines, <paramref name="interval"/> metres apart.</summary>
     public void SetContours(bool visible, float interval)
     {
@@ -248,6 +280,39 @@ public partial class Terrain : Node3D
         foreach (var coord in _dirty)
             _chunks[coord].Rebuild();
         _dirty.Clear();
+    }
+
+    private void CreateSplatTextures()
+    {
+        if (Splat is null) return;
+        int n = Splat.Width * Splat.Depth * 4;
+        _splatBytes0 = new byte[n];
+        _splatBytes1 = new byte[n];
+        _splatImage0 = Image.CreateFromData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes0);
+        _splatImage1 = Image.CreateFromData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes1);
+        _splatTex0 = ImageTexture.CreateFromImage(_splatImage0);
+        _splatTex1 = ImageTexture.CreateFromImage(_splatImage1);
+        _splatDirty = VertexRect.Empty;
+        // In the editor, leave the material alone so the scene file doesn't embed the (empty) textures.
+        if (Engine.IsEditorHint() || Material is not ShaderMaterial sm) return;
+        sm.SetShaderParameter("splat0", _splatTex0);
+        sm.SetShaderParameter("splat1", _splatTex1);
+        sm.SetShaderParameter("splat_size", new Vector2(Splat.Width, Splat.Depth));
+    }
+
+    /// <summary>
+    /// Re-uploads the splat textures if anything was painted this frame. Only the dirty rectangle is
+    /// converted to bytes, but the whole texture is uploaded (about 4 MB each at 1025²).
+    /// </summary>
+    private void UploadSplat()
+    {
+        if (_splatDirty.IsEmpty || Splat is null || _splatImage0 is null || _splatImage1 is null) return;
+        Splat.WriteRgba8(_splatDirty, _splatBytes0, _splatBytes1);
+        _splatDirty = VertexRect.Empty;
+        _splatImage0.SetData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes0);
+        _splatImage1.SetData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes1);
+        _splatTex0!.Update(_splatImage0);
+        _splatTex1!.Update(_splatImage1);
     }
 
     private void UpdateMaterialRange()

@@ -28,7 +28,12 @@ public partial class GameUi : CanvasLayer
         root.AddChild(_bar);
 
         _toolPanel = new ToolPanel { Visible = false };
-        _toolPanel.ToolPressed += def => { if (Tools is not null) Tools.Tool = def.Tool; };
+        _toolPanel.ToolPressed += def =>
+        {
+            if (Tools is null) return;
+            if (def.Layer >= 0) Tools.PaintLayer = def.Layer;
+            Tools.Tool = def.Tool;
+        };
         _toolPanel.CloseRequested += Close;
         root.AddChild(_toolPanel);
 
@@ -47,6 +52,7 @@ public partial class GameUi : CanvasLayer
     {
         _open = cat;
         _bar.SetActive(cat);
+        _toolPanel.SetSelectedTool(Tools?.Tool ?? TerrainTool.None, Tools?.PaintLayer ?? -1);
         _toolPanel.ShowCategory(cat);
         _toolPanel.Visible = true;
         OnToolsChanged();
@@ -70,7 +76,7 @@ public partial class GameUi : CanvasLayer
             Open(ToolCatalog.Terrain);
             return;
         }
-        _toolPanel.SetSelectedTool(tool);
+        _toolPanel.SetSelectedTool(tool, Tools?.PaintLayer ?? -1);
         _config.Visible = _open is not null && tool != TerrainTool.None;
         _config.Refresh();
     }

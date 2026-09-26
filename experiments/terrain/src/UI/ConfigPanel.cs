@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using CitySim.TerrainSystem;
 using CitySim.Tools;
 
 namespace CitySim.UI;
@@ -18,6 +19,7 @@ public partial class ConfigPanel : PanelContainer
     private readonly Label _contourInterval = NewValueLabel();
     private readonly CheckButton _contours = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show height contour lines (every 5th line is bolder)" };
     private readonly Control[] _contourIntervalRow;
+    private readonly CheckButton _grid = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show the placement grid (G)" };
     private readonly Label _maxSlope = NewValueLabel();
     private readonly Control[] _maxSlopeRow;
     private readonly Control[] _levelRow;
@@ -56,6 +58,8 @@ public partial class ConfigPanel : PanelContainer
             () => Tools(t => t.MaxSlopeDegrees += 5f)));
         _contours.Toggled += on => Tools(t => t.ShowContours = on);
         AddRow(grid, "Contour Lines", _contours);
+        _grid.Toggled += on => Tools(t => t.ShowGrid = on);
+        AddRow(grid, "Grid (G)", _grid);
         _contourIntervalRow = AddRow(grid, "Contour Spacing", Stepper(_contourInterval,
             () => Tools(t => t.StepContourInterval(-1)),
             () => Tools(t => t.StepContourInterval(+1))));
@@ -80,7 +84,9 @@ public partial class ConfigPanel : PanelContainer
     {
         if (_tools is null) return;
         var tool = _tools.Tool;
-        _title.Text = tool.ToString();
+        _title.Text = tool == TerrainTool.Paint
+            ? $"Paint: {TerrainLayers.All[_tools.PaintLayer].DisplayName}"
+            : tool.ToString();
         // Shown as diameter; the controller works in radius.
         _size.Text = $"{_tools.BrushRadius * 2f:0} m";
         _strength.Text = $"{_tools.BrushStrength * 100f:0} %";
@@ -89,6 +95,7 @@ public partial class ConfigPanel : PanelContainer
         _maxSlope.Text = $"{_tools.MaxSlopeDegrees:0}°";
 
         _contours.SetPressedNoSignal(_tools.ShowContours);
+        _grid.SetPressedNoSignal(_tools.ShowGrid);
         foreach (var c in _contourIntervalRow) c.Visible = _tools.ShowContours;
         _contourInterval.Text = $"{_tools.ContourInterval:0} m";
 
@@ -103,6 +110,7 @@ public partial class ConfigPanel : PanelContainer
             TerrainTool.Shift => "Left-click: raise · Right-click: lower",
             TerrainTool.Level => "Right-click: pick height · Left-drag: level",
             TerrainTool.Smooth => "Left-drag: smooth",
+            TerrainTool.Paint => "Left-drag: paint · Right-drag: erase (back to automatic ground)",
             TerrainTool.Slope => _tools.SlopeAnchor.HasValue
                 ? "Left-press at the end point and drag along the ramp · Right-click: move start"
                 : "Right-click to set the start point",
