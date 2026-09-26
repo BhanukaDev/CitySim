@@ -4,13 +4,12 @@ namespace CitySim.TerrainSystem;
 public sealed record TerrainLayer(int Index, string Name, string DisplayName, bool Paintable);
 
 /// <summary>
-/// The terrain's ground layers, in texture-array order. Layers 0–7 are paintable and stored in the
-/// <see cref="SplatMap"/>. Layer 8 (snowy grass) only appears through the shader's automatic rules.
+/// The terrain's ground layers, in texture-array order. All are paintable and stored in the <see cref="SplatMap"/>.
 /// The shader (terrain.gdshader) uses the same indices; keep both in sync.
 /// </summary>
 public static class TerrainLayers
 {
-    public const int Grass = 0, GrassDry = 1, GrassDirt = 2, Dirt = 3, Gravel = 4, Sand = 5, Rock = 6, Snow = 7, SnowGrass = 8;
+    public const int Grass = 0, GrassDry = 1, GrassDirt = 2, Dirt = 3, Gravel = 4, Sand = 5, Rock = 6, Snow = 7;
 
     /// <summary>Number of layers the splat map stores (the paintable ones).</summary>
     public const int PaintableCount = 8;
@@ -25,6 +24,5 @@ public static class TerrainLayers
         new(Sand, "sand", "Sand", true),
         new(Rock, "rock", "Rock", true),
         new(Snow, "snow", "Snow", true),
-        new(SnowGrass, "snow_grass", "Snowy Grass", false),
     ];
 }

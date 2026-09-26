@@ -44,8 +44,8 @@ public static class UiTheme
             t.SetColor(name, "Button", Text);
         t.SetColor("font_pressed_color", "Button", Colors.White);
         t.SetColor("font_hover_pressed_color", "Button", Colors.White);
-        t.SetColor("icon_normal_color", "Button", Text);
-        t.SetColor("icon_pressed_color", "Button", Colors.White);
+        foreach (var name in new[] { "icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color" })
+            t.SetColor(name, "Button", Colors.White); // icons are full-colour art: never tint them
 
         t.SetColor("font_color", "Label", Text);
         t.SetFontSize("font_size", "Label", 14);

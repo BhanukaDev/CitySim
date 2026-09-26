@@ -125,10 +125,10 @@ Look: between realism and toon, leaning Ghibli. The shader tints each texture wi
 keeps only its detail, so the palette lives in the material (`Style` uniforms), not in the photos.
 
 Texture pipeline:
-- `tools/fetch_textures.sh` downloads 9 CC0 ambientCG sets (2K Color, NormalGL, Displacement) into
+- `tools/fetch_textures.sh` downloads 8 CC0 ambientCG sets (2K Color, NormalGL, Displacement) into
   `assets/textures/terrain/<layer>/` (gitignored, with a `.gdignore` so Godot doesn't import them). It then runs
   `--bake-terrain-textures` (`TextureBaker`) and `--import`. To swap a texture, edit the ID list in the script.
-- The baker writes two 1024²×9 vertical strips: `terrain_albedo_height.png` (colour normalised to a 0.4 grey
+- The baker writes two 1024²×8 vertical strips: `terrain_albedo_height.png` (colour normalised to a 0.4 grey
   average, height in A) and `terrain_normal.png`. Their committed `.import` files import them as BC7
   `CompressedTexture2DArray`s with mipmaps (about 25 MB of GPU memory).
 
@@ -140,10 +140,9 @@ Layers (`TerrainLayers.cs`, same indices in the shader):
 | 2 | grass_dirt | Ground037 | ✔ | medium slopes (`dirt_slope`) |
 | 3 | dirt | Ground103 | ✔ | – |
 | 4 | gravel | Ground062S | ✔ | scree just below rock, broken up by noise |
-| 5 | sand | Ground080 | ✔ | below `sand_height` (future shorelines) |
+| 5 | sand | Ground101 | ✔ | below `sand_height` (future shorelines) |
 | 6 | rock | Rock051 | ✔ | slope > `rock_slope`, triplanar |
-| 7 | snow | Snow010A | ✔ | above `snow_height` on gentle slopes |
-| 8 | snow_grass | Snow015 | – | band just below the snow line |
+| 7 | snow | Snow010A | ✔ | above `snow_height` on gentle slopes; noisy, thinning edge over `snow_blend` |
 
 Done:
 - Shader: automatic weights from height, slope and noise. Painted weights override them by their coverage.
@@ -162,6 +161,14 @@ Done:
   saturation 1.1.
 - `--demo-paint`: dirt path, sand patch, gravel patch and erase, plus an undo check.
 - 60 FPS (vsync) on M1 at 1600×900.
+- Look pass after first user test (fixes tiling, washed-out colour, rough borders):
+  - Dropped the snow_grass layer (Snow015 tiled badly). The snow line now wanders with noise and thins out, and
+    height blending lets grass show through its edge.
+  - Stronger texture detail: `detail_contrast` 0.85, `detail_saturation` 0.65, `normal_strength` 1.0. Environment
+    keeps AgX, adds `adjustment_contrast` 1.12 and saturation 1.15 (Filmic/ACES blew out the snow).
+  - Softer borders: `height_blend` 0.12, `blend_softness` 0.45. At 0.35/0.2, flat ground sitting near 50/50 between
+    two layers was decided per pixel by texture height, which gave crisp speckled edges. A fine `edge_noise_scale`
+    noise wobbles the automatic slope and height thresholds.
 
 Next:
 - User tests in Godot and tunes the `Style`/`AutoLayers` uniforms on the terrain material, then commit
@@ -212,4 +219,5 @@ Next:
 - M3: stylized, not photoreal. Textures are only a detail source, and colour comes from per-layer tints in the
   material. Ground textures are downloaded by a script, not committed (about 150 MB). Painted layers are
   stored per vertex (2 m), and height blending adds sharper detail at the borders.
+- M3: sand swapped from Ground080 (strong ridges, ugly when painted on slopes) to Ground101 (fine, smooth grain).
 - M3: rock swapped from Rock060 (marble-like veins) to Rock051 (layered ledges, which read better as cliffs).

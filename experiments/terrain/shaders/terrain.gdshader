@@ -2,8 +2,8 @@ shader_type spatial;
 render_mode blend_mix, cull_back;
 
 // Ground layers, in texture-array order. Must match TerrainLayers.cs.
-// 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow, 8 snow_grass (automatic only)
-const int LAYERS = 9;
+// 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow
+const int LAYERS = 8;
 const int ROCK = 6;
 // Average brightness the baker normalised every layer's colour to (TextureBaker.NeutralGrey).
 const float NEUTRAL_GREY = 0.4;
@@ -33,6 +33,8 @@ uniform float rock_tile = 14.0;
 uniform float macro_scale = 700.0;
 // Mid-scale brightness blotches that break up large flat areas of one layer.
 uniform float breakup_scale = 45.0;
+// Fine noise that wobbles automatic layer borders, so they read as organic rather than contour-smooth.
+uniform float edge_noise_scale = 11.0;
 
 group_uniforms Style;
 // Each layer's colour. The texture only adds light/dark detail on top of it.
@@ -44,21 +46,20 @@ uniform vec3 tint_gravel : source_color = vec3(0.60, 0.57, 0.52);
 uniform vec3 tint_sand : source_color = vec3(0.80, 0.71, 0.52);
 uniform vec3 tint_rock : source_color = vec3(0.50, 0.48, 0.45);
 uniform vec3 tint_snow : source_color = vec3(0.94, 0.96, 1.0);
-uniform vec3 tint_snow_grass : source_color = vec3(0.82, 0.86, 0.84);
 // How much texture detail shows through the tint (0 = flat colour, 1 = full photo contrast).
-uniform float detail_contrast : hint_range(0.0, 1.5) = 0.55;
+uniform float detail_contrast : hint_range(0.0, 1.5) = 0.85;
 // Extra contrast for rock, so cliffs keep their cracks and ledges.
 uniform float rock_detail : hint_range(0.5, 3.0) = 1.4;
 // Keeps some of each texture's own colour variation (0 = only brightness detail).
-uniform float detail_saturation : hint_range(0.0, 1.0) = 0.5;
-uniform float normal_strength : hint_range(0.0, 2.0) = 0.6;
+uniform float detail_saturation : hint_range(0.0, 1.0) = 0.65;
+uniform float normal_strength : hint_range(0.0, 2.0) = 1.0;
 // Large-scale brightness and warm/cool variation.
 uniform float macro_strength : hint_range(0.0, 0.5) = 0.12;
 uniform float breakup_strength : hint_range(0.0, 0.5) = 0.08;
 // How much texture height decides layer borders (grass fills between stones, etc.).
-uniform float height_blend : hint_range(0.0, 1.0) = 0.35;
+uniform float height_blend : hint_range(0.0, 1.0) = 0.12;
 // Width of height-blended borders: lower is crisper.
-uniform float blend_softness : hint_range(0.01, 0.5) = 0.2;
+uniform float blend_softness : hint_range(0.01, 0.6) = 0.45;
 uniform float roughness = 0.9;
 
 group_uniforms Lighting;
@@ -75,7 +76,7 @@ group_uniforms AutoLayers;
 // Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°).
 uniform float sand_height = 9.0;
 uniform float snow_height = 125.0;
-uniform float snow_blend = 6.0;
+uniform float snow_blend = 10.0;
 uniform float snow_max_slope : hint_range(0.0, 1.0) = 0.4;
 uniform float rock_slope : hint_range(0.0, 1.0) = 0.3;
 uniform float dirt_slope : hint_range(0.0, 1.0) = 0.17;
@@ -118,8 +119,7 @@ vec3 layer_tint(int i) {
 	if (i == 4) return tint_gravel;
 	if (i == 5) return tint_sand;
 	if (i == 6) return tint_rock;
-	if (i == 7) return tint_snow;
-	return tint_snow_grass;
+	return tint_snow;
 }
 
 // Lays a layer over the ones below it with coverage c.
@@ -194,24 +194,29 @@ void fragment() {
 
 	float noise_a = texture(macro_noise, world_pos.xz / macro_scale).r;
 	float noise_b = texture(macro_noise, world_pos.xz / (macro_scale * 0.21) + vec2(0.37, 0.71)).r;
-	float slope_n = slope + (noise_b - 0.5) * 0.08;
-	float y_n = y + (noise_b - 0.5) * 8.0;
+	// Two fine octaves at unrelated scales, so the wobble itself doesn't repeat visibly.
+	float edge = texture(macro_noise, world_pos.xz / edge_noise_scale + vec2(0.61, 0.23)).r * 0.6
+			+ texture(macro_noise, world_pos.xz / (edge_noise_scale * 2.7) + vec2(0.11, 0.89)).r * 0.4 - 0.5;
+	float slope_n = slope + (noise_b - 0.5) * 0.08 + edge * 0.05;
+	float y_n = y + (noise_b - 0.5) * 8.0 + edge;
 
 	// --- Automatic layers, laid bottom to top ---
 	float w[LAYERS];
 	for (int i = 0; i < LAYERS; i++) w[i] = 0.0;
 	w[0] = 1.0;
-	lay(w, 1, smoothstep(0.35, 0.95, noise_a + h01 * 0.35) * dry_amount);
-	lay(w, 2, smoothstep(dirt_slope - 0.07, dirt_slope + 0.07, slope_n));
-	float rock = smoothstep(rock_slope - 0.03, rock_slope + 0.03, slope_n);
+	lay(w, 1, smoothstep(0.35, 0.95, noise_a + h01 * 0.35 + edge * 0.15) * dry_amount);
+	lay(w, 2, smoothstep(dirt_slope - 0.08, dirt_slope + 0.08, slope_n));
+	float rock = smoothstep(rock_slope - 0.05, rock_slope + 0.05, slope_n);
 	// Scree at the foot of cliffs, broken up by noise so it doesn't outline every rock patch.
-	float scree = smoothstep(rock_slope - 0.08, rock_slope - 0.02, slope_n) * smoothstep(0.35, 0.65, noise_b);
+	float scree = smoothstep(rock_slope - 0.1, rock_slope - 0.02, slope_n) * smoothstep(0.35, 0.65, noise_b);
 	lay(w, 4, scree * gravel_amount);
 	lay(w, ROCK, rock);
-	lay(w, 5, 1.0 - smoothstep(sand_height - 1.5, sand_height + 1.5, y_n));
-	float snow_ok = 1.0 - smoothstep(snow_max_slope - 0.05, snow_max_slope + 0.05, slope_n);
-	lay(w, 8, smoothstep(snow_height - snow_blend * 3.0, snow_height - snow_blend * 1.5, y_n) * snow_ok);
-	lay(w, 7, smoothstep(snow_height - snow_blend, snow_height, y_n) * snow_ok);
+	lay(w, 5, 1.0 - smoothstep(sand_height - 3.0, sand_height + 3.0, y_n));
+	// Snow line: wanders with noise and thins out over snow_blend metres; height blending then lets
+	// grass tufts and stones poke through the thin edge instead of a separate "snowy grass" texture.
+	float snow_ok = 1.0 - smoothstep(snow_max_slope - 0.08, snow_max_slope + 0.08, slope_n);
+	float y_snow = y_n + (noise_a - 0.5) * snow_blend * 1.5 + edge * snow_blend;
+	lay(w, 7, smoothstep(snow_height - snow_blend, snow_height + snow_blend * 0.5, y_snow) * snow_ok);
 
 	// --- Painted layers override the automatic ones by their coverage ---
 	// Vertex UVs run 0..1 across vertex centres; shift them onto texel centres.

@@ -16,10 +16,9 @@ LAYERS=(
   grass_dirt:Ground037  # patchy grass/dirt transition
   dirt:Ground103        # smooth brown earth
   rock:Rock051          # layered cliff faces (triplanar)
-  sand:Ground080        # shorelines
+  sand:Ground101        # fine, smooth grain (no ripples), holds up on slopes
   gravel:Ground062S     # rock/dirt transition, paths
   snow:Snow010A         # clean soft snow for peaks
-  snow_grass:Snow015    # patchy snow over grass, snow-line transition
 )
 
 tmp=$(mktemp -d)
