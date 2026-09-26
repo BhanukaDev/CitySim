@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using Godot;
+using CitySim.App;
+using CitySim.TerrainSystem.Generation;
 
 namespace CitySim.TerrainSystem;
 
@@ -11,10 +13,13 @@ namespace CitySim.TerrainSystem;
 [Tool]
 public partial class Terrain : Node3D
 {
+    /// <summary>Cell size for maps made from the menu (new, flat, imported).</summary>
+    public const float DefaultCellSize = 2f;
+
     [ExportGroup("Size")]
     [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 1024;
     [Export(PropertyHint.Range, "16,4096,16")] public int CellsZ { get; set; } = 1024;
-    [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = 2f;
+    [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = DefaultCellSize;
     [Export(PropertyHint.Range, "8,256,8")] public int ChunkCells { get; set; } = 64;
 
     [ExportGroup("Generation")]
@@ -62,9 +67,47 @@ public partial class Terrain : Node3D
     {
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
-        Generate();
+        if (Engine.IsEditorHint()) Generate();
+        else Open(MapSession.TakePending());
         CheckTextures();
     }
+
+    /// <summary>Starts with the requested map; with no request (e.g. run straight from a CLI flag), generates from the exports.</summary>
+    public void Open(MapRequest? request)
+    {
+        switch (request)
+        {
+            case GeneratedMapRequest gen:
+                Generate(gen.Settings);
+                ShowGeneratorOnStart = gen.ShowGenerator;
+                break;
+            case LoadedMapRequest loaded:
+                SetMap(loaded.Map, loaded.Splat);
+                break;
+            default:
+                Generate();
+                break;
+        }
+    }
+
+    /// <summary>The generator settings the map was last made with (the Generation exports until something else is used).</summary>
+    public GenSettings Settings { get; private set; } = new();
+
+    /// <summary>Set when the map was requested with the generator panel open (New Map → Generator).</summary>
+    public bool ShowGeneratorOnStart { get; private set; }
+
+    /// <summary>The Size and Generation exports as generator settings.</summary>
+    public GenSettings ExportSettings() => new()
+    {
+        Cells = CellsX,
+        CellSize = CellSize,
+        SmoothPasses = SmoothPasses,
+        Noise = new NoiseSettings
+        {
+            Seed = Seed, Frequency = Frequency, Octaves = Octaves, HeightScale = HeightScale,
+            Flatness = Flatness, WarpAmplitude = WarpAmplitude, Gain = Gain,
+        },
+    };
 
     /// <summary>Warns when the material has no ground textures (the shader then shows flat, over-bright tints).</summary>
     private void CheckTextures()
@@ -91,8 +134,47 @@ public partial class Terrain : Node3D
         LastRebuildMs = sw.Elapsed.TotalMilliseconds;
     }
 
-    public void Generate()
+    /// <summary>Generates a new heightmap from the Size and Generation exports.</summary>
+    public void Generate() => Generate(ExportSettings());
+
+    /// <summary>Generates a new map from <paramref name="settings"/> (painted layers start empty).</summary>
+    public void Generate(GenSettings settings)
     {
+        var sw = Stopwatch.StartNew();
+        var map = TerrainGen.Create(settings);
+        GD.Print($"Terrain: heightmap generated in {sw.ElapsedMilliseconds} ms");
+        Settings = settings;
+        SetMap(map);
+    }
+
+    /// <summary>
+    /// Overwrites every height with <paramref name="heights"/> and rebuilds, keeping painted layers. A different size
+    /// replaces the map instead (painted layers start empty).
+    /// Undo is the caller's job (see <c>TerrainToolController.ApplyGenerated</c>).
+    /// </summary>
+    public void ReplaceHeights(HeightMap heights, GenSettings settings)
+    {
+        if (Map is null || heights.Width != Map.Width || heights.Depth != Map.Depth)
+        {
+            // New size: a new map (tools drop their undo history).
+            Settings = settings;
+            SetMap(heights);
+            return;
+        }
+        heights.Data.CopyTo(Map.Data);
+        Settings = settings;
+        MarkDirty(0, 0, Map.Width - 1, Map.Depth - 1);
+        UpdateMaterialRange();
+    }
+
+    /// <summary>
+    /// Replaces the whole map (heights and, optionally, painted layers) and rebuilds every chunk.
+    /// Tools notice the new <see cref="Map"/> and drop their undo history.
+    /// </summary>
+    public void SetMap(HeightMap map, SplatMap? splat = null)
+    {
+        if (splat is not null && (splat.Width != map.Width || splat.Depth != map.Depth))
+            throw new System.ArgumentException("Splat map size doesn't match the heightmap.", nameof(splat));
         var sw = Stopwatch.StartNew();
 
         // Free every existing chunk, including ones left over from an editor script reload.
@@ -102,12 +184,13 @@ public partial class Terrain : Node3D
         _chunks.Clear();
         _dirty.Clear();
 
-        Map = new HeightMap(CellsX + 1, CellsZ + 1, CellSize);
-        TerrainGenerator.Generate(Map, new TerrainGenSettings(Seed, Frequency, Octaves, HeightScale, Flatness, WarpAmplitude, Gain, SmoothPasses));
-        long genMs = sw.ElapsedMilliseconds;
-
-        Splat = new SplatMap(Map.Width, Map.Depth, Map.CellSize);
+        Map = map;
+        CellsX = map.Width - 1;
+        CellsZ = map.Depth - 1;
+        CellSize = map.CellSize;
+        Splat = splat ?? new SplatMap(map.Width, map.Depth, map.CellSize);
         CreateSplatTextures();
+        if (splat is not null) _splatDirty = Splat.All;
         UpdateMaterialRange();
 
         int chunksX = (CellsX + ChunkCells - 1) / ChunkCells;
@@ -133,8 +216,7 @@ public partial class Terrain : Node3D
         _skirt.Rebuild();
         _skirtDirty = false;
 
-        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, {_chunks.Count} chunks, " +
-                 $"heightmap {genMs} ms, total {sw.ElapsedMilliseconds} ms");
+        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, {_chunks.Count} chunks, built in {sw.ElapsedMilliseconds} ms");
     }
 
     // --- Queries (world space) ---

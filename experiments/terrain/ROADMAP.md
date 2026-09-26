@@ -20,7 +20,7 @@ Cities: Skylines-style city builder. When it's stable, it's merged into the main
   call from C# goes through `Call("method")` strings.
 - **.NET 9**: `TargetFramework net9.0`, because no .NET 8 runtime is installed.
 - **`HeightMap` stays engine-agnostic** (plain C#, `System.Numerics`). Godot-specific code lives in
-  `Terrain`, `TerrainChunk` and `TerrainGenerator`.
+  `Terrain` and `TerrainChunk`. The generator (`src/Terrain/Generation/`) is engine-agnostic too (vendored C# FastNoiseLite).
 - **Chunked mesh**: 64×64-cell tiles, and only dirty chunks are rebuilt. Normals come from the global
   heightmap, so chunk borders have no seams.
 - Namespaces: `CitySim.TerrainSystem`, `CitySim.CameraSystem`, `CitySim.Debug`. Don't name a class the
@@ -57,7 +57,12 @@ dotnet build                                                   # compile check
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
-# extra flags: --demo-sculpt / --demo-paint / --demo-camera (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
+# extra flags: --demo-sculpt / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
+#   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups), --flat[=height] (empty map),
+#   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
+#   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
+#   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates)
+# any flag skips the start menu (scenes/Menu.tscn)
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
 ```
@@ -224,10 +229,78 @@ Hides the map's hard edges and corners behind a fog bank. This is separate from 
 - Contours now show with no tool selected too (toggle with `C`).
 - `--demo-sculpt` stamps Ridged (45°) and Terraces on a levelled pad; `--demo-paint` paints Splatter and Streaks (30°).
 
-### ⬜ M4: Save / load + heightmap import
-- Binary save of the heightmap and splat map (versioned header), load back
-- Import a 16-bit PNG/RAW heightmap (real-world DEM data) and export as well
-- A "new map" dialog with seed and size
+### 🔶 M3.3: Menus (implemented, waiting for the user to test)
+- `scenes/Menu.tscn` (`src/UI/MainMenu.cs`) is now the main scene: New Map, Load Map, Quit (see M4).
+  Any command-line user flag (`--screenshot`, `--demo-*`, `--cam`, ...) skips it and loads `Main.tscn` directly.
+- Esc menu (`src/UI/PauseMenu.cs`, added by `GameUi`): Resume, Save, Save As, Load, Main Menu, Quit (see M4).
+  Pauses the tree while open. With a tool selected, Esc deselects the tool first.
+- Deliberately plain: default buttons in a column, no art.
+
+### 🔶 M4: Map files + New Map (implemented, waiting for the user to test)
+Done:
+- `MapFile` (`src/Terrain/MapFile.cs`, engine-agnostic): `.csmap` = magic `CSMP` + u16 version + zlib stream of
+  width, depth, cell size, layer count, f32 heights and f32 splat weights. Lossless. Written to `.tmp` then moved, so a
+  failed save never destroys the old file. Loading a file with a different layer count keeps the shared layers.
+  A 2 km map with edits is ~4.6 MB, saves in ~65 ms, loads in ~30 ms (M1).
+- `MapSession` (`src/App/`, engine-agnostic): `AppMode` (MapEditor / Game), the pending `MapRequest` for the next map
+  scene (`GeneratedMapRequest` with `GenSettings`, `LoadedMapRequest`; see M4.2) and the current file path.
+  Files are read in the menu *before* the scene change, so a bad file shows an error instead of an empty scene.
+- `Terrain.Open(request)` / `Terrain.SetMap(map, splat)`: build chunks from any map. `Generate()` now goes through `SetMap`.
+- Start menu → **New Map**: Generated (seed + Random) or **Flat (empty)** (height, default 40 m), size 1 / 2 / 4 km.
+  **Load Map** uses the native file dialog, default folder `user://maps`.
+- Esc menu: Save (Ctrl/Cmd+S anywhere; asks for a file the first time), Save As, Load (reloads the scene with the new map).
+  A toast at the top confirms saves and shows errors.
+- Mode flag: `ToolTab.EditorOnly` (the Paint tab) is hidden in Game mode. The menu always starts the Map Editor; `--game` tests game mode.
+- CLI: `--flat[=height]`, `--load=path`, `--game`, `--demo-mapfile` (save, load, compare every value, prints
+  `Demo mapfile: round trip ok`; run after `--demo-sculpt --demo-paint` to round-trip real edits).
+
+Next:
+- Map metadata in the file (name, author, generator settings) once there's something to show it.
+- 4 km maps (2049² verts, 1024 chunks) are allowed but untested for generation time and FPS (see M6).
+
+### 🔶 M4.1: Heightmap import/export (implemented, waiting for the user to test)
+- `HeightmapImage` (`src/Terrain/HeightmapImage.cs`, engine-agnostic): 16-bit PNG and RAW (`.r16`/`.raw`, square,
+  little-endian u16, no header). Godot's `Image` drops 16-bit PNGs to 8 bits, so the PNG codec is in C#: it decodes
+  grey / grey+alpha / RGB / RGBA at 8 or 16 bits (first channel = height, all 5 row filters) and rejects palette,
+  sub-8-bit and interlaced files. Exports 16-bit grey with Sub filtering.
+- Mapping: black = Lowest, white = Highest. Image row 0 → z = 0 (north), column 0 → x = 0. Non-square images are
+  cropped to their centre square, then resampled to the map size: bilinear when upscaling, box average when shrinking > 1.5×.
+- Export writes the map's own min–max as 0–65535 and stores the range in a PNG `tEXt` chunk (`CitySim`,
+  `min=..;max=..`), which the import form reads back to prefill Lowest/Highest. RAW has nowhere to keep it; the toast shows it.
+- UI: New Map → Terrain **From heightmap** (Browse, Lowest, Highest, Size). Esc menu → **Export Heightmap…**.
+  Default folder `user://heightmaps`. Only heights come across; painted layers start empty.
+- Checked: `--demo-heightmap` round trips PNG and RAW within half a 16-bit step (1.1 mm on the demo map; PNG 1.4 MB, RAW 2 MB);
+  decodes a real 2048² 16-bit stamp to within 1 of Godot's 8-bit decode; a Python-made test set covering every filter and colour
+  type decodes exactly. 2048² → 1025² import takes ~55 ms.
+- Not done: GeoTIFF (common for real DEMs: convert with `gdal_translate -of PNG -ot UInt16 -scale` or export PNG/RAW from
+  QGIS/Gaea), importing into the open map (only via New Map, which resets paint), non-square maps.
+
+### 🔶 M4.2: Terrain generator panel (implemented, waiting for the user to test)
+Making terrain moved from the start menu into the Map Editor, with a preview of what you'll get.
+- Engine-agnostic core in `src/Terrain/Generation/`: `GenSettings` (records, copied with `with`), `TerrainGen`
+  (`Create` full map, `Preview` n² over the same area, rows in `Parallel.For`), `ShapeMask`, `HeightmapSampler`, `GenPresets`.
+  Noise uses the official C# **FastNoiseLite** (vendored, MIT), set up like Godot's wrapper: the default map is identical
+  to the old `TerrainGenerator` (checked: rms 0 m), which is removed.
+- Two layers: a base (Noise / Heightmap image / Flat) and a land/sea **shape** (None, Island, Coast, Archipelago) in map
+  units (-1..1, so it's the same at any size). `h = lerp(seaFloor, lerp(SeaLevel, base, m), m)`: hills flatten to sea level,
+  then drop to the sea floor over the shore width. Coastlines wobble with low-frequency fBm (`Coast Roughness`).
+  No water yet (user's choice): the sea is sandy low ground (sand_height 9 m, presets use sea level 6 m).
+- Heightmap placement: rotation (+90° button), scale, offset X/Z (map widths), edges Clamp / Tile / Mirror / Fill (flat at
+  Lowest); box-averaged when shrinking. `HeightmapImage.ToHeightMap` is now the identity placement. Shapes apply to images too.
+- Presets: Rolling Hills (old default), Mountains, Flat Lowlands, Island, Coast, Archipelago. A preset fills the hills and
+  shape settings, and keeps size, seed and image.
+- `GeneratorPanel` (right side, Map Editor only; bottom-bar **Generate**, Esc menu **Terrain Generator…**): 257² top-down
+  preview (hillshade, height tint, blue below sea level) redrawn on every change (4–12 ms); **Live** regenerates the 3D
+  terrain 0.3 s after the last change on a worker thread (newer runs supersede older ones), or **Apply**. All updates
+  while the panel is open are **one undo step** (`TerrainToolController.ApplyGenerated` / `CommitGenerated`,
+  `UndoStack.PushHeights`); painted ground is kept. A new size replaces the map (history and paint cleared).
+  Opening a tool category closes the panel; Esc closes it first.
+- Start menu New Map: Size + Start from **Generator** (preset, random seed) / **Flat** / **Heightmap image**. Generator and
+  heightmap open the editor with the panel showing; height range and placement are set there.
+- Timing (M1): 2 km full generate ~90 ms + rebuilding 256 chunks ~140 ms. `<Optimize>true</Optimize>` in the csproj
+  (also for Debug) made generation ~6× faster (570 → 90 ms); the debugger may show locals as optimized away.
+- Next: user tests; water (M5) will make Sea Level real; maybe rivers/valley shapes, a "blend with current map" mode,
+  and saving generator settings in the map file.
 
 ### ⬜ M5: Water
 - Sea level plane with a simple water shader (depth colour, shoreline foam)
@@ -273,4 +346,9 @@ Hides the map's hard edges and corners behind a fog bank. This is separate from 
 - M3: rock swapped from Rock060 (marble-like veins) to Rock051 (layered ledges, which read better as cliffs).
 - M3.2: brush rotation copies the CS1 RotateBrush mods (neither CS1 nor CS2 rotates terrain brushes without mods): hold Ctrl + move mouse,
   Ctrl+Q/E steps. Not right-drag like CS buildings, because RMB already lowers/picks/erases. The camera ignores Q/E while Ctrl is held.
+- The experiment is a **map editor tool** as well as a gameplay test bed (for us, modders and gamedevs), not the game.
+  It runs as an in-app Map Editor (like the CS Map Editor), so modders don't need Godot. Menus and UI stay minimal;
+  editor features (map files, New Map, heightmap import) come before UI polish. The editor/game mode flag landed in M4.
+- M4.2: the generator lives in the Map Editor (panel with preview + live 3D), not the start menu. No water plane yet for
+  island/coast presets: the user chose to wait for M5. Live generator updates are one undo step, not one per change.
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.

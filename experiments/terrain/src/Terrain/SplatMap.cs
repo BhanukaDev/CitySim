@@ -26,6 +26,12 @@ public sealed class SplatMap
         _weights = new float[width * depth * Layers];
     }
 
+    /// <summary>Every weight, row-major with <see cref="Layers"/> per vertex. For bulk work such as saving and loading.</summary>
+    public Span<float> Data => _weights;
+
+    /// <summary>The whole map as a rectangle.</summary>
+    public VertexRect All => new(0, 0, Width - 1, Depth - 1);
+
     /// <summary>The <see cref="Layers"/> weights of one vertex.</summary>
     public Span<float> At(int x, int z) => _weights.AsSpan((z * Width + x) * Layers, Layers);
 

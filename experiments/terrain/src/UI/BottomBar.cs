@@ -37,6 +37,16 @@ public partial class BottomBar : PanelContainer
         }
     }
 
+    /// <summary>Adds a plain toggle button after the categories (e.g. the Map Editor's generator panel).</summary>
+    public Button AddToggle(string name, string tooltip, Action pressed)
+    {
+        var b = UiTheme.IconButton(name, null, UiTheme.BarHeight - 12f, tooltip);
+        b.CustomMinimumSize = new Vector2(84f, UiTheme.BarHeight - 12f);
+        b.Pressed += pressed;
+        _row.AddChild(b);
+        return b;
+    }
+
     public void SetActive(ToolCategory? active)
     {
         foreach (var (cat, b) in _buttons)

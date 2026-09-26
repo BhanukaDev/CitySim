@@ -3,6 +3,9 @@
     <TargetFramework>net9.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <Nullable>enable</Nullable>
+    <!-- Optimised in Debug too: the generator (FastNoiseLite) and chunk building are ~6x faster. Locals may show as
+         "optimized away" in the debugger; remove this line while debugging if that gets in the way. -->
+    <Optimize>true</Optimize>
     <RootNamespace>CitySim</RootNamespace>
   </PropertyGroup>
 </Project>

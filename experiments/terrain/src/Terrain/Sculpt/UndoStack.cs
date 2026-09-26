@@ -60,6 +60,18 @@ public sealed class UndoStack
         _strokeRect = VertexRect.Empty;
     }
 
+    /// <summary>
+    /// Records a whole-map height change made outside a stroke (the terrain generator), from a full
+    /// <see cref="HeightMap.Snapshot"/> taken before it to the map's current heights.
+    /// </summary>
+    public void PushHeights(float[] before, HeightMap map)
+    {
+        var all = new VertexRect(0, 0, map.Width - 1, map.Depth - 1);
+        _undo.AddLast(new Entry(all, before, map.Snapshot(), null, null));
+        if (_undo.Count > Capacity) _undo.RemoveFirst();
+        _redo.Clear();
+    }
+
     /// <summary>Restores the last stroke. Returns what changed, or <see cref="UndoChange.None"/> if there was nothing to undo.</summary>
     public UndoChange Undo(HeightMap map, SplatMap splat)
     {

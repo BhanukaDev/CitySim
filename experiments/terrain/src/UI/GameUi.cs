@@ -1,4 +1,5 @@
 using Godot;
+using CitySim.App;
 using CitySim.Tools;
 
 namespace CitySim.UI;
@@ -15,6 +16,10 @@ public partial class GameUi : CanvasLayer
     private ToolPanel _toolPanel = null!;
     private ConfigPanel _config = null!;
     private ToolCategory? _open;
+    private GeneratorPanel? _generator;
+    private Button? _generatorButton;
+    private Label _toast = null!;
+    private int _toastId;
 
     public override void _Ready()
     {
@@ -40,20 +45,61 @@ public partial class GameUi : CanvasLayer
         _config = new ConfigPanel { Visible = false };
         root.AddChild(_config);
 
+        // Map Editor only: the terrain generator (presets, shapes, heightmap placement, live preview).
+        if (MapSession.Mode == AppMode.MapEditor)
+        {
+            _generator = new GeneratorPanel { Tools = Tools };
+            _generator.Closed += () => _generatorButton?.SetPressedNoSignal(false);
+            root.AddChild(_generator);
+            _generatorButton = _bar.AddToggle("Generate", "Terrain generator: presets, island/coast shapes, heightmap placement", () =>
+            {
+                if (_generator.Visible) _generator.Close(); else OpenGenerator();
+            });
+        }
+
+        _toast = new Label
+        {
+            Visible = false,
+            ProcessMode = ProcessModeEnum.Always,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        _toast.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.KeepSize, 16);
+        _toast.GrowHorizontal = Control.GrowDirection.Both;
+        _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
+
+        var pause = new PauseMenu { Tools = Tools, Generator = _generator };
+        pause.Notify += ShowToast;
+        pause.GeneratorRequested += OpenGenerator;
+        root.AddChild(pause);
+        root.AddChild(_toast);
+
         if (Tools is not null)
         {
             _config.Bind(Tools);
             Tools.StateChanged += OnToolsChanged;
         }
         OnToolsChanged();
+
+        if (_generator is not null && Tools?.Terrain is { ShowGeneratorOnStart: true })
+            Callable.From(OpenGenerator).CallDeferred();
+    }
+
+    /// <summary>Shows the generator panel; tools are put away while it's open so its live updates and strokes don't mix.</summary>
+    public void OpenGenerator()
+    {
+        if (_generator is null) return;
+        if (_open is not null) Close();
+        _generator.Open();
+        _generatorButton?.SetPressedNoSignal(true);
     }
 
     private void Open(ToolCategory cat)
     {
+        _generator?.Close();
         _open = cat;
         _bar.SetActive(cat);
         _toolPanel.SetSelectedTool(Tools?.Tool ?? TerrainTool.None, Tools?.PaintLayer ?? -1);
-        _toolPanel.ShowCategory(cat);
+        _toolPanel.ShowCategory(ToolCatalog.ForMode(cat, MapSession.Mode));
         _toolPanel.Visible = true;
         OnToolsChanged();
     }
@@ -65,6 +111,15 @@ public partial class GameUi : CanvasLayer
         _toolPanel.Visible = false;
         if (Tools is not null) Tools.Tool = TerrainTool.None;
         OnToolsChanged();
+    }
+
+    /// <summary>Shows a short message at the top of the screen for a few seconds.</summary>
+    public void ShowToast(string text)
+    {
+        _toast.Text = text;
+        _toast.Visible = true;
+        int id = ++_toastId;
+        GetTree().CreateTimer(2.5, processAlways: true).Timeout += () => { if (id == _toastId) _toast.Visible = false; };
     }
 
     private void OnToolsChanged()

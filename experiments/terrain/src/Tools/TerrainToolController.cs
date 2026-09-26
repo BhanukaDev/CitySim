@@ -2,6 +2,7 @@ using System;
 using Godot;
 using CitySim.CameraSystem;
 using CitySim.TerrainSystem;
+using CitySim.TerrainSystem.Generation;
 using CitySim.TerrainSystem.Sculpt;
 
 namespace CitySim.Tools;
@@ -300,6 +301,7 @@ public partial class TerrainToolController : Node
             // Terrain was regenerated: old undo data and points no longer apply.
             EndStroke();
             History.Clear();
+            _generatedBefore = null;
             _map = map;
             _slopeAnchor = null;
             Changed();
@@ -380,6 +382,7 @@ public partial class TerrainToolController : Node
     private void BeginStroke(MouseButton button, float sign = 1f)
     {
         if (Terrain?.Map is not { } map || Cursor is not { } hit) return;
+        CommitGenerated();
         if (_rotationMode == BrushRotationMode.Random && UsesBrushShape)
             BrushAngle = (float)_rng.NextDouble() * 360f;
         _strokeButton = button;
@@ -435,8 +438,38 @@ public partial class TerrainToolController : Node
     public void Undo() => ApplyHistory(History.Undo);
     public void Redo() => ApplyHistory(History.Redo);
 
+    // --- Generator ---
+
+    /// <summary>Heights before the current run of generator updates; the whole run becomes one undo step.</summary>
+    private float[]? _generatedBefore;
+
+    /// <summary>
+    /// Puts generated heights on the terrain. Live updates while the generator panel is open are merged into one undo
+    /// step, recorded by <see cref="CommitGenerated"/> (on panel close, undo/redo, or the next stroke).
+    /// </summary>
+    public void ApplyGenerated(HeightMap heights, GenSettings settings)
+    {
+        if (Terrain?.Map is not { } map) return;
+        EndStroke();
+        bool sameSize = heights.Width == map.Width && heights.Depth == map.Depth;
+        if (sameSize) _generatedBefore ??= map.Snapshot();
+        else _generatedBefore = null;
+        Terrain.ReplaceHeights(heights, settings);
+        if (!sameSize) _map = null; // picked up (and history cleared) next frame
+    }
+
+    /// <summary>Turns the pending generator updates into one undo step.</summary>
+    public void CommitGenerated()
+    {
+        if (_generatedBefore is null || Terrain?.Map is not { } map) return;
+        History.PushHeights(_generatedBefore, map);
+        _generatedBefore = null;
+        Changed();
+    }
+
     private void ApplyHistory(Func<HeightMap, SplatMap, UndoChange> op)
     {
+        CommitGenerated();
         if (IsStroking || Terrain?.Map is not { } map || Terrain.Splat is not { } splat) return;
         var change = op(map, splat);
         if (change.Splat) Terrain.MarkSplatDirty(change.Rect);

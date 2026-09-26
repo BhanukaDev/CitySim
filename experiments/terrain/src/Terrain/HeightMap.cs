@@ -38,6 +38,12 @@ public sealed class HeightMap
         set => _heights[z * Width + x] = value;
     }
 
+    /// <summary>Every height, row-major (index z * Width + x). For bulk work such as saving and loading.</summary>
+    public Span<float> Data => _heights;
+
+    /// <summary>Sets every vertex to <paramref name="height"/>.</summary>
+    public void Fill(float height) => Array.Fill(_heights, height);
+
     public bool InBounds(int x, int z) => x >= 0 && z >= 0 && x < Width && z < Depth;
 
     /// <summary>Height at a vertex, with coordinates clamped to the grid edges.</summary>

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using Godot;
+using CitySim.App;
 using CitySim.TerrainSystem;
 using CitySim.Tools;
 
@@ -12,8 +13,8 @@ namespace CitySim.UI;
 /// </summary>
 public sealed record ToolDef(string Name, string Tooltip, TerrainTool Tool, Texture2D? Icon = null, int Layer = -1);
 
-/// <summary>A tab in the tool panel, grouping related tools.</summary>
-public sealed record ToolTab(string Name, ToolDef[] Tools, Texture2D? Icon = null);
+/// <summary>A tab in the tool panel, grouping related tools. <see cref="EditorOnly"/> tabs are hidden in game mode.</summary>
+public sealed record ToolTab(string Name, ToolDef[] Tools, Texture2D? Icon = null, bool EditorOnly = false);
 
 /// <summary>A bottom-bar button. Opening it shows its tabs in the tool panel.</summary>
 public sealed record ToolCategory(string Name, ToolTab[] Tabs, Texture2D? Icon = null);
@@ -33,7 +34,7 @@ public static class ToolCatalog
         ]),
         new ToolTab("Paint", TerrainLayers.All.Where(l => l.Paintable).Select(l =>
             new ToolDef(l.DisplayName, $"Paint {l.DisplayName}: left-drag paints, right-drag erases back to automatic ground",
-                TerrainTool.Paint, LayerIcon(l), l.Index)).ToArray()),
+                TerrainTool.Paint, LayerIcon(l), l.Index)).ToArray(), EditorOnly: true),
         // Later: more tabs here (e.g. Vegetation, Resources) once those tools exist.
     ], Icon("terrain"));
 
@@ -52,6 +53,11 @@ public static class ToolCatalog
         image.Resize(128, 128, Image.Interpolation.Lanczos);
         return ImageTexture.CreateFromImage(image);
     }
+
+    /// <summary>The category with only the tabs available in <paramref name="mode"/>.</summary>
+    public static ToolCategory ForMode(ToolCategory category, AppMode mode) => mode == AppMode.MapEditor
+        ? category
+        : category with { Tabs = category.Tabs.Where(t => !t.EditorOnly).ToArray() };
 
     /// <summary>Bottom-bar categories, left to right.</summary>
     public static readonly ToolCategory[] All = [Terrain];
