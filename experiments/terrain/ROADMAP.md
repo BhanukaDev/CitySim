@@ -47,6 +47,10 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 ```
 
+VS Code (repo-root `.vscode/`): F5 "Terrain: Play" builds and runs with the C# debugger attached (also
+paint/sculpt demo variants, "Open Godot editor", "Attach to Godot"). Tasks: build, fetch + bake textures,
+rebake, headless check, screenshot (`screenshots/latest.png`).
+
 The screenshot flag is handled in `src/Debug/DebugOverlay.cs`. Use it to check visual changes
 before handing them to the user. Don't commit until the user has tried the change.
 

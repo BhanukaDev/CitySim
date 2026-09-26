@@ -1,0 +1,59 @@
+{
+  // Run/debug the Godot projects with the C# debugger attached (breakpoints in .cs files work).
+  // Needs the "C#" extension (ms-dotnettools.csharp). F5 builds first via the "terrain: build" task.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Terrain: Play",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "terrain: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/terrain"],
+      "cwd": "${workspaceFolder}/experiments/terrain",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Terrain: Play (paint demo)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "terrain: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/terrain", "--", "--demo-paint"],
+      "cwd": "${workspaceFolder}/experiments/terrain",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Terrain: Play (sculpt demo)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "terrain: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/terrain", "--", "--demo-sculpt"],
+      "cwd": "${workspaceFolder}/experiments/terrain",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // Opens the Godot editor with the debugger attached, so [Tool] scripts (e.g. Terrain) can be debugged.
+      "name": "Terrain: Open Godot editor",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "terrain: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/terrain", "--editor"],
+      "cwd": "${workspaceFolder}/experiments/terrain",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // Attach to a game you started from the Godot editor (pick the Godot process).
+      "name": "Attach to Godot",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
+}

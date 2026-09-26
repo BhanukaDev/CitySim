@@ -1,0 +1,50 @@
+{
+  // Run with Cmd+Shift+B (build) or "Tasks: Run Task".
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}/experiments/terrain",
+    "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+  },
+  "tasks": [
+    {
+      "label": "terrain: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "-nologo", "-v", "q", "/property:GenerateFullPaths=true"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "terrain: fetch + bake textures",
+      "detail": "Download the CC0 ground textures, bake the texture arrays and import them (first run, or after changing a texture)",
+      "type": "shell",
+      "command": "tools/fetch_textures.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "terrain: rebake textures",
+      "detail": "Re-bake and re-import the texture arrays from the downloaded JPGs",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . -- --bake-terrain-textures && \"$GODOT\" --headless --path . --import",
+      "dependsOn": "terrain: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "terrain: headless check",
+      "detail": "Run 120 frames without a window and print errors and timings",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . --quit-after 120",
+      "dependsOn": "terrain: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "terrain: screenshot",
+      "detail": "Render 120 frames and save screenshots/latest.png",
+      "type": "shell",
+      "command": "mkdir -p screenshots && \"$GODOT\" --path . -- --screenshot=\"$PWD/screenshots/latest.png\" --screenshot-frames=120 && open screenshots/latest.png",
+      "dependsOn": "terrain: build",
+      "problemMatcher": []
+    }
+  ]
+}
