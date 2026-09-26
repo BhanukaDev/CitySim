@@ -8,7 +8,7 @@ namespace CitySim.Debug;
 /// <summary>
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
-/// saves the viewport after N frames and quits.
+/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw and --demo-sculpt.
 /// </summary>
 public partial class DebugOverlay : CanvasLayer
 {
@@ -35,6 +35,14 @@ public partial class DebugOverlay : CanvasLayer
                 _screenshotPath = arg["--screenshot=".Length..];
             else if (arg.StartsWith("--screenshot-frames=") && int.TryParse(arg["--screenshot-frames=".Length..], out int f))
                 _screenshotFrames = f;
+            else if (arg.StartsWith("--cam=") && CityCamera is not null)
+            {
+                // --cam=x,z,distance,pitch,yaw (world metres / degrees)
+                var v = System.Array.ConvertAll(arg["--cam=".Length..].Split(','),
+                    s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
+                if (v.Length == 5)
+                    Callable.From(() => CityCamera.JumpTo(new Vector2(v[0], v[1]), v[2], v[3], v[4])).CallDeferred();
+            }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
         }

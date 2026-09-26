@@ -16,11 +16,50 @@ public static class SculptOps
     public const float PullRate = 10f;
     /// <summary>How fast smoothing converges on the local average, per second at full strength.</summary>
     public const float SmoothRate = 15f;
+    /// <summary>Light smoothing applied while raising/lowering, so peaks and pits come out rounded.</summary>
+    public const float ShiftRoundRate = 4f;
+    public const float DefaultMaxSlopeDegrees = 40f;
 
-    public static VertexRect Shift(HeightMap map, Vector2 center, Brush brush, float sign, float dt)
+    /// <summary>
+    /// Raises (sign +1) or lowers (sign -1) ground under the brush. A vertex is never pushed steeper than
+    /// <paramref name="maxSlopeDegrees"/> against any neighbour, so holding the button builds a wider
+    /// hill instead of a spire. Ground that's already steeper is left alone rather than flattened.
+    /// </summary>
+    public static VertexRect Shift(HeightMap map, Vector2 center, Brush brush, float sign, float dt,
+        float maxSlopeDegrees = DefaultMaxSlopeDegrees)
     {
         float amount = sign * ShiftRate * brush.Radius * brush.Strength * dt;
-        return Apply(map, center, brush, (x, z, d) => map[x, z] += amount * Brush.Falloff(d));
+        float tan = MathF.Tan(Math.Clamp(maxSlopeDegrees, 1f, 89f) * (MathF.PI / 180f));
+        float straight = tan * map.CellSize, diagonal = straight * MathF.Sqrt(2f);
+
+        var rect = Apply(map, center, brush, (x, z, d) =>
+        {
+            float old = map[x, z];
+            float h = old + amount * Brush.Falloff(d);
+            if (sign > 0f)
+            {
+                // Highest this vertex may go: no more than the max slope above its lowest neighbour.
+                float limit = float.MaxValue;
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if ((dx | dz) != 0 && map.InBounds(x + dx, z + dz))
+                            limit = MathF.Min(limit, map[x + dx, z + dz] + (dx != 0 && dz != 0 ? diagonal : straight));
+                h = MathF.Min(h, MathF.Max(old, limit));
+            }
+            else
+            {
+                float limit = float.MinValue;
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if ((dx | dz) != 0 && map.InBounds(x + dx, z + dz))
+                            limit = MathF.Max(limit, map[x + dx, z + dz] - (dx != 0 && dz != 0 ? diagonal : straight));
+                h = MathF.Max(h, MathF.Min(old, limit));
+            }
+            map[x, z] = h;
+        });
+
+        Blur(map, center, brush, PullFactor(ShiftRoundRate, brush.Strength, dt));
+        return rect;
     }
 
     public static VertexRect Level(HeightMap map, Vector2 center, Brush brush, float target, float dt)
@@ -50,7 +89,11 @@ public static class SculptOps
         });
     }
 
-    public static VertexRect Smooth(HeightMap map, Vector2 center, Brush brush, float dt)
+    public static VertexRect Smooth(HeightMap map, Vector2 center, Brush brush, float dt) =>
+        Blur(map, center, brush, PullFactor(SmoothRate, brush.Strength, dt));
+
+    /// <summary>Blends each vertex toward its 3x3 weighted average by <paramref name="k"/> times the falloff.</summary>
+    private static VertexRect Blur(HeightMap map, Vector2 center, Brush brush, float k)
     {
         var rect = map.CircleRect(center.X, center.Y, brush.Radius);
         if (rect.IsEmpty) return rect;
@@ -68,7 +111,6 @@ public static class SculptOps
             return copy[(z - src.MinZ) * src.Width + (x - src.MinX)];
         }
 
-        float k = PullFactor(SmoothRate, brush.Strength, dt);
         return Apply(map, center, brush, (x, z, d) =>
         {
             float avg = (4f * Get(x, z) +

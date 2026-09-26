@@ -15,6 +15,11 @@ public partial class ConfigPanel : PanelContainer
     private readonly Label _levelTarget = NewValueLabel();
     private readonly Label _slopeAnchor = NewValueLabel();
     private readonly Label _hint = new() { AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(250, 0) };
+    private readonly Label _contourInterval = NewValueLabel();
+    private readonly CheckButton _contours = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show height contour lines (every 5th line is bolder)" };
+    private readonly Control[] _contourIntervalRow;
+    private readonly Label _maxSlope = NewValueLabel();
+    private readonly Control[] _maxSlopeRow;
     private readonly Control[] _levelRow;
     private readonly Control[] _slopeRow;
 
@@ -41,11 +46,19 @@ public partial class ConfigPanel : PanelContainer
         col.AddChild(grid);
 
         AddRow(grid, "Brush Size", Stepper(_size,
-            () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius, -1)),
-            () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius, +1))));
+            () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius * 2f, -1) / 2f),
+            () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius * 2f, +1) / 2f)));
         AddRow(grid, "Brush Strength", Stepper(_strength,
             () => Tools(t => t.BrushStrength -= 0.05f),
             () => Tools(t => t.BrushStrength += 0.05f)));
+        _maxSlopeRow = AddRow(grid, "Max Slope", Stepper(_maxSlope,
+            () => Tools(t => t.MaxSlopeDegrees -= 5f),
+            () => Tools(t => t.MaxSlopeDegrees += 5f)));
+        _contours.Toggled += on => Tools(t => t.ShowContours = on);
+        AddRow(grid, "Contour Lines", _contours);
+        _contourIntervalRow = AddRow(grid, "Contour Spacing", Stepper(_contourInterval,
+            () => Tools(t => t.StepContourInterval(-1)),
+            () => Tools(t => t.StepContourInterval(+1))));
         _levelRow = AddRow(grid, "Target Height", ValueWithButton(_levelTarget, "Auto",
             "Forget the picked height and level to the most common height under the brush",
             () => Tools(t => t.LevelTarget = null)));
@@ -68,8 +81,16 @@ public partial class ConfigPanel : PanelContainer
         if (_tools is null) return;
         var tool = _tools.Tool;
         _title.Text = tool.ToString();
-        _size.Text = $"{_tools.BrushRadius:0} m";
+        // Shown as diameter; the controller works in radius.
+        _size.Text = $"{_tools.BrushRadius * 2f:0} m";
         _strength.Text = $"{_tools.BrushStrength * 100f:0} %";
+
+        foreach (var c in _maxSlopeRow) c.Visible = tool == TerrainTool.Shift;
+        _maxSlope.Text = $"{_tools.MaxSlopeDegrees:0}°";
+
+        _contours.SetPressedNoSignal(_tools.ShowContours);
+        foreach (var c in _contourIntervalRow) c.Visible = _tools.ShowContours;
+        _contourInterval.Text = $"{_tools.ContourInterval:0} m";
 
         foreach (var c in _levelRow) c.Visible = tool == TerrainTool.Level;
         _levelTarget.Text = _tools.LevelTarget is { } h ? $"{h:0.0} m" : "Auto";
@@ -103,11 +124,11 @@ public partial class ConfigPanel : PanelContainer
         if (_tools is not null) act(_tools);
     }
 
-    /// <summary>Round steps that grow with the brush: 5 m up to 100 m, then 10 m, then 25 m.</summary>
+    /// <summary>Round diameter steps that grow with the brush: 10 m up to 200 m, then 20 m, then 50 m.</summary>
     private static float SizeStep(float r, int dir)
     {
         float probe = dir > 0 ? r : r - 0.01f;
-        float step = probe < 100f ? 5f : probe < 200f ? 10f : 25f;
+        float step = probe < 200f ? 10f : probe < 400f ? 20f : 50f;
         float snapped = dir > 0 ? Mathf.Floor(r / step + 1.001f) * step : Mathf.Ceil(r / step - 1.001f) * step;
         return snapped;
     }

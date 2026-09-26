@@ -71,6 +71,17 @@ public partial class CityCamera : Node3D
 		ApplyTransforms();
 	}
 
+	/// <summary>Moves the camera instantly (no smoothing). Used by debug tooling.</summary>
+	public void JumpTo(Vector2 pivotXZ, float distance, float pitch, float yaw)
+	{
+		_targetPivot = new Vector3(pivotXZ.X, Terrain?.GetHeight(pivotXZ.X, pivotXZ.Y) ?? 0f, pivotXZ.Y);
+		_targetDistance = _distance = Mathf.Clamp(distance, MinDistance, MaxDistance);
+		_targetPitch = _pitch = Mathf.Clamp(pitch, MinPitch, MaxPitch);
+		_targetYaw = _yaw = yaw;
+		Position = _targetPivot;
+		ApplyTransforms();
+	}
+
 	public override void _UnhandledInput(InputEvent @event)
 	{
 		// Shift/Alt + wheel belong to the sculpt brush (size/strength).

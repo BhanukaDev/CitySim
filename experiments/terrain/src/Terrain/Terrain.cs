@@ -12,9 +12,9 @@ namespace CitySim.TerrainSystem;
 public partial class Terrain : Node3D
 {
     [ExportGroup("Size")]
-    [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 512;
-    [Export(PropertyHint.Range, "16,4096,16")] public int CellsZ { get; set; } = 512;
-    [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = 4f;
+    [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 1024;
+    [Export(PropertyHint.Range, "16,4096,16")] public int CellsZ { get; set; } = 1024;
+    [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = 2f;
     [Export(PropertyHint.Range, "8,256,8")] public int ChunkCells { get; set; } = 64;
 
     [ExportGroup("Generation")]
@@ -204,6 +204,14 @@ public partial class Terrain : Node3D
         sm.SetShaderParameter("brush_visible", visible);
         sm.SetShaderParameter("brush_pos", worldPos);
         sm.SetShaderParameter("brush_radius", radius);
+    }
+
+    /// <summary>Toggles height contour lines, <paramref name="interval"/> metres apart.</summary>
+    public void SetContours(bool visible, float interval)
+    {
+        if (Material is not ShaderMaterial sm) return;
+        sm.SetShaderParameter("show_contours", visible);
+        sm.SetShaderParameter("contour_interval", interval);
     }
 
     /// <summary>Shows a marker at the slope tool's start point, with a guide line to the brush.</summary>

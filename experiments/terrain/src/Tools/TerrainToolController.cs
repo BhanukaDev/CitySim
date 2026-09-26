@@ -33,6 +33,12 @@ public partial class TerrainToolController : Node
     private float _strength = 0.5f;
     private float? _levelTarget;
     private Vector3? _slopeAnchor;
+    private bool _showContours;
+    private float _maxSlope = SculptOps.DefaultMaxSlopeDegrees;
+    private int _contourIndex = 2;
+
+    /// <summary>Contour spacings offered in the UI, in metres.</summary>
+    public static readonly float[] ContourIntervals = [1f, 2f, 5f, 10f, 20f];
 
     private MouseButton _strokeButton = MouseButton.None;
     private float _strokeSign;
@@ -90,6 +96,29 @@ public partial class TerrainToolController : Node
     {
         get => _slopeAnchor;
         set { _slopeAnchor = value; Changed(); }
+    }
+
+    /// <summary>Steepest angle the Shift tool will build, in degrees.</summary>
+    public float MaxSlopeDegrees
+    {
+        get => _maxSlope;
+        set { _maxSlope = Mathf.Clamp(value, 10f, 80f); Changed(); }
+    }
+
+    /// <summary>Draws height contour lines on the terrain while a terrain tool is active.</summary>
+    public bool ShowContours
+    {
+        get => _showContours;
+        set { _showContours = value; Changed(); }
+    }
+
+    public float ContourInterval => ContourIntervals[_contourIndex];
+
+    /// <summary>Steps through <see cref="ContourIntervals"/>.</summary>
+    public void StepContourInterval(int dir)
+    {
+        _contourIndex = Math.Clamp(_contourIndex + dir, 0, ContourIntervals.Length - 1);
+        Changed();
     }
 
     private Brush CurrentBrush => new(_radius, _strength);
@@ -202,6 +231,7 @@ public partial class TerrainToolController : Node
         bool showBrush = _tool != TerrainTool.None && Cursor.HasValue;
         Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush);
         Terrain.SetAnchor(_tool == TerrainTool.Slope ? _slopeAnchor : null);
+        Terrain.SetContours(_showContours && _tool != TerrainTool.None, ContourInterval);
     }
 
     private void UpdateCursor()
@@ -251,7 +281,7 @@ public partial class TerrainToolController : Node
         float oy = Terrain.GlobalPosition.Y;
         var rect = _tool switch
         {
-            TerrainTool.Shift => SculptOps.Shift(map, c, brush, _strokeSign, dt),
+            TerrainTool.Shift => SculptOps.Shift(map, c, brush, _strokeSign, dt, _maxSlope),
             TerrainTool.Level => SculptOps.Level(map, c, brush, _strokeLevelTarget - oy, dt),
             TerrainTool.Smooth => SculptOps.Smooth(map, c, brush, dt),
             TerrainTool.Slope when _slopeAnchor is { } a =>
@@ -309,6 +339,9 @@ public partial class TerrainToolController : Node
         BrushStrength = 0.6f;
         DemoStroke(TerrainTool.Shift, c + new Vector2(-180, 0), c + new Vector2(-180, 0), 150);
         DemoStroke(TerrainTool.Smooth, c + new Vector2(-180, 0), c + new Vector2(-180, 0), 60);
+        BrushRadius = 10f;
+        DemoStroke(TerrainTool.Shift, c + new Vector2(-60, -60), c + new Vector2(-60, -60), 600);
+        BrushRadius = 70f;
         LevelTarget = null;
         DemoStroke(TerrainTool.Level, c + new Vector2(170, -40), c + new Vector2(170, 40), 180);
 
@@ -332,6 +365,7 @@ public partial class TerrainToolController : Node
         GD.Print($"Demo sculpt: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
         Tool = TerrainTool.Slope;
 
+        ShowContours = true;
         BrushRadius = 60f;
         var cursor = c + new Vector2(20, 120);
         ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);

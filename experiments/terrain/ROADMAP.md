@@ -43,6 +43,7 @@ dotnet build                                                   # compile check
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
+# extra flags: --demo-sculpt (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
 ```
 
 The screenshot flag is handled in `src/Debug/DebugOverlay.cs`. Use it to check visual changes
@@ -86,6 +87,11 @@ Done:
   (tabs, close button and tool buttons) and a config panel at bottom-left (size and strength steppers,
   per-tool rows and hints). Tools, tabs and categories are data in `ToolCatalog.cs`. Every
   button has an `Icon` slot, and text placeholders are shown until real icons arrive.
+- Shift has a max-slope limit (config panel, 10–80°, default 40°). It never pushes a vertex steeper
+  than that against a neighbour, and ground that's already steeper is left alone. Shift also applies
+  light built-in rounding. Together these stop small brushes making spikes and long holds making spires.
+- Contour lines (toggle and spacing of 1/2/5/10/20 m in the config panel, every 5th line bolder), drawn in
+  the shader (`show_contours`, `contour_interval`). Shown only while a terrain tool is active.
 - `--demo-sculpt` CLI flag: scripted strokes plus an undo/redo self-check (prints `Demo sculpt: undo ok, redo ok`).
 
 Tools (user-specified):
@@ -96,10 +102,11 @@ Tools (user-specified):
 | Smooth | smooth | – |
 | Slope | press at end point B and drag: pulls ground toward ramp A→B | set start point A |
 
-Brush: `[` `]` or Shift+wheel for size (8–400 m), Alt+wheel for strength. Ctrl/Cmd+Z undo,
+Brush: `[` `]` or Shift+wheel for size (the UI shows diameter, 16–800 m; code uses radius), Alt+wheel for strength. Ctrl/Cmd+Z undo,
 Ctrl/Cmd+Shift+Z or Ctrl+Y redo, Esc deselects the tool. Clicks on UI panels never reach the terrain.
 
-Measured: a 60 m brush dirties up to 8 chunks, and the rebuild takes ~8 ms on an M1 (debug build).
+Measured on an M1 (debug build): at 4 m cells a 60 m-radius brush rebuilt 8 chunks in ~8 ms. At 2 m cells
+the same brush rebuilds 18 chunks in ~13 ms, and generation takes ~0.85 s. Accepted for now: features first, then performance (M6 LOD).
 
 Next:
 - User tests in Godot, then commit
@@ -152,4 +159,6 @@ Next:
 - M2 UI layout follows a Cities: Skylines reference: the tool panel is centred above the bottom bar and
   the config panel is at bottom-left. The tool panel has tabs so vegetation and similar tools can be
   added later.
+- Cell size changed from 4 m to 2 m (1024×1024 cells, still a 2,048 m map), so small brushes have
+  enough vertices to look round. The extra cost is accepted until LOD/performance work in M6.
 - Level with no picked height uses the "dominant" height (weighted histogram), not the plain average.

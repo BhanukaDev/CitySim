@@ -23,6 +23,12 @@ uniform bool show_grid = true;
 uniform float grid_size = 64.0;
 uniform float grid_strength : hint_range(0.0, 1.0) = 0.2;
 
+group_uniforms Contours;
+uniform bool show_contours = false;
+// Metres between contour lines; every 5th line is drawn bolder.
+uniform float contour_interval = 5.0;
+uniform vec3 contour_color : source_color = vec3(0.12, 0.09, 0.06);
+
 // Set at runtime by the sculpt tools (Terrain.SetBrush / SetAnchor).
 group_uniforms Brush;
 uniform bool brush_visible = false;
@@ -58,6 +64,19 @@ void fragment() {
 		// Fade out once lines get denser than a few pixels apart.
 		line *= 1.0 - smoothstep(0.05, 0.25, max(fw.x, fw.y));
 		col = mix(col, vec3(0.05), line * grid_strength);
+	}
+
+	if (show_contours) {
+		float c = world_pos.y / contour_interval;
+		float fw = max(fwidth(c), 1e-4);
+		float minor = 1.0 - min(abs(fract(c - 0.5) - 0.5) / fw, 1.0);
+		float cm = c / 5.0;
+		float fwm = max(fwidth(cm), 1e-4);
+		float major = 1.0 - min(abs(fract(cm - 0.5) - 0.5) / (fwm * 1.8), 1.0);
+		// Fade minor lines where they get denser than a few pixels apart (steep or distant ground).
+		minor *= 1.0 - smoothstep(0.2, 0.5, fw);
+		major *= 1.0 - smoothstep(0.2, 0.5, fwm);
+		col = mix(col, contour_color, max(minor * 0.35, major * 0.7));
 	}
 
 	vec3 glow = vec3(0.0);
