@@ -26,14 +26,26 @@ Cities: Skylines-style city builder. When it's stable, it's merged into the main
 - Namespaces: `CitySim.TerrainSystem`, `CitySim.CameraSystem`, `CitySim.Debug`. Don't name a class the
   same as its namespace.
 
-## Camera controls (user-specified)
+## Camera controls (Cities: Skylines style; `src/Camera/CityCamera.cs`)
 
-| Keys | Action |
+| Input | Action |
 |---|---|
-| W/A/S/D | move (relative to facing, speed scales with zoom) |
-| Q/E | rotate yaw (direction was inverted once at the user's request; current mapping is correct) |
-| R/F | tilt: R toward top-down, F toward horizon (also inverted once; current mapping is correct) |
-| Z/X, mouse wheel | zoom |
+| W/A/S/D | move relative to facing (speed scales with zoom, min 12 m/s, Shift = 2x) |
+| Q/E | rotate yaw (`InvertRotate` export flips it) |
+| R/F | tilt (`InvertTilt` export flips it) |
+| Z/X, mouse wheel, trackpad scroll/pinch | zoom (wheel/scroll zooms toward the cursor) |
+| Middle-mouse drag | rotate (horizontal) and tilt (vertical) |
+| Mouse at window edge | pan, only if `EdgeScroll` is on (off by default) |
+
+Behaviour depends on zoom `z` (0 = first person, 1 = god view, log-scaled): orbit radius reaches 0 (FPV at
+eye height, can look up to -10°), min pitch rises -10 -> 40°, near plane and ground clearance grow.
+Edge margin: the pivot **and the camera itself** stay `EdgeMargin` (200 m) inside the terrain edge, so walking or
+rotating pushes the pivot inward instead of swinging out over the edge.
+Smoothness: pivot height is the ground averaged over a footprint of ~12% of the zoom distance and follows slowly when
+zoomed out (fast in FPV); hills are cleared by smoothly lifting the camera along a 32-sample line of sight (fast up,
+slow down) rather than stepping the pitch.
+`--demo-camera` feeds real input events (Z/X, wheel, WASD, Q/E) and checks zoom out of FPV and the margin
+plus frame-to-frame jerk while flying over the mountains at four zooms (prints `Demo camera: all ok`).
 
 ## How to build / verify
 
@@ -43,7 +55,7 @@ dotnet build                                                   # compile check
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
-# extra flags: --demo-sculpt / --demo-paint (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
+# extra flags: --demo-sculpt / --demo-paint / --demo-camera (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 ```
 
@@ -170,6 +182,11 @@ Done:
     two layers was decided per pixel by texture height, which gave crisp speckled edges. A fine `edge_noise_scale`
     noise wobbles the automatic slope and height thresholds.
 
+- Ghibli palette pass: warmer, more saturated tints; grass drifts from cool green (low) to gold-green (high);
+  rock is triplanar with two scales mixed by noise plus domain warp (no visible repeat), softened normals and
+  a warm mossy top / cool violet face tint; teal-violet fill in shadows (`shadow_tint`); lavender-blue fog
+  matching the sky horizon, cream sun. Screenshot check: `--cam=1300,700,120,25,30` (cliff close-up).
+
 Next:
 - User tests in Godot and tunes the `Style`/`AutoLayers` uniforms on the terrain material, then commit
 - Splat save/load belongs with M4
@@ -202,11 +219,12 @@ Next:
 ### Nice-to-have / ideas
 - Hydraulic + thermal erosion (a good first C++ GDExtension candidate)
 - Edge-of-map treatment (distant "fake" terrain ring beyond the playable area)
-- Camera: edge-scroll with the mouse, middle-drag rotate, double-click to focus
+- Camera: double-click to focus
 
 ---
 
 ## Decision log
+- Camera rework: zoom-dependent limits, FPV at distance 0, zoom-scaled edge margin, CS-style directions and mouse drag (implemented, waiting for the user to test).
 - Started with C# only, adding C++ later only for measured hot paths.
 - R/F interpreted as **tilt**, not altitude. The user confirmed by asking only for the direction to be inverted.
 - Q/E and R/F directions inverted per user feedback.

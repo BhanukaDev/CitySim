@@ -8,7 +8,7 @@ namespace CitySim.Debug;
 /// <summary>
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
-/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint,
+/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera,
 /// and --bake-terrain-textures (packs the layer textures for import, then quits; see TextureBaker).
 /// </summary>
 public partial class DebugOverlay : CanvasLayer
@@ -46,6 +46,8 @@ public partial class DebugOverlay : CanvasLayer
             }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
+            else if (arg == "--demo-camera" && CityCamera is not null)
+                Callable.From(CityCamera.RunDemo).CallDeferred();
             else if (arg == "--demo-paint" && Tools is not null)
                 Callable.From(Tools.RunPaintDemo).CallDeferred();
             else if (arg == "--bake-terrain-textures")

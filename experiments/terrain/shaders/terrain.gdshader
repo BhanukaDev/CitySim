@@ -29,7 +29,7 @@ uniform float tile_near = 6.0;
 uniform float tile_far = 32.0;
 uniform float far_blend_start = 40.0;
 uniform float far_blend_end = 250.0;
-uniform float rock_tile = 14.0;
+uniform float rock_tile = 19.0;
 uniform float macro_scale = 700.0;
 // Mid-scale brightness blotches that break up large flat areas of one layer.
 uniform float breakup_scale = 45.0;
@@ -38,24 +38,32 @@ uniform float edge_noise_scale = 11.0;
 
 group_uniforms Style;
 // Each layer's colour. The texture only adds light/dark detail on top of it.
-uniform vec3 tint_grass : source_color = vec3(0.42, 0.60, 0.25);
-uniform vec3 tint_grass_dry : source_color = vec3(0.60, 0.63, 0.33);
-uniform vec3 tint_grass_dirt : source_color = vec3(0.47, 0.53, 0.28);
-uniform vec3 tint_dirt : source_color = vec3(0.54, 0.42, 0.30);
-uniform vec3 tint_gravel : source_color = vec3(0.60, 0.57, 0.52);
-uniform vec3 tint_sand : source_color = vec3(0.80, 0.71, 0.52);
-uniform vec3 tint_rock : source_color = vec3(0.50, 0.48, 0.45);
-uniform vec3 tint_snow : source_color = vec3(0.94, 0.96, 1.0);
+uniform vec3 tint_grass : source_color = vec3(0.40, 0.62, 0.20);
+uniform vec3 tint_grass_dry : source_color = vec3(0.68, 0.66, 0.26);
+uniform vec3 tint_grass_dirt : source_color = vec3(0.50, 0.55, 0.24);
+uniform vec3 tint_dirt : source_color = vec3(0.60, 0.43, 0.28);
+uniform vec3 tint_gravel : source_color = vec3(0.66, 0.58, 0.48);
+uniform vec3 tint_sand : source_color = vec3(0.87, 0.75, 0.50);
+uniform vec3 tint_rock : source_color = vec3(0.60, 0.56, 0.50);
+uniform vec3 tint_snow : source_color = vec3(0.96, 0.96, 1.0);
+// Ghibli-style colour gradients: highlands drift toward warm gold-green, lowlands toward deep cool green.
+uniform vec3 grass_low_tint : source_color = vec3(0.86, 1.0, 0.92);
+uniform vec3 grass_high_tint : source_color = vec3(1.12, 1.02, 0.78);
+// Rock: mossy, warm-lit tops; cool violet-grey faces; darker crevices from texture height.
+uniform vec3 rock_top_tint : source_color = vec3(1.10, 1.08, 0.80);
+uniform vec3 rock_face_tint : source_color = vec3(0.88, 0.90, 1.0);
+uniform float rock_tile_large = 47.0;
+uniform float rock_detail_soft : hint_range(0.0, 1.0) = 0.55;
 // How much texture detail shows through the tint (0 = flat colour, 1 = full photo contrast).
-uniform float detail_contrast : hint_range(0.0, 1.5) = 0.85;
+uniform float detail_contrast : hint_range(0.0, 1.5) = 0.6;
 // Extra contrast for rock, so cliffs keep their cracks and ledges.
-uniform float rock_detail : hint_range(0.5, 3.0) = 1.4;
+uniform float rock_detail : hint_range(0.5, 3.0) = 0.9;
 // Keeps some of each texture's own colour variation (0 = only brightness detail).
 uniform float detail_saturation : hint_range(0.0, 1.0) = 0.65;
 uniform float normal_strength : hint_range(0.0, 2.0) = 1.0;
 // Large-scale brightness and warm/cool variation.
-uniform float macro_strength : hint_range(0.0, 0.5) = 0.12;
-uniform float breakup_strength : hint_range(0.0, 0.5) = 0.08;
+uniform float macro_strength : hint_range(0.0, 0.5) = 0.16;
+uniform float breakup_strength : hint_range(0.0, 0.5) = 0.06;
 // How much texture height decides layer borders (grass fills between stones, etc.).
 uniform float height_blend : hint_range(0.0, 1.0) = 0.12;
 // Width of height-blended borders: lower is crisper.
@@ -64,13 +72,16 @@ uniform float roughness = 0.9;
 
 group_uniforms Lighting;
 // Light wrapping around the terminator: softer, painterly shading.
-uniform float light_wrap : hint_range(0.0, 1.0) = 0.25;
+uniform float light_wrap : hint_range(0.0, 1.0) = 0.35;
 // Blends toward a soft two-tone (toon) ramp. 0 = off.
-uniform float toon_bands : hint_range(0.0, 1.0) = 0.3;
+uniform float toon_bands : hint_range(0.0, 1.0) = 0.4;
 uniform float band_softness : hint_range(0.01, 0.5) = 0.2;
 // Warm glow where lit ground turns to shade.
 uniform vec3 terminator_tint : source_color = vec3(1.0, 0.72, 0.5);
-uniform float terminator_strength : hint_range(0.0, 1.0) = 0.25;
+uniform float terminator_strength : hint_range(0.0, 1.0) = 0.3;
+// Shadowed ground is tinted toward this (teal-violet) instead of going grey.
+uniform vec3 shadow_tint : source_color = vec3(0.62, 0.72, 1.0);
+uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 
 group_uniforms AutoLayers;
 // Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°).
@@ -80,7 +91,7 @@ uniform float snow_blend = 10.0;
 uniform float snow_max_slope : hint_range(0.0, 1.0) = 0.4;
 uniform float rock_slope : hint_range(0.0, 1.0) = 0.3;
 uniform float dirt_slope : hint_range(0.0, 1.0) = 0.17;
-uniform float dry_amount : hint_range(0.0, 1.0) = 0.7;
+uniform float dry_amount : hint_range(0.0, 1.0) = 0.5;
 uniform float gravel_amount : hint_range(0.0, 1.0) = 0.5;
 
 group_uniforms Grid;
@@ -154,19 +165,31 @@ Sample sample_planar(int layer, vec3 p, vec3 n, float far_t) {
 	return s;
 }
 
-// Triplanar projection for cliffs, so steep faces don't stretch.
+// Triplanar projection for cliffs, so steep faces don't stretch. Two scales are mixed by low-frequency
+// noise and the coordinates are warped, so no repeat of the texture is recognisable.
 Sample sample_triplanar(int layer, vec3 p, vec3 n) {
 	vec3 bw = pow(abs(n), vec3(4.0));
 	bw /= bw.x + bw.y + bw.z;
-	vec3 px = vec3(p.zy / rock_tile, float(layer));
-	vec3 py = vec3(p.xz / rock_tile, float(layer));
-	vec3 pz = vec3(p.xy / rock_tile, float(layer));
-	vec4 ah = texture(albedo_height_array, px) * bw.x
-			+ texture(albedo_height_array, py) * bw.y
-			+ texture(albedo_height_array, pz) * bw.z;
-	vec3 tx = unpack_normal(texture(normal_array, px).rgb);
-	vec3 ty = unpack_normal(texture(normal_array, py).rgb);
-	vec3 tz = unpack_normal(texture(normal_array, pz).rgb);
+	vec2 wx = vec2(texture(macro_noise, p.zy / 37.0).r, texture(macro_noise, p.zy / 23.0 + 0.4).r) - 0.5;
+	vec2 wy = vec2(texture(macro_noise, p.xz / 37.0).r, texture(macro_noise, p.xz / 23.0 + 0.4).r) - 0.5;
+	vec2 wz = vec2(texture(macro_noise, p.xy / 37.0).r, texture(macro_noise, p.xy / 23.0 + 0.4).r) - 0.5;
+	float mx = smoothstep(0.3, 0.7, texture(macro_noise, p.zy / 61.0 + 0.2).r);
+	float my = smoothstep(0.3, 0.7, texture(macro_noise, p.xz / 61.0 + 0.2).r);
+	float mz = smoothstep(0.3, 0.7, texture(macro_noise, p.xy / 61.0 + 0.2).r);
+	vec3 px = vec3(p.zy / rock_tile + wx * 0.35, float(layer));
+	vec3 py = vec3(p.xz / rock_tile + wy * 0.35, float(layer));
+	vec3 pz = vec3(p.xy / rock_tile + wz * 0.35, float(layer));
+	vec3 qx = vec3(p.zy / rock_tile_large + 0.31, float(layer));
+	vec3 qy = vec3(p.xz / rock_tile_large + 0.31, float(layer));
+	vec3 qz = vec3(p.xy / rock_tile_large + 0.31, float(layer));
+	vec4 ah = mix(texture(albedo_height_array, px), texture(albedo_height_array, qx), mx) * bw.x
+			+ mix(texture(albedo_height_array, py), texture(albedo_height_array, qy), my) * bw.y
+			+ mix(texture(albedo_height_array, pz), texture(albedo_height_array, qz), mz) * bw.z;
+	vec3 tx = unpack_normal(mix(texture(normal_array, px).rgb, texture(normal_array, qx).rgb, mx));
+	vec3 ty = unpack_normal(mix(texture(normal_array, py).rgb, texture(normal_array, qy).rgb, my));
+	vec3 tz = unpack_normal(mix(texture(normal_array, pz).rgb, texture(normal_array, qz).rgb, mz));
+	// Soften the photo's bumpiness so cliffs read as painted planes, not scanned stone.
+	tx.xy *= rock_detail_soft; ty.xy *= rock_detail_soft; tz.xy *= rock_detail_soft;
 	tx = vec3(tx.xy + n.zy, abs(tx.z) * n.x);
 	ty = vec3(ty.xy + n.xz, abs(ty.z) * n.y);
 	tz = vec3(tz.xy + n.xy, abs(tz.z) * n.z);
@@ -177,13 +200,16 @@ Sample sample_triplanar(int layer, vec3 p, vec3 n) {
 }
 
 // Tint the neutral-grey texture: the tint sets the colour, the texture adds detail.
-vec3 stylize(vec3 tex, int layer) {
+vec3 stylize(vec3 tex, int layer, float h01, float up) {
 	vec3 ratio = tex / NEUTRAL_GREY;
 	float lum = dot(ratio, vec3(0.299, 0.587, 0.114));
 	ratio = mix(vec3(lum), ratio, detail_saturation);
 	// The ratio is in sRGB space; ^2.2 converts it to a linear-light factor.
 	float contrast = detail_contrast * (layer == ROCK ? rock_detail : 1.0);
-	return layer_tint(layer) * pow(max(ratio, vec3(0.0)), vec3(2.2 * contrast));
+	vec3 tint = layer_tint(layer);
+	if (layer <= 2) tint *= mix(grass_low_tint, grass_high_tint, smoothstep(0.05, 0.6, h01));
+	if (layer == ROCK) tint *= mix(rock_face_tint, rock_top_tint, smoothstep(0.35, 0.85, up));
+	return tint * pow(max(ratio, vec3(0.0)), vec3(2.2 * contrast));
 }
 
 void fragment() {
@@ -258,7 +284,7 @@ void fragment() {
 		Sample s;
 		if (top_i[k] == ROCK) s = sample_triplanar(ROCK, world_pos, n);
 		else s = sample_planar(top_i[k], world_pos, n, far_t);
-		col[k] = stylize(s.albedo_height.rgb, top_i[k]);
+		col[k] = stylize(s.albedo_height.rgb, top_i[k], h01, n.y);
 		nrm[k] = s.normal;
 		score[k] = top_w[k] + s.albedo_height.a * height_blend;
 		best_score = max(best_score, score[k]);
@@ -354,4 +380,7 @@ void light() {
 	float edge = d * (1.0 - d) * 4.0;
 	vec3 tint = mix(vec3(1.0), terminator_tint, edge * terminator_strength);
 	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * d * tint / PI;
+	// Painterly shadows: where light falls off, add a cool-tinted fill rather than grey.
+	float shade = 1.0 - d * ATTENUATION;
+	DIFFUSE_LIGHT += shadow_tint * shade * shadow_tint_strength * 0.12;
 }
