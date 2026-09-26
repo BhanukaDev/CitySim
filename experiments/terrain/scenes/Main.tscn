@@ -1,0 +1,49 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://src/Terrain/Terrain.cs" id="1_terrain"]
+[ext_resource type="Script" path="res://src/Camera/CityCamera.cs" id="2_camera"]
+[ext_resource type="Shader" path="res://shaders/terrain.gdshader" id="3_shader"]
+[ext_resource type="Script" path="res://src/Debug/DebugOverlay.cs" id="4_debug"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_terrain"]
+shader = ExtResource("3_shader")
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_horizon_color = Color(0.66, 0.72, 0.8, 1)
+ground_horizon_color = Color(0.66, 0.72, 0.8, 1)
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.66, 0.72, 0.8, 1)
+fog_density = 0.00015
+fog_sky_affect = 0.0
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.9, 0.6, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 1500.0
+
+[node name="Terrain" type="Node3D" parent="."]
+script = ExtResource("1_terrain")
+Material = SubResource("ShaderMaterial_terrain")
+
+[node name="CityCamera" type="Node3D" parent="." node_paths=PackedStringArray("Terrain")]
+script = ExtResource("2_camera")
+Terrain = NodePath("../Terrain")
+
+[node name="DebugOverlay" type="CanvasLayer" parent="." node_paths=PackedStringArray("CityCamera", "Terrain")]
+script = ExtResource("4_debug")
+CityCamera = NodePath("../CityCamera")
+Terrain = NodePath("../Terrain")

@@ -1,0 +1,144 @@
+using System.Collections.Generic;
+using System.Diagnostics;
+using Godot;
+
+namespace CitySim.TerrainSystem;
+
+/// <summary>
+/// Owns the heightmap and the chunk meshes built from it, and answers terrain queries
+/// (height, normal, slope, bounds) for other systems such as the camera, roads and buildings.
+/// </summary>
+[Tool]
+public partial class Terrain : Node3D
+{
+    [ExportGroup("Size")]
+    [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 512;
+    [Export(PropertyHint.Range, "16,4096,16")] public int CellsZ { get; set; } = 512;
+    [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = 4f;
+    [Export(PropertyHint.Range, "8,256,8")] public int ChunkCells { get; set; } = 64;
+
+    [ExportGroup("Generation")]
+    [Export] public int Seed { get; set; } = 1337;
+    [Export(PropertyHint.Range, "0.0001,0.02,0.0001")] public float Frequency { get; set; } = 0.0015f;
+    [Export(PropertyHint.Range, "1,10")] public int Octaves { get; set; } = 6;
+    [Export(PropertyHint.Range, "0,1000,1,suffix:m")] public float HeightScale { get; set; } = 250f;
+    [Export(PropertyHint.Range, "0,1,0.01")] public float Flatness { get; set; } = 0.45f;
+    [Export(PropertyHint.Range, "0,500,1,suffix:m")] public float WarpAmplitude { get; set; } = 60f;
+
+    [ExportGroup("Rendering")]
+    [Export] public Material? Material { get; set; }
+
+    [ExportToolButton("Regenerate")]
+    public Callable RegenerateButton => Callable.From(Generate);
+
+    private readonly Dictionary<Vector2I, TerrainChunk> _chunks = new();
+    private readonly HashSet<Vector2I> _dirty = new();
+
+    public HeightMap? Map { get; private set; }
+
+    /// <summary>World-space XZ rectangle covered by the terrain.</summary>
+    public Rect2 Bounds => Map is null
+        ? new Rect2()
+        : new Rect2(GlobalPosition.X, GlobalPosition.Z, Map.SizeX, Map.SizeZ);
+
+    public override void _Ready() => Generate();
+
+    public void Generate()
+    {
+        var sw = Stopwatch.StartNew();
+
+        // Free every existing chunk, including ones left over from an editor script reload.
+        foreach (var child in GetChildren())
+            if (child is TerrainChunk)
+                child.Free();
+        _chunks.Clear();
+        _dirty.Clear();
+
+        Map = new HeightMap(CellsX + 1, CellsZ + 1, CellSize);
+        TerrainGenerator.Generate(Map, new TerrainGenSettings(Seed, Frequency, Octaves, HeightScale, Flatness, WarpAmplitude));
+        long genMs = sw.ElapsedMilliseconds;
+
+        UpdateMaterialRange();
+
+        int chunksX = (CellsX + ChunkCells - 1) / ChunkCells;
+        int chunksZ = (CellsZ + ChunkCells - 1) / ChunkCells;
+        for (int cz = 0; cz < chunksZ; cz++)
+        {
+            for (int cx = 0; cx < chunksX; cx++)
+            {
+                var coord = new Vector2I(cx, cz);
+                var chunk = new TerrainChunk();
+                chunk.Init(Map, coord, ChunkCells);
+                chunk.MaterialOverride = Material;
+                AddChild(chunk);
+                chunk.Rebuild();
+                _chunks[coord] = chunk;
+            }
+        }
+
+        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, {_chunks.Count} chunks, " +
+                 $"heightmap {genMs} ms, total {sw.ElapsedMilliseconds} ms");
+    }
+
+    // --- Queries (world space) ---
+
+    public float GetHeight(float worldX, float worldZ)
+    {
+        if (Map is null) return GlobalPosition.Y;
+        var o = GlobalPosition;
+        return Map.SampleHeight(worldX - o.X, worldZ - o.Z) + o.Y;
+    }
+
+    public Vector3 GetNormal(float worldX, float worldZ)
+    {
+        if (Map is null) return Vector3.Up;
+        var o = GlobalPosition;
+        var n = Map.SampleNormal(worldX - o.X, worldZ - o.Z);
+        return new Vector3(n.X, n.Y, n.Z);
+    }
+
+    public float GetSlopeDegrees(float worldX, float worldZ)
+    {
+        if (Map is null) return 0f;
+        var o = GlobalPosition;
+        return Map.SampleSlopeDegrees(worldX - o.X, worldZ - o.Z);
+    }
+
+    // --- Editing hooks (used by sculpt tools in a later milestone) ---
+
+    /// <summary>Marks every chunk touching the given inclusive vertex range as needing a rebuild.</summary>
+    public void MarkDirty(int minX, int minZ, int maxX, int maxZ)
+    {
+        // Normals use neighbouring heights, so widen by one vertex.
+        int cx0 = Mathf.Max(0, (minX - 1) / ChunkCells);
+        int cz0 = Mathf.Max(0, (minZ - 1) / ChunkCells);
+        int cx1 = (maxX + 1) / ChunkCells;
+        int cz1 = (maxZ + 1) / ChunkCells;
+        for (int cz = cz0; cz <= cz1; cz++)
+            for (int cx = cx0; cx <= cx1; cx++)
+            {
+                var coord = new Vector2I(cx, cz);
+                if (_chunks.ContainsKey(coord)) _dirty.Add(coord);
+                // A vertex on a chunk edge is shared with the previous chunk.
+                var prev = new Vector2I(cx - 1, cz);
+                if (cx > 0 && _chunks.ContainsKey(prev)) _dirty.Add(prev);
+                prev = new Vector2I(cx, cz - 1);
+                if (cz > 0 && _chunks.ContainsKey(prev)) _dirty.Add(prev);
+            }
+    }
+
+    public void RebuildDirty()
+    {
+        foreach (var coord in _dirty)
+            _chunks[coord].Rebuild();
+        _dirty.Clear();
+    }
+
+    private void UpdateMaterialRange()
+    {
+        if (Map is null || Material is not ShaderMaterial sm) return;
+        var (min, max) = Map.GetRange();
+        sm.SetShaderParameter("height_min", min);
+        sm.SetShaderParameter("height_max", max);
+    }
+}
