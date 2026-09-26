@@ -61,7 +61,9 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups), --flat[=height] (empty map),
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
-#   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates)
+#   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
+#   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
+#   --size=cells (8192 = 28.7 km), --coarse=n (show an n² copy of the map, for sizes the chunk renderer can't draw)
 # any flag skips the start menu (scenes/Menu.tscn)
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
@@ -307,7 +309,7 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
 - Later: rivers/lakes (flow simulation or painted water sources); buildable = above water
 - Water queries in `Terrain`: `IsUnderwater(x, z)`, water depth
 
-### 🔶 M6: Performance & scale (Phase 0 done)
+### 🔶 M6: Performance & scale (phases 0–1 done; phase 1 waiting for the user to test)
 Target (user): a 70 × 70 km map on an 8 GB M1. Tiered like CS2: a **28,672 m build area** (8192 cells × 3.5 m, an "8k"
 heightmap) sculptable and buildable, centred in a coarse 70 km background (4096 cells ≈ 17 m, scenery only).
 Rendering moves to the **Terrain3D** addon (v1.0.2, `addons/terrain_3d/`, MIT; GPU clipmap, 1024² regions). `HeightMap`
@@ -315,33 +317,54 @@ stays the source of truth for queries, tools and saves, and Terrain3D is only th
 
 Phases (tick off as they land):
 - [x] **0. Terrain3D spike**: go/no-go on 4.7.2 + 8 GB. Passed, numbers below.
-- [ ] **1. Data at build-area scale** (engine-agnostic, `src/Terrain/`)
-  - Size preset "28 km" (8192 × 3.5 m) in `MainMenu.Sizes`/`GenSettings`; keep 2/4 km for quick tests; `Terrain.DefaultCellSize` → 3.5.
-  - Generation on a worker with progress (like the generator panel's Live mode). `TerrainGen.Fill` writes straight into the map
-    (no extra copy); `HeightMap.Smooth` row-parallel with row buffers instead of a full `tmp` array. Target < 3 s at 8193².
-  - Scale-aware noise: presets/frequencies relative to map size (or world-space features that still read at 28 km).
-  - `UndoStack`: no full-map `Snapshot()` per stroke. Copy-on-write 128² tiles on first touch; entries keep only those tiles
-    (heights and splat). `PushHeights` (generator) keeps one full snapshot.
-  - Compact paint: 8 floats/vertex (2.1 GB at 8193²) → 32-bit control per vertex matching Terrain3D's control map (base id,
-    overlay id, blend), stored as sparse 256² tiles allocated only where painted. `SplatMap` keeps its API; `PaintOps` updated.
-  - `HeightMap.GetRange` cached and updated from dirty rects (no 67M-float scan per stroke).
-  - `MapFile` v2: u16 heights + min/max, control tiles, background map, zlib per tile; still reads v1.
-  - Heightmap size: Terrain3D regions are powers of two (8192 px), `HeightMap` is 8193². Decide: drop the last row/col in the
-    render copy, or make the build area 8192 vertices.
+- [x] **1. Data at build-area scale** (engine-agnostic, `src/Terrain/`; implemented, waiting for the user to test)
+  - Sizes: `MapSize.All` in `GenSettings.cs` (1.8 / 3.6 / 7.2 / 28.7 km = 512–8192 cells, powers of two), all at
+    `GenSettings.DefaultCellSize` = 3.5 m. 28.7 km is `NeedsTerrain3D` and hidden in the menus until phase 2 (the chunk renderer
+    can't draw 16k chunks); `--size=8192 --coarse=2049` shows a downsampled copy, `--demo-scale` tests the data.
+  - New Map generates on a worker in the menu with a % readout, then opens the scene (`GeneratedMapRequest.Map`); the generator
+    panel shows % too. `TerrainGen.Fill` writes rows straight into the map; `HeightMap.Smooth` is separable and parallel (rows,
+    then 256-wide column strips with one row buffer each): ~90 ms at 8193².
+  - Speed: slow fields (lowland mask, region, land/sea shape, warp octaves ≥ 168 m) are sampled on a ~14 m coarse grid and
+    interpolated; per vertex only the fine warp octave and the hill fBm run. Warp octaves finer than 8 cells (6 m and 1 m
+    wavelengths, sub-cell jitter that smoothing removed) are skipped. `FastNoiseLite.DomainWarpProgressiveOctaves` (our
+    addition) runs a slice of the progressive warp. 8193²: 2.3–2.7 s for every preset (was 4.3–8 s).
+  - Scale-aware noise: a region layer (`NoiseSettings.RegionSize` 10 km, `RegionStrength` 0.7) turns hills into ranges
+    (taller, rugged, raised) and plains (flatter, lower). Weight 0 up to 4 km, full from 16 km (`TerrainGen.RegionWeight`),
+    so small maps keep their tuned look. Coastline/archipelago noise gets +1 octave per doubling above 2 km.
+  - `UndoStack`: nothing copied at stroke start; `Touch(rect)` is called *before* each edit and copies each 128² tile on first
+    touch. One buffer per tile, swapped with the map on undo and on redo (holds whichever state is off the map). Generator
+    entries keep one full copy. 768 MB budget, oldest entries dropped first.
+  - `SplatMap`: one u32 control value per vertex in Terrain3D's layout (base 27–31, overlay 22–26, blend 14–21, hole 2, nav 1,
+    auto 0) plus our **coverage** in bits 6–13 (Terrain3D's UV angle/scale, unused by us): painted share over the automatic
+    ground, so soft brush edges still fade into the auto layers. Sparse 256² tiles, allocated on first paint. At most two
+    painted layers per vertex; painting a third replaces the lighter one. `PaintOps` rounds to 8 bits with hashed dither so
+    slow edges neither stall nor creep. The current shader still gets 8 weights (`WriteRgba8` decodes).
+  - `HeightMap.GetRange`: min/max cached per 64² block; the indexer, `PasteRegion`/`SwapRegion` and `Invalidate(rect)` mark
+    blocks stale. Bulk writers through `Data`/`Row` call `Invalidate()`. 0.4 ms after a stroke at 8193² (was a full scan).
+  - `MapFile` v2: u16 heights over min/max, row-delta coded, zlib per 256² tile (parallel), painted control tiles only, an
+    empty background slot for phase 3. Reads v1 (weights → two heaviest layers). 16-bit steps: 7.6 mm per 500 m of range.
+  - Heightmap size (decided): keep `HeightMap` at cells + 1 = 8193². Phase 2 drops the last row/column in the Terrain3D copy
+    (8192² px = exactly 8×8 regions); the phase 3 background ring covers that 3.5 m strip. Keeps the generator, files, queries
+    and every small size unchanged.
+  - `--demo-scale[=cells]` (8193², Mountains, M1 8 GB): generate 2.2 s, first range 19 ms, sculpt tick worst 1.9 ms, paint
+    60 ticks 8 ms, undo/redo ok, save 0.36 s, load 0.19 s, 104 MB file, peak footprint 1.4 GB with two maps alive (spike: 3.6 GB).
+  - Known: `--demo-camera`'s three "first person" zoom checks fail headless (stuck at 16.5 m). Same on the previous commit, so
+    not caused by this work.
 - [ ] **2. Terrain3D renderer**
   - New `Terrain3DBridge.cs`: the only file with Terrain3D `Call("...")` strings (create node, `change_region_size` *after*
     `AddChild`, `vertex_spacing`, collision `DISABLED`, import, push dirty rect, `update_maps`, material params).
   - `Terrain.cs`: remove `TerrainChunk` + per-chunk rebuild. `MarkDirty` collects a rect; `_Process` pushes it once per frame
     (`set_height` loop or region image) + `update_maps`. Paint the same way via the control map. Delete splat `ImageTexture` upload.
   - Port the look (tints, auto layers, height blend, triplanar rock, custom `light()`, brush ring, anchor, contours, grid, edge fog)
-    into a Terrain3D shader override. This is the biggest risk. Compare screenshots with `--cam=1300,700,120,25,30`.
+    into a Terrain3D shader override. Decode our coverage bits (see `SplatMap`). The snow line is an absolute 125 m: at 28 km
+    (ranges up to ~1,100 m) nearly everything is snow, so make it a per-map setting (or relative to the height range). This is the biggest risk. Compare screenshots with `--cam=1300,700,120,25,30`.
   - Queries/raycast stay on `HeightMap`; maybe a coarser first march step for long rays.
 - [ ] **3. 70 km background**
   - `BackgroundMap`: 4097² `HeightMap` over 70 km from the same `TerrainGen` settings (world coords), build area downsampled into the centre.
   - Own coarse ring mesh (17 → 70 → 280 m cells) with a hole for the build area, welded to its border; replaces `TerrainSkirt`.
   - Edge fog moves to the 70 km border; subtle marker on the build border. `CityCamera`: `MaxDistance` → 8–10 km, `Far` → ~80 km,
     pivot stays inside the build area.
-- [ ] **4. Measure + document**: add a `--demo-scale` flag (generate/push/stroke/save/load timings + peak RAM). Targets on the M1:
+- [ ] **4. Measure + document**: extend `--demo-scale` (phase 1: data timings) with Terrain3D push timings and peak RAM. Targets on the M1:
   60 FPS at every zoom, generate < 3 s, load < 2 s, stroke < 4 ms/frame, RAM < 2.5 GB. All `--demo-*` flags still pass at 2 km and 28 km.
 
 Open question: commit the addon (51 MB, every platform) as-is, trim it to macOS, or fetch it with a script like the textures.
@@ -402,3 +425,6 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6: 70 km map = 28 km build area at 3.5 m (8192²) + coarse 70 km background, like CS2. Uniform 2 m over 70 km would be
   1.2B heights (4.9 GB) plus 39 GB of paint weights. Rendering via the Terrain3D addon (user's choice over our own clipmap).
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.
+- M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
+  Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
+  map files store 16-bit heights, like CS2 and heightmap exports.

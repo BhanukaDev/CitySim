@@ -29,7 +29,7 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
 - `src/Terrain/TerrainChunk.cs`: one mesh tile built from the heightmap
 - `src/Terrain/Terrain.cs`: owns the map and chunks, world-space queries, dirty-chunk rebuild hooks
 - `src/Camera/CityCamera.cs`: city-builder orbit camera
-- `src/Terrain/TerrainLayers.cs`, `SplatMap.cs`: ground layer list and engine-agnostic painted layer weights
+- `src/Terrain/TerrainLayers.cs`, `SplatMap.cs`: ground layer list and engine-agnostic painted layers (sparse Terrain3D-style control values)
 - `src/Terrain/Sculpt/PaintOps.cs`: paint/erase brush ops on the splat map
 - `src/Debug/TextureBaker.cs`: packs the layer textures into the strips Godot imports as texture arrays
 - `shaders/terrain.gdshader`: stylized texture splatting (automatic + painted layers, height blend,

@@ -14,7 +14,7 @@ namespace CitySim.TerrainSystem;
 public partial class Terrain : Node3D
 {
     /// <summary>Cell size for maps made from the menu (new, flat, imported).</summary>
-    public const float DefaultCellSize = 2f;
+    public const float DefaultCellSize = GenSettings.DefaultCellSize;
 
     [ExportGroup("Size")]
     [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 1024;
@@ -77,6 +77,11 @@ public partial class Terrain : Node3D
     {
         switch (request)
         {
+            case GeneratedMapRequest { Map: { } map } gen:
+                Settings = gen.Settings;
+                SetMap(map);
+                ShowGeneratorOnStart = gen.ShowGenerator;
+                break;
             case GeneratedMapRequest gen:
                 Generate(gen.Settings);
                 ShowGeneratorOnStart = gen.ShowGenerator;
@@ -162,6 +167,7 @@ public partial class Terrain : Node3D
             return;
         }
         heights.Data.CopyTo(Map.Data);
+        Map.Invalidate();
         Settings = settings;
         MarkDirty(0, 0, Map.Width - 1, Map.Depth - 1);
         UpdateMaterialRange();

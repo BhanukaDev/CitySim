@@ -11,9 +11,10 @@ public abstract record MapRequest;
 
 /// <summary>
 /// A new map made by the generator (noise, a placed heightmap image, or flat). With <paramref name="ShowGenerator"/> the
-/// Map Editor opens with the generator panel showing these settings.
+/// Map Editor opens with the generator panel showing these settings. <paramref name="Map"/> is the result when it was
+/// already generated (the menu does it on a worker, with progress); otherwise the map scene generates it.
 /// </summary>
-public sealed record GeneratedMapRequest(GenSettings Settings, bool ShowGenerator = false) : MapRequest;
+public sealed record GeneratedMapRequest(GenSettings Settings, bool ShowGenerator = false, HeightMap? Map = null) : MapRequest;
 
 /// <summary>A map already read from a file (loaded before the scene change, so errors show in the menu).</summary>
 public sealed record LoadedMapRequest(HeightMap Map, SplatMap Splat, string Path) : MapRequest;

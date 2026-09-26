@@ -2131,6 +2131,38 @@ public class FastNoiseLite
         }
     }
 
+    /// <summary>
+    /// CitySim addition: runs octaves [<paramref name="first"/>, <paramref name="first"/> + <paramref name="count"/>) of a
+    /// <see cref="FractalType.DomainWarpProgressive"/> warp, with the amplitudes the full octave count gives. Running
+    /// every octave in slices, in order, equals <see cref="DomainWarp(ref FNLfloat, ref FNLfloat)"/>, so callers can
+    /// warp the low octaves on a coarse grid and the fine ones per sample, or skip octaves too fine to resolve.
+    /// </summary>
+    public void DomainWarpProgressiveOctaves(ref FNLfloat x, ref FNLfloat y, int first, int count)
+    {
+        int seed = mSeed;
+        float amp = mDomainWarpAmp * mFractalBounding;
+        float freq = mFrequency;
+        for (int i = 0; i < first; i++)
+        {
+            seed++;
+            amp *= mGain;
+            freq *= mLacunarity;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            FNLfloat xs = x;
+            FNLfloat ys = y;
+            TransformDomainWarpCoordinate(ref xs, ref ys);
+
+            DoSingleDomainWarp(seed, amp, freq, xs, ys, ref x, ref y);
+
+            seed++;
+            amp *= mGain;
+            freq *= mLacunarity;
+        }
+    }
+
     private void DomainWarpFractalProgressive(ref FNLfloat x, ref FNLfloat y, ref FNLfloat z)
     {
         int seed = mSeed;

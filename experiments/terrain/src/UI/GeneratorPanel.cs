@@ -19,7 +19,6 @@ public partial class GeneratorPanel : PanelContainer
 {
     private const int PreviewVerts = 257;
     private const double LiveDelay = 0.3;
-    private static readonly (string Label, int Cells)[] Sizes = [("1 km", 512), ("2 km", 1024), ("4 km", 2048)];
 
     public TerrainToolController? Tools { get; set; }
 
@@ -40,6 +39,8 @@ public partial class GeneratorPanel : PanelContainer
     private double _liveTimer = -1;
     private CancellationTokenSource? _job;
     private int _jobId;
+    private float _progress;
+    private bool _generating;
 
     public GeneratorPanel()
     {
@@ -99,6 +100,7 @@ public partial class GeneratorPanel : PanelContainer
 
     public override void _Process(double delta)
     {
+        if (_generating) _status.Text = $"Generating… {Volatile.Read(ref _progress) * 100f:0}%";
         if (_liveTimer < 0) return;
         _liveTimer -= delta;
         if (_liveTimer < 0) Apply();
@@ -136,8 +138,8 @@ public partial class GeneratorPanel : PanelContainer
             _status.Text = GenPresets.All[i].Description;
         }, "Fills the hills and shape settings (keeps size, seed and heightmap)");
         Choice(grid, "Source", ["Noise", "Heightmap image", "Flat"], () => (int)_s.Source, i => _s = _s with { Source = (TerrainSource)i });
-        Choice(grid, "Size", Array.ConvertAll(Sizes, z => z.Label), () => Array.FindIndex(Sizes, z => z.Cells == _s.Cells),
-            i => _s = _s with { Cells = Sizes[i].Cells }, "A new size starts a new map: undo history and painted ground are cleared");
+        Choice(grid, "Size", Array.ConvertAll(MapSize.Offered, z => z.Label), () => Array.FindIndex(MapSize.Offered, z => z.Cells == _s.Cells),
+            i => _s = _s with { Cells = MapSize.Offered[i].Cells, CellSize = GenSettings.DefaultCellSize }, "A new size starts a new map: undo history and painted ground are cleared");
 
         Section(grid, "Hills", _noiseRows);
         var seed = new SpinBox { MinValue = 0, MaxValue = int.MaxValue, Rounded = true, SizeFlagsHorizontal = SizeFlags.ExpandFill };
@@ -386,8 +388,11 @@ public partial class GeneratorPanel : PanelContainer
         var settings = _s;
         var sw = Stopwatch.StartNew();
         _status.Text = "Generating…";
-        Task.Run(() => TerrainGen.Create(settings, job.Token), job.Token).ContinueWith(t =>
+        _progress = 0f;
+        _generating = true;
+        Task.Run(() => TerrainGen.Create(settings, job.Token, f => { if (id == _jobId) Volatile.Write(ref _progress, f); }), job.Token).ContinueWith(t =>
         {
+            Callable.From(() => { if (IsInstanceValid(this) && id == _jobId) _generating = false; }).CallDeferred();
             if (t.IsFaulted)
             {
                 GD.PushError($"Terrain generation failed: {t.Exception}");

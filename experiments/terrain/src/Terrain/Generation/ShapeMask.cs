@@ -13,22 +13,25 @@ public sealed class ShapeMask
     private readonly FastNoiseLite _islands;
     private readonly float _dirX, _dirZ;
 
-    public ShapeMask(ShapeSettings settings, int seed)
+    /// <param name="worldSize">Map size in metres. Bigger maps get finer coastline octaves, so bays and headlands still
+    /// show at the same size in metres.</param>
+    public ShapeMask(ShapeSettings settings, int seed, float worldSize = 2048f)
     {
+        int extra = Math.Max(0, (int)MathF.Round(MathF.Log2(worldSize / 2048f)));
         _s = settings;
         // Wobble for coastlines: a few cycles across the map, with finer octaves for bays and headlands.
         _coast = new FastNoiseLite(seed + 101);
         _coast.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2S);
         _coast.SetFrequency(1.2f);
         _coast.SetFractalType(FastNoiseLite.FractalType.FBm);
-        _coast.SetFractalOctaves(4);
+        _coast.SetFractalOctaves(4 + extra);
         _coast.SetFractalGain(0.5f);
         // Archipelago: blobs a few hundred metres to a kilometre across (on a 2 km map).
         _islands = new FastNoiseLite(seed + 202);
         _islands.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2S);
         _islands.SetFrequency(1.6f);
         _islands.SetFractalType(FastNoiseLite.FractalType.FBm);
-        _islands.SetFractalOctaves(3);
+        _islands.SetFractalOctaves(3 + extra);
         _islands.SetFractalGain(0.45f);
         float a = settings.Direction * (MathF.PI / 180f);
         // 0° = north (z = 0 edge, i.e. -z), 90° = east (+x).

@@ -4,7 +4,10 @@ using Godot;
 using CitySim.App;
 using CitySim.TerrainSystem;
 using CitySim.TerrainSystem.Generation;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CitySim.UI;
 
@@ -13,7 +16,8 @@ namespace CitySim.UI;
 /// heightmap maps open the Map Editor with the generator panel showing, where the details are set with a live preview.
 /// Deliberately plain; the experiment is a tool, not the game. Any command-line flag skips it: --flat[=height] starts an
 /// empty map, --preset=name (e.g. island, coast) and --seed=n pick generator settings, --show-generator opens the panel,
-/// --load=path opens a file, --heightmap=path[,min,max] imports a 16-bit PNG/RAW (range defaults to the one stored in
+/// --size=cells sets the size (8192 = 28.7 km), --coarse=n shows an n² copy of the map (for sizes the chunk renderer
+/// can't draw), --load=path opens a file, --heightmap=path[,min,max] imports a 16-bit PNG/RAW (range defaults to the one stored in
 /// the PNG, else 0–250 m; combines with --preset for a shape), --game starts in game mode, anything else
 /// (--screenshot, --demo-*) the generated default map.
 /// </summary>
@@ -22,13 +26,17 @@ public partial class MainMenu : Control
     public const string ScenePath = "res://scenes/Menu.tscn";
     public const string MapScenePath = "res://scenes/Main.tscn";
 
-    /// <summary>Map sizes offered: label and cell count (cells are 2 m).</summary>
-    private static readonly (string Label, int Cells)[] Sizes = [("1 km", 512), ("2 km", 1024), ("4 km", 2048)];
     private const float DefaultFlatHeight = 40f;
     private const float DefaultImportMin = 0f, DefaultImportMax = 250f;
 
     private Control _main = null!, _newMap = null!;
     private Label _status = null!, _formStatus = null!;
+
+    // New map being generated on a worker before the scene change.
+    private Task<HeightMap>? _generating;
+    private GeneratedMapRequest? _generatingRequest;
+    private float _progress;
+    private readonly Stopwatch _generateTime = new();
 
     public override void _Ready()
     {
@@ -58,6 +66,7 @@ public partial class MainMenu : Control
     private static void ApplyFlags()
     {
         GenSettings? gen = null;
+        int coarse = 0;
         foreach (string arg in OS.GetCmdlineUserArgs())
         {
             if (arg == "--game")
@@ -76,6 +85,10 @@ public partial class MainMenu : Control
                 gen = (gen ?? new GenSettings()) with { Noise = (gen ?? new GenSettings()).Noise with { Seed = seed } };
             else if (arg == "--show-generator")
                 gen ??= new GenSettings();
+            else if (arg.StartsWith("--size=") && int.TryParse(arg["--size=".Length..], out int cells))
+                gen = (gen ?? new GenSettings()) with { Cells = cells };
+            else if (arg.StartsWith("--coarse=") && int.TryParse(arg["--coarse=".Length..], out int verts))
+                coarse = verts;
             else if (arg.StartsWith("--load=") && MapFiles.QueueLoad(arg["--load=".Length..]) is { } error)
                 GD.PushError(error);
             else if (arg.StartsWith("--heightmap="))
@@ -97,7 +110,8 @@ public partial class MainMenu : Control
                 Source = imported.Source, Image = imported.Image, ImageName = imported.ImageName, Placement = imported.Placement,
             };
             bool show = OS.GetCmdlineUserArgs().Contains("--show-generator");
-            MapSession.Pending = new GeneratedMapRequest(gen, show);
+            // --coarse=n: an n² copy of the map over the same area, for looking at maps too big for the chunk renderer.
+            MapSession.Pending = new GeneratedMapRequest(gen, show, coarse > 1 ? TerrainGen.Preview(gen, coarse) : null);
             MapSession.CurrentPath = null;
         }
     }
@@ -111,7 +125,7 @@ public partial class MainMenu : Control
         column.AddChild(grid);
 
         var size = new OptionButton();
-        foreach (var (label, _) in Sizes) size.AddItem(label);
+        foreach (var z in MapSize.Offered) size.AddItem(z.Label);
         size.Selected = 1;
         Row(grid, "Size", size);
 
@@ -173,7 +187,7 @@ public partial class MainMenu : Control
 
         AddButton(column, "Create", () =>
         {
-            int cells = Sizes[size.Selected].Cells;
+            int cells = MapSize.Offered[size.Selected].Cells;
             var settings = new GenSettings { Cells = cells, CellSize = Terrain.DefaultCellSize };
             switch (type.Selected)
             {
@@ -191,12 +205,44 @@ public partial class MainMenu : Control
                     break;
             }
             MapSession.CurrentPath = null;
-            GetTree().ChangeSceneToFile(MapScenePath);
+            StartGenerating();
         });
         AddButton(column, "Back", () => { _newMap.Visible = false; _main.Visible = true; });
         _formStatus = new Label { HorizontalAlignment = HorizontalAlignment.Center, Modulate = UiTheme.TextDim, AutowrapMode = TextServer.AutowrapMode.WordSmart };
         column.AddChild(_formStatus);
         return column;
+    }
+
+    /// <summary>Generates the pending map on a worker; <see cref="_Process"/> shows progress and opens it when done.</summary>
+    private void StartGenerating()
+    {
+        if (MapSession.TakePending() is not GeneratedMapRequest request) return;
+        _generatingRequest = request;
+        _progress = 0f;
+        _generateTime.Restart();
+        _newMap.PropagateCall(BaseButton.MethodName.SetDisabled, [true]);
+        _generating = Task.Run(() => TerrainGen.Create(request.Settings, CancellationToken.None, f => Volatile.Write(ref _progress, f)));
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_generating is not { } task) return;
+        if (!task.IsCompleted)
+        {
+            _formStatus.Text = $"Generating… {Volatile.Read(ref _progress) * 100f:0}%";
+            return;
+        }
+        _generating = null;
+        if (task.IsFaulted)
+        {
+            GD.PushError($"Terrain generation failed: {task.Exception}");
+            _formStatus.Text = "Generation failed (see the log).";
+            _newMap.PropagateCall(BaseButton.MethodName.SetDisabled, [false]);
+            return;
+        }
+        GD.Print($"MainMenu: {task.Result.Width}² map generated in {_generateTime.ElapsedMilliseconds} ms");
+        MapSession.Pending = _generatingRequest! with { Map = task.Result };
+        GetTree().ChangeSceneToFile(MapScenePath);
     }
 
     private static Label Row(GridContainer grid, string name, Control value)

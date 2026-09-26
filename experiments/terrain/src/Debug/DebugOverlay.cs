@@ -14,7 +14,7 @@ namespace CitySim.Debug;
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
-/// --demo-heightmap, --demo-generate, --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
+/// --demo-heightmap, --demo-generate, --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-terrain-textures and --bake-brushes (bake textures / brush masks for import, then quit; see TextureBaker).
 /// </summary>
@@ -63,6 +63,11 @@ public partial class DebugOverlay : CanvasLayer
                 Callable.From(RunHeightmapDemo).CallDeferred();
             else if (arg == "--demo-generate")
                 Callable.From(RunGenerateDemo).CallDeferred();
+            else if (arg == "--demo-scale" || arg.StartsWith("--demo-scale="))
+            {
+                int cells = arg.Length > "--demo-scale=".Length && int.TryParse(arg["--demo-scale=".Length..], out int n) ? n : 8192;
+                Callable.From(() => GetTree().Quit(ScaleDemo.Run(cells) ? 0 : 1)).CallDeferred();
+            }
             else if (arg == "--bake-brushes")
             {
                 bool ok = TextureBaker.BakeBrushes();
@@ -154,11 +159,18 @@ public partial class DebugOverlay : CanvasLayer
         long saveMs = sw.ElapsedMilliseconds;
         var (map2, splat2) = MapFile.Load(path);
         long loadMs = sw.ElapsedMilliseconds - saveMs;
+        // Heights are stored as 16 bits over the map's range: each may move by half a step.
+        var (min, max) = map.GetRange();
+        float maxErr = 0f;
+        for (int i = 0; i < map.Data.Length; i++)
+            maxErr = MathF.Max(maxErr, MathF.Abs(map2.Data[i] - map.Data[i]));
+        float step = (max - min) / 65535f;
         bool ok = map2.Width == map.Width && map2.Depth == map.Depth && map2.CellSize == map.CellSize &&
-                  map2.Data.SequenceEqual(map.Data) && splat2.Data.SequenceEqual(splat.Data);
+                  maxErr <= step * 0.5f + 1e-4f && splat2.Snapshot().AsSpan().SequenceEqual(splat.Snapshot());
         long kb = new System.IO.FileInfo(path).Length / 1024;
         Terrain.SetMap(map2, splat2);
-        GD.Print($"Demo mapfile: round trip {(ok ? "ok" : "FAILED")} ({kb} KB, save {saveMs} ms, load {loadMs} ms)");
+        GD.Print($"Demo mapfile: round trip {(ok ? "ok" : "FAILED")} ({kb} KB, save {saveMs} ms, load {loadMs} ms, " +
+                 $"max height error {maxErr * 1000:0.##} mm, painted tiles {splat.AllocatedTiles})");
     }
 
     /// <summary>

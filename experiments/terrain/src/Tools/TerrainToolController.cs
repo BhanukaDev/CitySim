@@ -399,11 +399,8 @@ public partial class TerrainToolController : Node
     {
         if (!IsStroking) return;
         _strokeButton = MouseButton.None;
-        if (Terrain?.Map is { } map && Terrain.Splat is { } splat)
-        {
-            History.EndStroke(map, splat);
-            Terrain.RefreshHeightRange();
-        }
+        History.EndStroke();
+        Terrain?.RefreshHeightRange();
     }
 
     private void ApplyTick(Vector3 hit, float dt)
@@ -414,14 +411,16 @@ public partial class TerrainToolController : Node
         if (_tool == TerrainTool.Paint)
         {
             if (Terrain.Splat is not { } splat) return;
+            History.Touch(splat.CircleRect(c.X, c.Y, brush.Radius));
             var painted = _strokeSign > 0f
                 ? PaintOps.Paint(splat, c, brush, _paintLayer, dt)
                 : PaintOps.Erase(splat, c, brush, dt);
-            History.Touch(painted);
             Terrain.MarkSplatDirty(painted);
             return;
         }
         float oy = Terrain.GlobalPosition.Y;
+        // Every sculpt op stays inside the brush's bounding square.
+        History.Touch(map.CircleRect(c.X, c.Y, brush.Radius));
         var rect = _tool switch
         {
             TerrainTool.Shift => SculptOps.Shift(map, c, brush, _strokeSign, dt, _maxSlope),
@@ -431,7 +430,6 @@ public partial class TerrainToolController : Node
                 SculptOps.Slope(map, c, brush, ToLocal2(a), a.Y - oy, ToLocal2(_slopeEnd), _slopeEnd.Y - oy, dt),
             _ => VertexRect.Empty,
         };
-        History.Touch(rect);
         Terrain.MarkDirty(rect);
     }
 

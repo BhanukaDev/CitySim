@@ -25,6 +25,13 @@ public sealed record NoiseSettings
     public float WarpAmplitude { get; init; } = 60f;
     /// <summary>fBm gain: how much each finer octave adds (roughness).</summary>
     public float Gain { get; init; } = 0.42f;
+    /// <summary>
+    /// Size of the largest landforms on big maps (mountain ranges vs. plains), in metres. Only maps over 4 km use it,
+    /// fully from 16 km (see <see cref="TerrainGen.RegionWeight"/>); smaller maps are one region.
+    /// </summary>
+    public float RegionSize { get; init; } = 10000f;
+    /// <summary>0 = hills look the same everywhere, 1 = strong contrast between ranges and plains.</summary>
+    public float RegionStrength { get; init; } = 0.7f;
 }
 
 /// <summary>
@@ -62,15 +69,34 @@ public sealed record ImagePlacement
     public EdgeMode Edges { get; init; } = EdgeMode.Clamp;
 }
 
+/// <summary>A map size offered in the menus: <paramref name="Cells"/> per side at <see cref="GenSettings.DefaultCellSize"/>.</summary>
+/// <param name="NeedsTerrain3D">Too big for the chunk renderer; hidden in the menus until the Terrain3D renderer lands (M6 phase 2).</param>
+public sealed record MapSize(string Label, int Cells, bool NeedsTerrain3D = false)
+{
+    /// <summary>
+    /// Powers of two, so the build area fills whole Terrain3D regions. 28 km is the M6 build area (8192 × 3.5 m, CS2-sized).
+    /// </summary>
+    public static readonly MapSize[] All =
+    [
+        new("1.8 km", 512), new("3.6 km", 1024), new("7.2 km", 2048), new("28.7 km", 8192, NeedsTerrain3D: true),
+    ];
+
+    /// <summary>The sizes the menus offer now.</summary>
+    public static MapSize[] Offered => System.Array.FindAll(All, z => !z.NeedsTerrain3D);
+}
+
 /// <summary>
 /// Everything that decides a generated map. Engine-agnostic, and cheap to copy with <c>with</c>, so the generator panel
 /// can keep one per change and the generator can run it on another thread.
 /// </summary>
 public sealed record GenSettings
 {
+    /// <summary>Spacing of height vertices for new maps, in metres (as in CS2).</summary>
+    public const float DefaultCellSize = 3.5f;
+
     /// <summary>Map size in cells per side (vertices = cells + 1).</summary>
     public int Cells { get; init; } = 1024;
-    public float CellSize { get; init; } = 2f;
+    public float CellSize { get; init; } = DefaultCellSize;
     public TerrainSource Source { get; init; } = TerrainSource.Noise;
     public NoiseSettings Noise { get; init; } = new();
     public ShapeSettings Shape { get; init; } = new();
