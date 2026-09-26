@@ -95,6 +95,65 @@ public sealed class HeightMap
         return MathF.Acos(ny) * (180f / MathF.PI);
     }
 
+    /// <summary>
+    /// Softens creases with repeated 3x3 weighted blurs (1-2-1 kernel). Edges are clamped,
+    /// so the map keeps its size and chunk borders stay seamless.
+    /// </summary>
+    public void Smooth(int passes)
+    {
+        if (passes <= 0) return;
+        var tmp = new float[_heights.Length];
+        for (int p = 0; p < passes; p++)
+        {
+            for (int z = 0; z < Depth; z++)
+            {
+                for (int x = 0; x < Width; x++)
+                {
+                    float sum =
+                        4f * GetHeightClamped(x, z) +
+                        2f * (GetHeightClamped(x - 1, z) + GetHeightClamped(x + 1, z) +
+                              GetHeightClamped(x, z - 1) + GetHeightClamped(x, z + 1)) +
+                        GetHeightClamped(x - 1, z - 1) + GetHeightClamped(x + 1, z - 1) +
+                        GetHeightClamped(x - 1, z + 1) + GetHeightClamped(x + 1, z + 1);
+                    tmp[z * Width + x] = sum / 16f;
+                }
+            }
+            Array.Copy(tmp, _heights, _heights.Length);
+        }
+    }
+
+    /// <summary>Vertices within the square bounding a circle at a local position (world units), clamped to the map.</summary>
+    public VertexRect CircleRect(float cx, float cz, float radius)
+    {
+        int minX = Math.Max(0, (int)MathF.Floor((cx - radius) / CellSize));
+        int minZ = Math.Max(0, (int)MathF.Floor((cz - radius) / CellSize));
+        int maxX = Math.Min(Width - 1, (int)MathF.Ceiling((cx + radius) / CellSize));
+        int maxZ = Math.Min(Depth - 1, (int)MathF.Ceiling((cz + radius) / CellSize));
+        return new VertexRect(minX, minZ, maxX, maxZ);
+    }
+
+    /// <summary>Copy of every height, row-major. Used as the "before" state of an edit.</summary>
+    public float[] Snapshot() => (float[])_heights.Clone();
+
+    /// <summary>Heights inside a rectangle, row-major.</summary>
+    public float[] CopyRegion(VertexRect r) => CopyRegion(_heights, Width, r);
+
+    /// <summary>Crops a rectangle out of a full-map array such as one from <see cref="Snapshot"/>.</summary>
+    public static float[] CopyRegion(float[] source, int sourceWidth, VertexRect r)
+    {
+        var data = new float[r.Width * r.Depth];
+        for (int z = 0; z < r.Depth; z++)
+            Array.Copy(source, (r.MinZ + z) * sourceWidth + r.MinX, data, z * r.Width, r.Width);
+        return data;
+    }
+
+    /// <summary>Writes heights previously taken with <see cref="CopyRegion(VertexRect)"/> back into the map.</summary>
+    public void PasteRegion(VertexRect r, float[] data)
+    {
+        for (int z = 0; z < r.Depth; z++)
+            Array.Copy(data, z * r.Width, _heights, (r.MinZ + z) * Width + r.MinX, r.Width);
+    }
+
     public (float Min, float Max) GetRange()
     {
         float min = float.MaxValue, max = float.MinValue;

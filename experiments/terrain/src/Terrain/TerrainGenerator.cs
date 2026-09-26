@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace CitySim.TerrainSystem;
@@ -8,22 +9,32 @@ public readonly record struct TerrainGenSettings(
     int Octaves,
     float HeightScale,
     float Flatness,
-    float WarpAmplitude);
+    float WarpAmplitude,
+    float Gain,
+    int SmoothPasses);
 
 /// <summary>Fills a <see cref="HeightMap"/> with procedural noise shaped for city building.</summary>
 public static class TerrainGenerator
 {
+    // Finest octave must span at least this many cells, or it aliases into spikes.
+    private const float MinWavelengthCells = 8f;
+
     public static void Generate(HeightMap map, TerrainGenSettings s)
     {
+        // With lacunarity 2, octave k has wavelength 1 / (Frequency * 2^k); drop octaves the grid can't resolve.
+        float maxOctaves = 1f + MathF.Log2(1f / (s.Frequency * MinWavelengthCells * map.CellSize));
+        int octaves = Math.Clamp(Math.Min(s.Octaves, (int)maxOctaves), 1, s.Octaves);
+
         var detail = new FastNoiseLite
         {
             Seed = s.Seed,
             NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth,
             Frequency = s.Frequency,
             FractalType = FastNoiseLite.FractalTypeEnum.Fbm,
-            FractalOctaves = s.Octaves,
+            FractalOctaves = octaves,
             FractalLacunarity = 2f,
-            FractalGain = 0.5f,
+            // Gain below 0.5 makes each finer octave contribute less slope than the last.
+            FractalGain = s.Gain,
             DomainWarpEnabled = s.WarpAmplitude > 0f,
             DomainWarpType = FastNoiseLite.DomainWarpTypeEnum.SimplexReduced,
             DomainWarpAmplitude = s.WarpAmplitude,
@@ -54,5 +65,7 @@ public static class TerrainGenerator
                 map[x, z] = h01 * s.HeightScale;
             }
         }
+
+        map.Smooth(s.SmoothPasses);
     }
 }

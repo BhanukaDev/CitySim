@@ -61,8 +61,18 @@ public partial class TerrainChunk : MeshInstance3D
                 int b = a + 1;
                 int c = a + vx;
                 int d = c + 1;
-                indices[k++] = a; indices[k++] = b; indices[k++] = d;
-                indices[k++] = a; indices[k++] = d; indices[k++] = c;
+                // Split along the diagonal whose corners are closest in height so ridges
+                // and valleys follow the terrain instead of zig-zagging across it.
+                if (Mathf.Abs(vertices[a].Y - vertices[d].Y) <= Mathf.Abs(vertices[b].Y - vertices[c].Y))
+                {
+                    indices[k++] = a; indices[k++] = b; indices[k++] = d;
+                    indices[k++] = a; indices[k++] = d; indices[k++] = c;
+                }
+                else
+                {
+                    indices[k++] = a; indices[k++] = b; indices[k++] = c;
+                    indices[k++] = b; indices[k++] = d; indices[k++] = c;
+                }
             }
         }
 

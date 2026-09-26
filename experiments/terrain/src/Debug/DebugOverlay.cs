@@ -1,6 +1,7 @@
 using Godot;
 using CitySim.CameraSystem;
 using CitySim.TerrainSystem;
+using CitySim.Tools;
 
 namespace CitySim.Debug;
 
@@ -13,6 +14,7 @@ public partial class DebugOverlay : CanvasLayer
 {
     [Export] public CityCamera? CityCamera { get; set; }
     [Export] public Terrain? Terrain { get; set; }
+    [Export] public TerrainToolController? Tools { get; set; }
 
     private Label _label = null!;
     private double _refresh;
@@ -33,6 +35,8 @@ public partial class DebugOverlay : CanvasLayer
                 _screenshotPath = arg["--screenshot=".Length..];
             else if (arg.StartsWith("--screenshot-frames=") && int.TryParse(arg["--screenshot-frames=".Length..], out int f))
                 _screenshotFrames = f;
+            else if (arg == "--demo-sculpt" && Tools is not null)
+                Callable.From(Tools.RunDemo).CallDeferred();
         }
     }
 
@@ -60,7 +64,15 @@ public partial class DebugOverlay : CanvasLayer
             if (Terrain?.Map is not null)
                 text += $"\nSlope at pivot {Terrain.GetSlopeDegrees(p.X, p.Z):0.0}°";
         }
-        text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom";
+        if (Tools is not null && Terrain is not null)
+        {
+            text += $"\nTool {Tools.Tool}";
+            if (Tools.Cursor is { } c)
+                text += $"  ·  cursor height {c.Y:0.0} m, slope {Terrain.GetSlopeDegrees(c.X, c.Z):0.0}°";
+            text += $"\nLast rebuild {Terrain.LastRebuildChunks} chunks in {Terrain.LastRebuildMs:0.0} ms";
+        }
+        text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
+                "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool";
         _label.Text = text;
     }
 }

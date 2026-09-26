@@ -24,6 +24,8 @@ public partial class Terrain : Node3D
     [Export(PropertyHint.Range, "0,1000,1,suffix:m")] public float HeightScale { get; set; } = 250f;
     [Export(PropertyHint.Range, "0,1,0.01")] public float Flatness { get; set; } = 0.45f;
     [Export(PropertyHint.Range, "0,500,1,suffix:m")] public float WarpAmplitude { get; set; } = 60f;
+    [Export(PropertyHint.Range, "0.2,0.6,0.01")] public float Gain { get; set; } = 0.42f;
+    [Export(PropertyHint.Range, "0,8")] public int SmoothPasses { get; set; } = 2;
 
     [ExportGroup("Rendering")]
     [Export] public Material? Material { get; set; }
@@ -41,7 +43,25 @@ public partial class Terrain : Node3D
         ? new Rect2()
         : new Rect2(GlobalPosition.X, GlobalPosition.Z, Map.SizeX, Map.SizeZ);
 
-    public override void _Ready() => Generate();
+    /// <summary>Time spent rebuilding dirty chunks in the last frame that had edits.</summary>
+    public double LastRebuildMs { get; private set; }
+    public int LastRebuildChunks { get; private set; }
+
+    public override void _Ready()
+    {
+        // Run after tools so edits made this frame are rebuilt this frame.
+        ProcessPriority = 100;
+        Generate();
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_dirty.Count == 0) return;
+        var sw = Stopwatch.StartNew();
+        LastRebuildChunks = _dirty.Count;
+        RebuildDirty();
+        LastRebuildMs = sw.Elapsed.TotalMilliseconds;
+    }
 
     public void Generate()
     {
@@ -55,7 +75,7 @@ public partial class Terrain : Node3D
         _dirty.Clear();
 
         Map = new HeightMap(CellsX + 1, CellsZ + 1, CellSize);
-        TerrainGenerator.Generate(Map, new TerrainGenSettings(Seed, Frequency, Octaves, HeightScale, Flatness, WarpAmplitude));
+        TerrainGenerator.Generate(Map, new TerrainGenSettings(Seed, Frequency, Octaves, HeightScale, Flatness, WarpAmplitude, Gain, SmoothPasses));
         long genMs = sw.ElapsedMilliseconds;
 
         UpdateMaterialRange();
@@ -104,7 +124,95 @@ public partial class Terrain : Node3D
         return Map.SampleSlopeDegrees(worldX - o.X, worldZ - o.Z);
     }
 
-    // --- Editing hooks (used by sculpt tools in a later milestone) ---
+    /// <summary>
+    /// Intersects a world-space ray with the terrain by ray-marching the heightmap, then refining
+    /// with a binary search. No physics bodies involved.
+    /// </summary>
+    public bool Raycast(Vector3 origin, Vector3 direction, out Vector3 hit, float maxDistance = 8000f)
+    {
+        hit = default;
+        if (Map is null || direction.IsZeroApprox()) return false;
+        var dir = direction.Normalized();
+
+        // Clip the ray to the terrain's XZ bounds (slab test).
+        var b = Bounds;
+        float tEnter = 0f, tExit = maxDistance;
+        if (!ClipSlab(origin.X, dir.X, b.Position.X, b.End.X, ref tEnter, ref tExit) ||
+            !ClipSlab(origin.Z, dir.Z, b.Position.Y, b.End.Y, ref tEnter, ref tExit))
+            return false;
+
+        float step = Map.CellSize;
+        float tPrev = tEnter;
+        if (Above(tPrev) <= 0f)
+        {
+            hit = origin + dir * tPrev;
+            return true;
+        }
+        for (float t = tEnter + step; t <= tExit + step; t += step)
+        {
+            float tc = Mathf.Min(t, tExit);
+            if (Above(tc) <= 0f)
+            {
+                float lo = tPrev, hi = tc;
+                for (int i = 0; i < 16; i++)
+                {
+                    float mid = 0.5f * (lo + hi);
+                    if (Above(mid) > 0f) lo = mid; else hi = mid;
+                }
+                var p = origin + dir * hi;
+                hit = new Vector3(p.X, GetHeight(p.X, p.Z), p.Z);
+                return true;
+            }
+            tPrev = tc;
+            if (tc >= tExit) break;
+        }
+        return false;
+
+        float Above(float t)
+        {
+            var p = origin + dir * t;
+            return p.Y - GetHeight(p.X, p.Z);
+        }
+    }
+
+    private static bool ClipSlab(float o, float d, float min, float max, ref float tEnter, ref float tExit)
+    {
+        if (Mathf.Abs(d) < 1e-8f)
+            return o >= min && o <= max;
+        float t0 = (min - o) / d, t1 = (max - o) / d;
+        if (t0 > t1) (t0, t1) = (t1, t0);
+        tEnter = Mathf.Max(tEnter, t0);
+        tExit = Mathf.Min(tExit, t1);
+        return tEnter <= tExit;
+    }
+
+    // --- Editing hooks ---
+
+    /// <summary>Marks the chunks touching a vertex rectangle dirty. They're rebuilt at the end of the frame.</summary>
+    public void MarkDirty(VertexRect r)
+    {
+        if (!r.IsEmpty) MarkDirty(r.MinX, r.MinZ, r.MaxX, r.MaxZ);
+    }
+
+    /// <summary>Recomputes the height colouring range. Call after a stroke, not during it.</summary>
+    public void RefreshHeightRange() => UpdateMaterialRange();
+
+    /// <summary>Shows the brush ring in the terrain shader.</summary>
+    public void SetBrush(Vector3 worldPos, float radius, bool visible)
+    {
+        if (Material is not ShaderMaterial sm) return;
+        sm.SetShaderParameter("brush_visible", visible);
+        sm.SetShaderParameter("brush_pos", worldPos);
+        sm.SetShaderParameter("brush_radius", radius);
+    }
+
+    /// <summary>Shows a marker at the slope tool's start point, with a guide line to the brush.</summary>
+    public void SetAnchor(Vector3? worldPos)
+    {
+        if (Material is not ShaderMaterial sm) return;
+        sm.SetShaderParameter("anchor_visible", worldPos.HasValue);
+        if (worldPos.HasValue) sm.SetShaderParameter("anchor_pos", worldPos.Value);
+    }
 
     /// <summary>Marks every chunk touching the given inclusive vertex range as needing a rebuild.</summary>
     public void MarkDirty(int minX, int minZ, int maxX, int maxZ)

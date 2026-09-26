@@ -73,7 +73,8 @@ public partial class CityCamera : Node3D
 
 	public override void _UnhandledInput(InputEvent @event)
 	{
-		if (@event is InputEventMouseButton { Pressed: true } mb)
+		// Shift/Alt + wheel belong to the sculpt brush (size/strength).
+		if (@event is InputEventMouseButton { Pressed: true, ShiftPressed: false, AltPressed: false } mb)
 		{
 			if (mb.ButtonIndex == MouseButton.WheelUp)
 				_targetDistance *= 1f - WheelZoomStep;
