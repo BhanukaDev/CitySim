@@ -48,8 +48,10 @@ public partial class CityCamera : Node3D
 	[Export(PropertyHint.Range, "100,5000,10,suffix:m")] public float MaxDistance { get; set; } = 1800f;
 	/// <summary>Offset making zoom logarithmic while still reaching distance 0.</summary>
 	[Export(PropertyHint.Range, "1,50,1,suffix:m")] public float ZoomOffset { get; set; } = 8f;
-	[Export(PropertyHint.Range, "-89,89,1,suffix:°")] public float MinPitchNear { get; set; } = -10f;
+	[Export(PropertyHint.Range, "-89,89,1,suffix:°")] public float MinPitchNear { get; set; } = -30f;
 	[Export(PropertyHint.Range, "-89,89,1,suffix:°")] public float MinPitchFar { get; set; } = 40f;
+	/// <summary>Steepest downward look in first person. 0 keeps the eye level; looking up is still allowed.</summary>
+	[Export(PropertyHint.Range, "-89,89,1,suffix:°")] public float MaxPitchNear { get; set; } = 0f;
 	[Export(PropertyHint.Range, "1,89,1,suffix:°")] public float MaxPitch { get; set; } = 89f;
 	[Export(PropertyHint.Range, "0,4,0.1,suffix:m")] public float EyeHeight { get; set; } = 1.7f;
 	[Export(PropertyHint.Range, "0,50,0.5,suffix:m")] public float ClearanceNear { get; set; } = 1f;
@@ -71,7 +73,9 @@ public partial class CityCamera : Node3D
 	private Vector3 _targetPivot;
 	private float _targetYaw, _targetPitch, _targetDistance;
 	private float _yaw, _pitch, _distance;
-	private float _lift; // metres the camera is raised to clear hills
+	// Camera rise to clear hills, as a fraction of the orbit distance. Stored relative to distance so zooming in
+	// shrinks it with the orbit: an absolute lift left over at distance ~0 would point the view straight down.
+	private float _liftRatio;
 
 	public Camera3D Camera => _camera;
 	public Vector3 Pivot => Position;
@@ -130,8 +134,10 @@ public partial class CityCamera : Node3D
 		return logDelta < 0f && n < MinDistance + 0.3f ? MinDistance : n;
 	}
 
+	/// <remarks>The max opens up quickly (by ~20 m orbit) so a slightly zoomed-out view can already look down.</remarks>
 	private float ClampPitch(float pitch, float z) =>
-		Mathf.Clamp(pitch, Mathf.Lerp(MinPitchNear, MinPitchFar, Smooth01(z)), MaxPitch);
+		Mathf.Clamp(pitch, Mathf.Lerp(MinPitchNear, MinPitchFar, Smooth01(z)),
+			Mathf.Lerp(MaxPitchNear, MaxPitch, Smooth01(Mathf.Min(1f, 3f * z))));
 
 	private static float Smooth01(float t) => t * t * (3f - 2f * t);
 
@@ -273,15 +279,17 @@ public partial class CityCamera : Node3D
 		// slow down) instead of stepping the pitch, so crossing mountains doesn't pop.
 		bool terrain = Terrain?.Map is not null && _distance > 0.5f;
 		float required = terrain ? RequiredLift(horiz, up, Mathf.Lerp(ClearanceNear, ClearanceFar, zoom)) : 0f;
-		_lift = dt < 0f ? required
-			: Mathf.Lerp(_lift, required, 1f - Mathf.Exp(-(required > _lift ? 12f : 2.5f) * dt));
+		float requiredRatio = terrain ? required / _distance : 0f;
+		_liftRatio = dt < 0f ? requiredRatio
+			: Mathf.Lerp(_liftRatio, requiredRatio, 1f - Mathf.Exp(-(requiredRatio > _liftRatio ? 12f : 2.5f) * dt));
 		// The smoothed lift may eat into the clearance but must never let the camera touch the ground.
-		if (terrain) _lift = Mathf.Max(_lift, RequiredLift(horiz, up, 0.3f));
+		if (terrain) _liftRatio = Mathf.Max(_liftRatio, RequiredLift(horiz, up, 0.3f) / _distance);
 
-		float camUp = up + _lift;
+		// Angle from the unit orbit, so it stays defined at distance 0 (first person looks along the pitch).
+		float camUpUnit = Mathf.Sin(p) + _liftRatio, horizUnit = Mathf.Cos(p);
 		Rotation = new Vector3(0f, Mathf.DegToRad(_yaw), 0f);
-		_tilt.Rotation = new Vector3(-Mathf.Atan2(camUp, horiz), 0f, 0f);
-		_camera.Position = new Vector3(0f, 0f, Mathf.Sqrt(horiz * horiz + camUp * camUp));
+		_tilt.Rotation = new Vector3(-Mathf.Atan2(camUpUnit, horizUnit), 0f, 0f);
+		_camera.Position = new Vector3(0f, 0f, _distance * Mathf.Sqrt(horizUnit * horizUnit + camUpUnit * camUpUnit));
 		_camera.Near = Mathf.Lerp(0.1f, 2f, zoom);
 	}
 
@@ -360,6 +368,18 @@ public partial class CityCamera : Node3D
 		for (int i = 0; i < 40; i++) { Wheel(MouseButton.WheelUp); await Frames(2); }
 		await Frames(60);
 		Check("wheel zooms back into first person", _distance == 0f);
+		// Z from a hilly zoomed-out view into first person: the view must follow the pitch, not stay pointed down.
+		JumpTo(center, 150f, 20f, 0f);
+		await Frames(30);
+		await Hold("cam_zoom_in", 180);
+		await Frames(90);
+		float viewPitch = -Mathf.RadToDeg(_tilt.Rotation.X);
+		Check($"Z into first person looks at eye level (view {viewPitch:0})",
+			_distance == 0f && Mathf.Abs(viewPitch - _pitch) < 3f && viewPitch <= MaxPitchNear + 0.5f);
+		await Hold("cam_tilt_up", 60);
+		Check($"first person can't look down (view {-Mathf.RadToDeg(_tilt.Rotation.X):0})", -Mathf.RadToDeg(_tilt.Rotation.X) <= MaxPitchNear + 0.5f);
+		await Hold("cam_tilt_down", 20);
+		Check($"first person can look up (view {-Mathf.RadToDeg(_tilt.Rotation.X):0})", -Mathf.RadToDeg(_tilt.Rotation.X) < MaxPitchNear - 3f);
 
 		// Walk west into the edge, then rotate while zoomed out: camera must stay inside the margin.
 		JumpTo(center, 300f, 30f, 90f);

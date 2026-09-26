@@ -38,13 +38,15 @@ Cities: Skylines-style city builder. When it's stable, it's merged into the main
 | Mouse at window edge | pan, only if `EdgeScroll` is on (off by default) |
 
 Behaviour depends on zoom `z` (0 = first person, 1 = god view, log-scaled): orbit radius reaches 0 (FPV at
-eye height, can look up to -10°), min pitch rises -10 -> 40°, near plane and ground clearance grow.
+eye height, locked to eye level or above: can look up to -30° but not down), min pitch rises -30 -> 40°, max pitch
+opens 0 -> 89° by ~20 m orbit, near plane and ground clearance grow.
 Edge margin: the pivot **and the camera itself** stay `EdgeMargin` (200 m) inside the terrain edge, so walking or
 rotating pushes the pivot inward instead of swinging out over the edge.
 Smoothness: pivot height is the ground averaged over a footprint of ~12% of the zoom distance and follows slowly when
 zoomed out (fast in FPV); hills are cleared by smoothly lifting the camera along a 32-sample line of sight (fast up,
-slow down) rather than stepping the pitch.
-`--demo-camera` feeds real input events (Z/X, wheel, WASD, Q/E) and checks zoom out of FPV and the margin
+slow down) rather than stepping the pitch. The lift is stored as a fraction of the orbit distance so it shrinks
+on zoom-in (an absolute lift left at distance ~0 pointed the view straight down).
+`--demo-camera` feeds real input events (Z/X, wheel, WASD, Q/E) and checks zoom in/out of FPV, the FPV eye-level lock and the margin
 plus frame-to-frame jerk while flying over the mountains at four zooms (prints `Demo camera: all ok`).
 
 ## How to build / verify
