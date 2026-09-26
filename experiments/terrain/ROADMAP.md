@@ -59,6 +59,7 @@ $G --headless --path . --quit-after 120                        # runtime errors,
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
 # extra flags: --demo-sculpt / --demo-paint / --demo-camera (scripted strokes + undo check), --cam=x,z,distance,pitch,yaw (close-ups)
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
+tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
 ```
 
 VS Code (repo-root `.vscode/`): F5 "Terrain: Play" builds and runs with the C# debugger attached (also
@@ -121,7 +122,8 @@ Tools (user-specified):
 | Smooth | smooth | – |
 | Slope | press at end point B and drag: pulls ground toward ramp A→B | set start point A |
 
-Brush: `[` `]` or Shift+wheel for size (the UI shows diameter, 16–800 m; code uses radius), Alt+wheel for strength. Ctrl/Cmd+Z undo,
+Brush: `[` `]` or Shift+wheel for size (the UI shows diameter, 16–800 m; code uses radius), Alt+wheel for strength,
+hold Ctrl + move mouse to rotate (brush stays put), Ctrl+Q/E 15° steps (Ctrl+Shift 45°), Ctrl+wheel 5°. `C` toggles contours. Ctrl/Cmd+Z undo,
 Ctrl/Cmd+Shift+Z or Ctrl+Y redo, Esc deselects the tool. Clicks on UI panels never reach the terrain.
 
 Measured on an M1 (debug build): at 4 m cells a 60 m-radius brush rebuilt 8 chunks in ~8 ms. At 2 m cells
@@ -194,6 +196,34 @@ Next:
 - Splat save/load belongs with M4
 - Possibly: per-layer tile sizes, a brush that paints only on slopes above or below an angle
 
+### 🔶 M3.1: Edge fog (implemented, waiting for the user to test)
+Hides the map's hard edges and corners behind a fog bank. This is separate from the distance fog in the Environment.
+- `terrain.gdshader` `EdgeFog` group: the ground fades into an unlit fog colour (emission, no lighting or specular)
+  over `edge_fog_width` metres from the border. Corners are rounded (`edge_fog_corner_radius`), and two drifting noise
+  octaves push the fog line inward by up to `edge_fog_wobble` so it billows. `Terrain` sets `terrain_origin`/`terrain_size`.
+- `TerrainSkirt` (child of `Terrain`, same material): a ring mesh whose inner loop is the terrain's border vertices, so
+  there's no gap, then sinks below the lowest point and spreads 11 km out. Everything outside the bounds is pure fog in
+  the shader, so the skirt reads as a fog floor instead of the sky showing under the map. Corners are fanned. It's rebuilt
+  when a sculpt edit touches the border. No shadows.
+- Check with `--cam=250,250,1500,40,225` (whole map, corner in front) and `--cam=260,260,450,30,45` (corner close-up).
+- Known: a faint line where the skirt ends at the horizon (distance fog colour vs sky horizon colour). With the 200 m
+  camera margin, the pivot can sit inside the thinner part of the fog. Tune width and wobble if that bothers the user.
+
+### 🔶 M3.2: Brush textures and rotation (implemented, waiting for the user to test)
+- 9 brushes (`BrushLibrary`, `src/Tools/`): Soft Round (the old falloff, default), 5 terrain stamps from
+  [Roland09/Terrain-Stamps](https://github.com/Roland09/Terrain-Stamps) (MIT: Hills, Ridged, Plateau, Plateau Talus, Terraces)
+  and 3 generated paint alphas (Splatter, Noise Patch, Streaks).
+- `tools/fetch_brushes.sh` downloads the 2048² 16-bit stamps to `assets/brushes/src/` (gitignored) and runs
+  `--bake-brushes` (`TextureBaker.BakeBrushes`): crop to content, 256² L8, normalise, radial edge fade. The baked
+  `assets/brushes/*.png` (~15 KB each) and `LICENSE.md` are committed. `detect_3d` is off in their `.import` so they stay lossless.
+- Engine-agnostic `BrushMask`; `Brush(Radius, Strength, Mask, Angle)` with `Weight(dx, dz)`. `SculptOps`/`PaintOps` visit with
+  weights instead of distances. Masks apply to Shift, Level, Smooth and Paint; Slope stays round. Shift's built-in rounding is
+  ¼ strength for masked brushes so the detail survives.
+- Rotation modes (config panel button): Fixed, Random (new angle per click), Follow (turns along the drag).
+- Shader preview: the fill shows the rotated mask (`brush_mask`, `brush_angle`), plus a tick on the ring at the brush angle.
+- Contours now show with no tool selected too (toggle with `C`).
+- `--demo-sculpt` stamps Ridged (45°) and Terraces on a levelled pad; `--demo-paint` paints Splatter and Streaks (30°).
+
 ### ⬜ M4: Save / load + heightmap import
 - Binary save of the heightmap and splat map (versioned header), load back
 - Import a 16-bit PNG/RAW heightmap (real-world DEM data) and export as well
@@ -220,7 +250,7 @@ Next:
 
 ### Nice-to-have / ideas
 - Hydraulic + thermal erosion (a good first C++ GDExtension candidate)
-- Edge-of-map treatment (distant "fake" terrain ring beyond the playable area)
+- Edge-of-map: the M3.1 skirt is flat fog. A real fake-terrain ring (low-poly hills fading into the fog) could replace it
 - Camera: double-click to focus
 
 ---
@@ -241,3 +271,6 @@ Next:
   stored per vertex (2 m), and height blending adds sharper detail at the borders.
 - M3: sand swapped from Ground080 (strong ridges, ugly when painted on slopes) to Ground101 (fine, smooth grain).
 - M3: rock swapped from Rock060 (marble-like veins) to Rock051 (layered ledges, which read better as cliffs).
+- M3.2: brush rotation copies the CS1 RotateBrush mods (neither CS1 nor CS2 rotates terrain brushes without mods): hold Ctrl + move mouse,
+  Ctrl+Q/E steps. Not right-drag like CS buildings, because RMB already lowers/picks/erases. The camera ignores Q/E while Ctrl is held.
+- M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.

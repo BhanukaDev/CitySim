@@ -11,3 +11,6 @@ screenshots/
 assets/textures/terrain/**/*.jpg
 assets/textures/terrain/**/.gdignore
 assets/textures/terrain/*.png
+
+# Source stamps for the brush masks (large); recreate with tools/fetch_brushes.sh. The baked masks are committed.
+assets/brushes/src/

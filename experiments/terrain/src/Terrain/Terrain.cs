@@ -35,6 +35,8 @@ public partial class Terrain : Node3D
 
     private readonly Dictionary<Vector2I, TerrainChunk> _chunks = new();
     private readonly HashSet<Vector2I> _dirty = new();
+    private TerrainSkirt? _skirt;
+    private bool _skirtDirty;
 
     // Painted layer weights, uploaded to the shader as two RGBA8 textures (layers 0-3 and 4-7).
     private byte[] _splatBytes0 = [], _splatBytes1 = [];
@@ -77,6 +79,11 @@ public partial class Terrain : Node3D
     public override void _Process(double delta)
     {
         UploadSplat();
+        if (_skirtDirty)
+        {
+            _skirtDirty = false;
+            _skirt?.Rebuild();
+        }
         if (_dirty.Count == 0) return;
         var sw = Stopwatch.StartNew();
         LastRebuildChunks = _dirty.Count;
@@ -90,7 +97,7 @@ public partial class Terrain : Node3D
 
         // Free every existing chunk, including ones left over from an editor script reload.
         foreach (var child in GetChildren())
-            if (child is TerrainChunk)
+            if (child is TerrainChunk or TerrainSkirt)
                 child.Free();
         _chunks.Clear();
         _dirty.Clear();
@@ -118,6 +125,13 @@ public partial class Terrain : Node3D
                 _chunks[coord] = chunk;
             }
         }
+
+        _skirt = new TerrainSkirt();
+        _skirt.Init(Map);
+        _skirt.MaterialOverride = Material;
+        AddChild(_skirt);
+        _skirt.Rebuild();
+        _skirtDirty = false;
 
         GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, {_chunks.Count} chunks, " +
                  $"heightmap {genMs} ms, total {sw.ElapsedMilliseconds} ms");
@@ -220,13 +234,20 @@ public partial class Terrain : Node3D
     /// <summary>Recomputes the height colouring range. Call after a stroke, not during it.</summary>
     public void RefreshHeightRange() => UpdateMaterialRange();
 
-    /// <summary>Shows the brush ring in the terrain shader.</summary>
-    public void SetBrush(Vector3 worldPos, float radius, bool visible)
+    /// <summary>
+    /// Shows the brush ring in the terrain shader. With a <paramref name="mask"/> the fill shows the brush
+    /// shape turned by <paramref name="angle"/> (radians); <paramref name="showAngle"/> adds a tick on the ring.
+    /// </summary>
+    public void SetBrush(Vector3 worldPos, float radius, bool visible, Texture2D? mask = null, float angle = 0f, bool showAngle = false)
     {
         if (Material is not ShaderMaterial sm) return;
         sm.SetShaderParameter("brush_visible", visible);
         sm.SetShaderParameter("brush_pos", worldPos);
         sm.SetShaderParameter("brush_radius", radius);
+        sm.SetShaderParameter("brush_use_mask", mask is not null);
+        if (mask is not null) sm.SetShaderParameter("brush_mask", mask);
+        sm.SetShaderParameter("brush_angle", angle);
+        sm.SetShaderParameter("brush_show_angle", showAngle);
     }
 
     /// <summary>Marks painted splat weights in a vertex rectangle for upload at the end of the frame.</summary>
@@ -257,6 +278,9 @@ public partial class Terrain : Node3D
     /// <summary>Marks every chunk touching the given inclusive vertex range as needing a rebuild.</summary>
     public void MarkDirty(int minX, int minZ, int maxX, int maxZ)
     {
+        // The skirt follows the border heights, so edits touching the border move it too.
+        if (Map is not null && (minX <= 0 || minZ <= 0 || maxX >= Map.Width - 1 || maxZ >= Map.Depth - 1))
+            _skirtDirty = true;
         // Normals use neighbouring heights, so widen by one vertex.
         int cx0 = Mathf.Max(0, (minX - 1) / ChunkCells);
         int cz0 = Mathf.Max(0, (minZ - 1) / ChunkCells);
@@ -321,5 +345,7 @@ public partial class Terrain : Node3D
         var (min, max) = Map.GetRange();
         sm.SetShaderParameter("height_min", min);
         sm.SetShaderParameter("height_max", max);
+        sm.SetShaderParameter("terrain_origin", new Vector2(GlobalPosition.X, GlobalPosition.Z));
+        sm.SetShaderParameter("terrain_size", new Vector2(Map.SizeX, Map.SizeZ));
     }
 }

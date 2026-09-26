@@ -8,6 +8,9 @@ namespace CitySim.Tools;
 
 public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint }
 
+/// <summary>How the brush angle is chosen: set by hand, rolled at random on each press, or turned along the drag.</summary>
+public enum BrushRotationMode { Fixed, Random, Follow }
+
 /// <summary>
 /// Turns mouse input into sculpt strokes on the terrain.
 ///
@@ -15,7 +18,9 @@ public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint }
 /// levels to the dominant height under the brush. Smooth: LMB. Slope: RMB sets the start point,
 /// LMB-drag builds a ramp from it to where you pressed. Paint: LMB paints <see cref="PaintLayer"/>,
 /// RMB erases painting (the ground goes back to the automatic layers).
-/// G toggles the grid. Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength. Ctrl/Cmd+Z undo, +Shift (or Ctrl+Y) redo.
+/// G toggles the grid, C the contour lines. Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength,
+/// hold Ctrl and move the mouse to rotate (the brush stays put), Ctrl+Q/E for 15° steps (45° with Shift), Ctrl+wheel.
+/// Ctrl/Cmd+Z undo, +Shift (or Ctrl+Y) redo.
 /// </summary>
 public partial class TerrainToolController : Node
 {
@@ -39,6 +44,16 @@ public partial class TerrainToolController : Node
     private int _contourIndex = 2;
     private int _paintLayer = TerrainLayers.Dirt;
     private bool _showGrid;
+    private int _brushIndex;
+    private float _brushAngle;
+    private BrushRotationMode _rotationMode;
+    private Vector2? _followFrom;
+    /// <summary>Where the brush is held while Ctrl + mouse movement rotates it.</summary>
+    private Vector3? _rotateHold;
+
+    /// <summary>Degrees of brush rotation per pixel of sideways mouse movement while Ctrl is held.</summary>
+    private const float RotateDegreesPerPixel = 0.5f;
+    private readonly Random _rng = new();
 
     /// <summary>Contour spacings offered in the UI, in metres.</summary>
     public static readonly float[] ContourIntervals = [1f, 2f, 5f, 10f, 20f];
@@ -71,6 +86,8 @@ public partial class TerrainToolController : Node
             if (_tool == value) return;
             EndStroke();
             _tool = value;
+            // A fresh visit to the slope tool starts without a start point.
+            _slopeAnchor = null;
             Changed();
         }
     }
@@ -131,6 +148,32 @@ public partial class TerrainToolController : Node
         set { _showGrid = value; Changed(); }
     }
 
+    /// <summary>Brush shape: an index into <see cref="BrushLibrary.All"/> (0 = round).</summary>
+    public int BrushIndex
+    {
+        get => _brushIndex;
+        set { _brushIndex = Math.Clamp(value, 0, BrushLibrary.All.Length - 1); Changed(); }
+    }
+
+    /// <summary>Brush rotation in degrees (0 to 360), counter-clockwise seen from above.</summary>
+    public float BrushAngle
+    {
+        get => _brushAngle;
+        set { _brushAngle = Mathf.PosMod(value, 360f); Changed(); }
+    }
+
+    public BrushRotationMode RotationMode
+    {
+        get => _rotationMode;
+        set { _rotationMode = value; _followFrom = null; Changed(); }
+    }
+
+    public void CycleRotationMode() =>
+        RotationMode = (BrushRotationMode)(((int)_rotationMode + 1) % Enum.GetValues<BrushRotationMode>().Length);
+
+    /// <summary>Whether the current tool uses the brush shape and angle. Slope always uses a round brush.</summary>
+    public bool UsesBrushShape => _tool is not (TerrainTool.None or TerrainTool.Slope);
+
     /// <summary>Steps through <see cref="ContourIntervals"/>.</summary>
     public void StepContourInterval(int dir)
     {
@@ -138,7 +181,9 @@ public partial class TerrainToolController : Node
         Changed();
     }
 
-    private Brush CurrentBrush => new(_radius, _strength);
+    private Brush CurrentBrush => new(_radius, _strength, BrushLibrary.Get(_brushIndex).Mask, Mathf.DegToRad(_brushAngle));
+
+    public override void _Ready() => BrushLibrary.Load();
 
     public override void _UnhandledInput(InputEvent @event)
     {
@@ -146,6 +191,14 @@ public partial class TerrainToolController : Node
             HandleKey(key);
         else if (@event is InputEventMouseButton mb)
             HandleMouseButton(mb);
+        else if (@event is InputEventMouseMotion motion)
+            HandleMouseMotion(motion);
+        else if (@event is InputEventPanGesture { CtrlPressed: true } pan && _tool != TerrainTool.None)
+        {
+            // macOS trackpad: Ctrl + two-finger scroll rotates the brush, like Ctrl+wheel.
+            BrushAngle += pan.Delta.Y * 3f;
+            GetViewport().SetInputAsHandled();
+        }
     }
 
     private void HandleKey(InputEventKey key)
@@ -163,11 +216,28 @@ public partial class TerrainToolController : Node
             BrushRadius *= 1.15f;
         else if (key.Keycode == Key.Escape && _tool != TerrainTool.None)
             Tool = TerrainTool.None;
+        else if (key.Keycode is Key.Q or Key.E && key.CtrlPressed && UsesBrushShape)
+            BrushAngle += (key.Keycode == Key.Q ? 1f : -1f) * (key.ShiftPressed ? 45f : 15f);
         else if (key.Keycode == Key.G && !key.IsCommandOrControlPressed() && !key.Echo)
             ShowGrid = !ShowGrid;
+        else if (key.Keycode == Key.C && !key.IsCommandOrControlPressed() && !key.Echo)
+            ShowContours = !ShowContours;
         else
             handled = false;
         if (handled) GetViewport().SetInputAsHandled();
+    }
+
+    /// <summary>Ctrl + mouse movement: the brush stays where it is and turns with sideways movement (right = clockwise).</summary>
+    private void HandleMouseMotion(InputEventMouseMotion motion)
+    {
+        if (!UsesBrushShape || IsStroking || !Input.IsKeyPressed(Key.Ctrl)) return;
+        if (_rotateHold is null)
+        {
+            if (Cursor is not { } c) return;
+            _rotateHold = c;
+        }
+        BrushAngle -= motion.Relative.X * RotateDegreesPerPixel;
+        GetViewport().SetInputAsHandled();
     }
 
     private void HandleMouseButton(InputEventMouseButton mb)
@@ -179,6 +249,7 @@ public partial class TerrainToolController : Node
             float dir = mb.ButtonIndex == MouseButton.WheelUp ? 1f : -1f;
             if (mb.ShiftPressed) BrushRadius *= Mathf.Pow(1.1f, dir);
             else if (mb.AltPressed) BrushStrength += 0.05f * dir;
+            else if (mb.CtrlPressed) BrushAngle += 5f * dir;
             else return;
             GetViewport().SetInputAsHandled();
             return;
@@ -235,6 +306,7 @@ public partial class TerrainToolController : Node
         }
 
         UpdateCursor();
+        FollowCursor();
 
         // The release can land on a UI panel and never reach us.
         if (IsStroking && ForcedCursor is null && !Input.IsMouseButtonPressed(_strokeButton))
@@ -251,9 +323,11 @@ public partial class TerrainToolController : Node
         }
 
         bool showBrush = _tool != TerrainTool.None && Cursor.HasValue;
-        Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush);
+        var shape = UsesBrushShape ? BrushLibrary.Get(_brushIndex) : null;
+        Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush, shape?.Mask is null ? null : shape.Texture,
+            Mathf.DegToRad(_brushAngle), UsesBrushShape);
         Terrain.SetAnchor(_tool == TerrainTool.Slope ? _slopeAnchor : null);
-        Terrain.SetContours(_showContours && _tool != TerrainTool.None, ContourInterval);
+        Terrain.SetContours(_showContours, ContourInterval);
         Terrain.SetGrid(_showGrid);
     }
 
@@ -266,16 +340,48 @@ public partial class TerrainToolController : Node
         }
         Cursor = null;
         var viewport = GetViewport();
-        if (Terrain is null || CityCamera?.Camera is not { } cam || viewport.GuiGetHoveredControl() is not null)
-            return;
+        if (Terrain is null || CityCamera?.Camera is not { } cam) return;
+        if (_rotateHold is { } held)
+        {
+            if (Input.IsKeyPressed(Key.Ctrl) && UsesBrushShape && !IsStroking)
+            {
+                Cursor = held;
+                return;
+            }
+            // Rotation done: put the mouse back on the brush so it doesn't jump to where the mouse wandered.
+            _rotateHold = null;
+            if (!cam.IsPositionBehind(held)) viewport.WarpMouse(cam.UnprojectPosition(held));
+        }
+        if (viewport.GuiGetHoveredControl() is not null) return;
         var mouse = viewport.GetMousePosition();
         if (Terrain.Raycast(cam.ProjectRayOrigin(mouse), cam.ProjectRayNormal(mouse), out var hit))
             Cursor = hit;
     }
 
+    /// <summary>Follow mode: turns the brush toward the direction the cursor moves, once it has moved far enough.</summary>
+    private void FollowCursor()
+    {
+        if (_rotationMode != BrushRotationMode.Follow || !UsesBrushShape || Cursor is not { } c)
+        {
+            _followFrom = null;
+            return;
+        }
+        var p = new Vector2(c.X, c.Z);
+        if (_followFrom is not { } from) { _followFrom = p; return; }
+        var d = p - from;
+        if (d.Length() < _radius * 0.25f) return;
+        _followFrom = p;
+        // The mask's +X axis points along world (cos a, -sin a); see Brush.Weight.
+        float target = Mathf.RadToDeg(Mathf.Atan2(-d.Y, d.X));
+        float diff = Mathf.PosMod(target - _brushAngle + 180f, 360f) - 180f;
+        BrushAngle = _brushAngle + diff * 0.6f;
+    }
+
     private void BeginStroke(MouseButton button, float sign = 1f)
     {
         if (Terrain?.Map is not { } map || Cursor is not { } hit) return;
+        if (_rotationMode == BrushRotationMode.Random && UsesBrushShape)
+            BrushAngle = (float)_rng.NextDouble() * 360f;
         _strokeButton = button;
         _strokeSign = sign;
         _tickAccum = Tick; // apply the first tick immediately
@@ -387,6 +493,21 @@ public partial class TerrainToolController : Node
         _slopeEnd = new Vector3(c.X + 160, Terrain.GetHeight(c.X + 160, c.Y + 220), c.Y + 220);
         DemoStroke(TerrainTool.Slope, a, new Vector2(_slopeEnd.X, _slopeEnd.Z), 240);
 
+        // Textured brushes on a levelled pad: a ridged stamp turned 45° and a terraced one, raised in place.
+        BrushRadius = 180f;
+        var pad = c + new Vector2(200, -230);
+        LevelTarget = Terrain.GetHeight(pad.X, pad.Y);
+        DemoStroke(TerrainTool.Level, pad + new Vector2(-120, 0), pad + new Vector2(120, 0), 300);
+        LevelTarget = null;
+        BrushRadius = 110f;
+        BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "ridged");
+        BrushAngle = 45f;
+        DemoStroke(TerrainTool.Shift, pad + new Vector2(-130, 0), pad + new Vector2(-130, 0), 90);
+        BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "terrace");
+        BrushAngle = 0f;
+        DemoStroke(TerrainTool.Shift, pad + new Vector2(130, 0), pad + new Vector2(130, 0), 90);
+        BrushIndex = 0;
+
         // Undo/redo self-check: an extra stroke must undo back to the exact previous heights.
         var map = Terrain.Map!;
         var before = map.Snapshot();
@@ -399,6 +520,7 @@ public partial class TerrainToolController : Node
         Undo();
         GD.Print($"Demo sculpt: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
         Tool = TerrainTool.Slope;
+        SlopeAnchor = new Vector3(a.X, Terrain.GetHeight(a.X, a.Y), a.Y);
 
         ShowContours = true;
         BrushRadius = 60f;
@@ -425,6 +547,16 @@ public partial class TerrainToolController : Node
         BrushRadius = 30f;
         DemoStroke(TerrainTool.Paint, c + new Vector2(150, 150), c + new Vector2(150, 150), 40, -1f, MouseButton.Right);
 
+        // Textured brushes: a splatter of gravel, and sand streaks turned 30°.
+        BrushRadius = 50f;
+        PaintLayer = TerrainLayers.Gravel;
+        BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "splatter");
+        DemoStroke(TerrainTool.Paint, c + new Vector2(-40, 20), c + new Vector2(-40, 20), 40);
+        PaintLayer = TerrainLayers.Sand;
+        BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "streaks");
+        BrushAngle = 30f;
+        DemoStroke(TerrainTool.Paint, c + new Vector2(80, 30), c + new Vector2(80, 30), 40);
+
         // Undo/redo self-check on an extra stroke.
         var splat = Terrain.Splat;
         var before = splat.Snapshot();
@@ -440,6 +572,7 @@ public partial class TerrainToolController : Node
 
         PaintLayer = TerrainLayers.Dirt;
         BrushRadius = 40f;
+        BrushAngle = 60f;
         var cursor = c + new Vector2(0, -40);
         ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);
     }

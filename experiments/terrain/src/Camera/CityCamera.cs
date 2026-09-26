@@ -172,8 +172,8 @@ public partial class CityCamera : Node3D
 
 	public override void _UnhandledInput(InputEvent @event)
 	{
-		// Shift/Alt + wheel belong to the sculpt brush (size/strength).
-		if (@event is InputEventMouseButton { Pressed: true, ShiftPressed: false, AltPressed: false } mb
+		// Shift/Alt/Ctrl + wheel belong to the sculpt brush (size/strength/rotation).
+		if (@event is InputEventMouseButton { Pressed: true, ShiftPressed: false, AltPressed: false, CtrlPressed: false } mb
 			&& (mb.ButtonIndex == MouseButton.WheelUp || mb.ButtonIndex == MouseButton.WheelDown))
 		{
 			bool zoomIn = mb.ButtonIndex == MouseButton.WheelUp;
@@ -181,7 +181,7 @@ public partial class CityCamera : Node3D
 			_targetDistance = ZoomedDistance(oldD, zoomIn ? Mathf.Log(1f - WheelZoomStep) : -Mathf.Log(1f - WheelZoomStep));
 			if (zoomIn) ZoomTowardCursor(oldD, _targetDistance);
 		}
-		else if (@event is InputEventPanGesture pan && !pan.ShiftPressed && !pan.AltPressed)
+		else if (@event is InputEventPanGesture pan && !pan.ShiftPressed && !pan.AltPressed && !pan.CtrlPressed)
 		{
 			// macOS trackpad two-finger scroll: swipe up zooms in, like the wheel.
 			float oldD = _targetDistance;
@@ -220,7 +220,8 @@ public partial class CityCamera : Node3D
 		// --- Input -> targets ---
 		Vector2 move = Input.GetVector("cam_left", "cam_right", "cam_forward", "cam_back");
 		if (EdgeScroll && move == Vector2.Zero) move = EdgeScrollVector();
-		float rotate = Input.GetAxis("cam_rotate_left", "cam_rotate_right");
+		// Ctrl+Q/E rotate the terrain brush instead.
+		float rotate = Input.IsKeyPressed(Key.Ctrl) ? 0f : Input.GetAxis("cam_rotate_left", "cam_rotate_right");
 		float tilt = Input.GetAxis("cam_tilt_down", "cam_tilt_up");
 		float zoom = Input.GetAxis("cam_zoom_in", "cam_zoom_out");
 

@@ -17,13 +17,18 @@ public partial class ConfigPanel : PanelContainer
     private readonly Label _slopeAnchor = NewValueLabel();
     private readonly Label _hint = new() { AutowrapMode = TextServer.AutowrapMode.WordSmart, CustomMinimumSize = new Vector2(250, 0) };
     private readonly Label _contourInterval = NewValueLabel();
-    private readonly CheckButton _contours = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show height contour lines (every 5th line is bolder)" };
+    private readonly CheckButton _contours = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show height contour lines, every 5th line bolder (C)" };
     private readonly Control[] _contourIntervalRow;
     private readonly CheckButton _grid = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Show the placement grid (G)" };
     private readonly Label _maxSlope = NewValueLabel();
     private readonly Control[] _maxSlopeRow;
     private readonly Control[] _levelRow;
     private readonly Control[] _slopeRow;
+    private readonly Button[] _brushButtons = new Button[BrushLibrary.All.Length];
+    private readonly Control[] _brushRow;
+    private readonly Label _angle = NewValueLabel();
+    private readonly Button _rotationMode = new() { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(64, 24) };
+    private readonly Control[] _rotationRow;
 
     public ConfigPanel()
     {
@@ -53,11 +58,21 @@ public partial class ConfigPanel : PanelContainer
         AddRow(grid, "Brush Strength", Stepper(_strength,
             () => Tools(t => t.BrushStrength -= 0.05f),
             () => Tools(t => t.BrushStrength += 0.05f)));
+        _brushRow = AddRow(grid, "Brush", BrushPicker());
+        var rotation = new HBoxContainer();
+        rotation.AddThemeConstantOverride("separation", 4);
+        rotation.AddChild(Stepper(_angle,
+            () => Tools(t => t.BrushAngle += 15f),
+            () => Tools(t => t.BrushAngle -= 15f)));
+        _rotationMode.TooltipText = "Fixed: set by hand · Random: new angle on each click · Follow: turns along the drag";
+        _rotationMode.Pressed += () => Tools(t => t.CycleRotationMode());
+        rotation.AddChild(_rotationMode);
+        _rotationRow = AddRow(grid, "Rotation", rotation);
         _maxSlopeRow = AddRow(grid, "Max Slope", Stepper(_maxSlope,
             () => Tools(t => t.MaxSlopeDegrees -= 5f),
             () => Tools(t => t.MaxSlopeDegrees += 5f)));
         _contours.Toggled += on => Tools(t => t.ShowContours = on);
-        AddRow(grid, "Contour Lines", _contours);
+        AddRow(grid, "Contour Lines (C)", _contours);
         _grid.Toggled += on => Tools(t => t.ShowGrid = on);
         AddRow(grid, "Grid (G)", _grid);
         _contourIntervalRow = AddRow(grid, "Contour Spacing", Stepper(_contourInterval,
@@ -91,6 +106,12 @@ public partial class ConfigPanel : PanelContainer
         _size.Text = $"{_tools.BrushRadius * 2f:0} m";
         _strength.Text = $"{_tools.BrushStrength * 100f:0} %";
 
+        foreach (var c in _brushRow) c.Visible = _tools.UsesBrushShape;
+        foreach (var c in _rotationRow) c.Visible = _tools.UsesBrushShape;
+        for (int i = 0; i < _brushButtons.Length; i++) _brushButtons[i].SetPressedNoSignal(i == _tools.BrushIndex);
+        _angle.Text = $"{_tools.BrushAngle:0}°";
+        _rotationMode.Text = _tools.RotationMode.ToString();
+
         foreach (var c in _maxSlopeRow) c.Visible = tool == TerrainTool.Shift;
         _maxSlope.Text = $"{_tools.MaxSlopeDegrees:0}°";
 
@@ -115,7 +136,9 @@ public partial class ConfigPanel : PanelContainer
                 ? "Left-press at the end point and drag along the ramp · Right-click: move start"
                 : "Right-click to set the start point",
             _ => "",
-        } + "\n[ ] or Shift+wheel: size · Alt+wheel: strength · Ctrl/Cmd+Z: undo";
+        } + "\n[ ] or Shift+wheel: size · Alt+wheel: strength"
+          + (_tools.UsesBrushShape ? "\nCtrl+move mouse: rotate · Ctrl+Q/E: 15° steps" : "")
+          + "\nC: contours · G: grid · Ctrl/Cmd+Z: undo";
 
         // Rows appear and disappear per tool; shrink back to the content, keeping the bottom-left corner fixed.
         Callable.From(ShrinkToFit).CallDeferred();
@@ -139,6 +162,35 @@ public partial class ConfigPanel : PanelContainer
         float step = probe < 200f ? 10f : probe < 400f ? 20f : 50f;
         float snapped = dir > 0 ? Mathf.Floor(r / step + 1.001f) * step : Mathf.Ceil(r / step - 1.001f) * step;
         return snapped;
+    }
+
+    /// <summary>A wrapping row of thumbnail toggles, one per <see cref="BrushLibrary"/> entry.</summary>
+    private Control BrushPicker()
+    {
+        BrushLibrary.Load();
+        var flow = new HFlowContainer { CustomMinimumSize = new Vector2(200, 0) };
+        flow.AddThemeConstantOverride("h_separation", 4);
+        flow.AddThemeConstantOverride("v_separation", 4);
+        for (int i = 0; i < BrushLibrary.All.Length; i++)
+        {
+            var e = BrushLibrary.All[i];
+            int index = i;
+            var b = new Button
+            {
+                ToggleMode = true,
+                FocusMode = FocusModeEnum.None,
+                CustomMinimumSize = new Vector2(36, 36),
+                Icon = e.Texture,
+                ExpandIcon = true,
+                IconAlignment = HorizontalAlignment.Center,
+                TooltipText = e.DisplayName,
+                Text = e.Texture is null ? e.DisplayName[..1] : "",
+            };
+            b.Pressed += () => Tools(t => t.BrushIndex = index);
+            _brushButtons[i] = b;
+            flow.AddChild(b);
+        }
+        return flow;
     }
 
     private static Label NewValueLabel() => new()

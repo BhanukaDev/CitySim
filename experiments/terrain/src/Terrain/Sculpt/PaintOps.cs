@@ -47,15 +47,13 @@ public static class PaintOps
     {
         if (brush.Radius <= 0f) return VertexRect.Empty;
         var r = splat.CircleRect(center.X, center.Y, brush.Radius);
-        float inv = 1f / brush.Radius;
         for (int z = r.MinZ; z <= r.MaxZ; z++)
         {
             float dz = z * splat.CellSize - center.Y;
             for (int x = r.MinX; x <= r.MaxX; x++)
             {
-                float dx = x * splat.CellSize - center.X;
-                float d = MathF.Sqrt(dx * dx + dz * dz) * inv;
-                if (d < 1f) op(splat.At(x, z), Brush.Falloff(d));
+                float w = brush.Weight(x * splat.CellSize - center.X, dz);
+                if (w > 0f) op(splat.At(x, z), w);
             }
         }
         return r;

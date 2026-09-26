@@ -11,6 +11,9 @@ const float NEUTRAL_GREY = 0.4;
 // Set by Terrain.cs after generation and after each stroke.
 uniform float height_min = 0.0;
 uniform float height_max = 250.0;
+// Terrain XZ bounds (world metres), for the edge fog.
+uniform vec2 terrain_origin = vec2(0.0);
+uniform vec2 terrain_size = vec2(2048.0);
 
 group_uniforms Textures;
 // RGB = colour normalised to NEUTRAL_GREY, A = height. Baked by TextureBaker, imported as BC7 arrays.
@@ -94,6 +97,22 @@ uniform float dirt_slope : hint_range(0.0, 1.0) = 0.17;
 uniform float dry_amount : hint_range(0.0, 1.0) = 0.5;
 uniform float gravel_amount : hint_range(0.0, 1.0) = 0.5;
 
+group_uniforms EdgeFog;
+// A fog bank that swallows the map border, so its hard edges and corners never show. Everything outside
+// the bounds (the TerrainSkirt ring) is pure fog; inside, the ground fades into it near the border.
+uniform bool edge_fog_enabled = true;
+uniform vec3 edge_fog_color : source_color = vec3(0.80, 0.85, 0.95);
+// Metres over which the ground fades from full fog (at the border) to clear.
+uniform float edge_fog_width = 220.0;
+// Rounds the fog's corners with this radius, so the map doesn't read as a rectangle.
+uniform float edge_fog_corner_radius = 500.0;
+// How far (metres) noise pushes the fog line inward, and the size of its billows.
+uniform float edge_fog_wobble = 120.0;
+uniform float edge_fog_noise_scale = 1100.0;
+// Brightness variation inside the fog, and how fast the billows drift (texture repeats per second).
+uniform float edge_fog_cloudiness : hint_range(0.0, 0.5) = 0.08;
+uniform float edge_fog_drift = 0.002;
+
 group_uniforms Grid;
 uniform bool show_grid = false;
 uniform float grid_size = 64.0;
@@ -110,6 +129,11 @@ group_uniforms Brush;
 uniform bool brush_visible = false;
 uniform vec3 brush_pos = vec3(0.0);
 uniform float brush_radius = 50.0;
+// Textured brush shape (Terrain.SetBrush): stretched over the brush square, turned by brush_angle (radians).
+uniform bool brush_use_mask = false;
+uniform sampler2D brush_mask : hint_default_black, filter_linear, repeat_disable;
+uniform float brush_angle = 0.0;
+uniform bool brush_show_angle = false;
 uniform bool anchor_visible = false;
 uniform vec3 anchor_pos = vec3(0.0);
 uniform vec3 brush_color : source_color = vec3(0.35, 0.85, 1.0);
@@ -120,6 +144,14 @@ varying vec3 world_normal;
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+
+// Distance (metres) inside the terrain border, with rounded corners; negative outside.
+float edge_distance(vec2 xz) {
+	vec2 rel = xz - terrain_origin;
+	vec2 dd = min(rel, terrain_size - rel);
+	float r = edge_fog_corner_radius;
+	return min(min(dd.x, dd.y), r - length(max(vec2(r) - dd, vec2(0.0))));
 }
 
 vec3 layer_tint(int i) {
@@ -338,9 +370,25 @@ void fragment() {
 		float d = length(world_pos.xz - brush_pos.xz);
 		float fw = max(fwidth(d), 1e-4);
 		float ring = 1.0 - clamp(abs(d - brush_radius) / (fw * 1.5), 0.0, 1.0);
-		// Faint fill that follows the brush falloff.
+		// Faint fill that follows the brush falloff, or the brush shape (same mapping as Brush.Weight in C#).
+		vec2 off = world_pos.xz - brush_pos.xz;
 		float t = clamp(1.0 - d / brush_radius, 0.0, 1.0);
 		float fill = t * t * (3.0 - 2.0 * t) * 0.18;
+		float ca = cos(brush_angle), sa = sin(brush_angle);
+		if (brush_use_mask) {
+			vec2 local = vec2(ca * off.x - sa * off.y, sa * off.x + ca * off.y);
+			fill = d < brush_radius ? texture(brush_mask, 0.5 + 0.5 * local / brush_radius).r * 0.3 : 0.0;
+		}
+		if (brush_show_angle) {
+			// Tick just inside the ring along the brush's +X axis, world direction (cos a, -sin a).
+			vec2 dir = vec2(ca, -sa);
+			float along = dot(off, dir);
+			float across = abs(dot(off, vec2(-dir.y, dir.x)));
+			float tw = max(fw * 1.5, brush_radius * 0.012);
+			float tick = (1.0 - smoothstep(tw, tw + fw, across))
+					* step(brush_radius * 0.8, along) * step(along, brush_radius);
+			ring = max(ring, tick);
+		}
 		col_out = mix(col_out, brush_color, max(ring, fill));
 		glow += brush_color * ring * 0.5;
 	}
@@ -363,11 +411,25 @@ void fragment() {
 		glow += vec3(1.0, 0.75, 0.2) * mk * 0.4;
 	}
 
-	ALBEDO = col_out;
+	// Edge fog: an unlit colour (emission) replaces the lit ground.
+	float fog = 0.0;
+	vec3 fog_col = edge_fog_color;
+	if (edge_fog_enabled) {
+		vec2 drift = vec2(TIME * edge_fog_drift, TIME * edge_fog_drift * 0.6);
+		float billow = texture(macro_noise, world_pos.xz / edge_fog_noise_scale + drift).r * 0.65
+				+ texture(macro_noise, world_pos.xz / (edge_fog_noise_scale * 0.37) - drift * 1.7 + 0.43).r * 0.35;
+		float d = edge_distance(world_pos.xz) - billow * edge_fog_wobble;
+		fog = 1.0 - smoothstep(0.0, edge_fog_width, d);
+		fog *= fog;
+		fog = max(fog, step(edge_distance(world_pos.xz), 0.0));
+		fog_col *= 1.0 + (billow - 0.5) * edge_fog_cloudiness * 2.0;
+	}
+
+	ALBEDO = col_out * (1.0 - fog);
 	NORMAL = normalize((VIEW_MATRIX * vec4(normal_ws, 0.0)).xyz);
-	EMISSION = glow;
-	ROUGHNESS = roughness;
-	SPECULAR = 0.2;
+	EMISSION = glow * (1.0 - fog) + fog_col * fog;
+	ROUGHNESS = mix(roughness, 1.0, fog);
+	SPECULAR = 0.2 * (1.0 - fog);
 }
 
 void light() {

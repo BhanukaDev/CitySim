@@ -32,10 +32,10 @@ public static class SculptOps
         float tan = MathF.Tan(Math.Clamp(maxSlopeDegrees, 1f, 89f) * (MathF.PI / 180f));
         float straight = tan * map.CellSize, diagonal = straight * MathF.Sqrt(2f);
 
-        var rect = Apply(map, center, brush, (x, z, d) =>
+        var rect = Apply(map, center, brush, (x, z, w) =>
         {
             float old = map[x, z];
-            float h = old + amount * Brush.Falloff(d);
+            float h = old + amount * w;
             if (sign > 0f)
             {
                 // Highest this vertex may go: no more than the max slope above its lowest neighbour.
@@ -58,41 +58,42 @@ public static class SculptOps
             map[x, z] = h;
         });
 
-        Blur(map, center, brush, PullFactor(ShiftRoundRate, brush.Strength, dt));
+        // Textured brushes get much less rounding, so their detail survives.
+        Blur(map, center, brush, PullFactor(ShiftRoundRate * (brush.Mask is null ? 1f : 0.25f), brush.Strength, dt));
         return rect;
     }
 
     public static VertexRect Level(HeightMap map, Vector2 center, Brush brush, float target, float dt)
     {
         float k = PullFactor(PullRate, brush.Strength, dt);
-        return Apply(map, center, brush, (x, z, d) =>
+        return Apply(map, center, brush, (x, z, w) =>
         {
             float h = map[x, z];
-            map[x, z] = h + (target - h) * k * Brush.PlateauFalloff(d);
+            map[x, z] = h + (target - h) * k * MathF.Min(w * 2f, 1f);
         });
     }
 
-    /// <summary>Pulls ground toward the straight ramp from (a, heightA) to (b, heightB).</summary>
+    /// <summary>Pulls ground toward the straight ramp from (a, heightA) to (b, heightB). Always round: a textured ramp would be bumpy.</summary>
     public static VertexRect Slope(HeightMap map, Vector2 center, Brush brush,
         Vector2 a, float heightA, Vector2 b, float heightB, float dt)
     {
         float k = PullFactor(PullRate, brush.Strength, dt);
         Vector2 ab = b - a;
         float lenSq = ab.LengthSquared();
-        return Apply(map, center, brush, (x, z, d) =>
+        return Apply(map, center, brush.Round, (x, z, w) =>
         {
             var p = new Vector2(x * map.CellSize, z * map.CellSize);
             float t = lenSq > 1e-6f ? Math.Clamp(Vector2.Dot(p - a, ab) / lenSq, 0f, 1f) : 0f;
             float target = heightA + (heightB - heightA) * t;
             float h = map[x, z];
-            map[x, z] = h + (target - h) * k * Brush.PlateauFalloff(d);
+            map[x, z] = h + (target - h) * k * MathF.Min(w * 2f, 1f);
         });
     }
 
     public static VertexRect Smooth(HeightMap map, Vector2 center, Brush brush, float dt) =>
         Blur(map, center, brush, PullFactor(SmoothRate, brush.Strength, dt));
 
-    /// <summary>Blends each vertex toward its 3x3 weighted average by <paramref name="k"/> times the falloff.</summary>
+    /// <summary>Blends each vertex toward its 3x3 weighted average by <paramref name="k"/> times the brush weight.</summary>
     private static VertexRect Blur(HeightMap map, Vector2 center, Brush brush, float k)
     {
         var rect = map.CircleRect(center.X, center.Y, brush.Radius);
@@ -111,18 +112,18 @@ public static class SculptOps
             return copy[(z - src.MinZ) * src.Width + (x - src.MinX)];
         }
 
-        return Apply(map, center, brush, (x, z, d) =>
+        return Apply(map, center, brush, (x, z, w) =>
         {
             float avg = (4f * Get(x, z) +
                          2f * (Get(x - 1, z) + Get(x + 1, z) + Get(x, z - 1) + Get(x, z + 1)) +
                          Get(x - 1, z - 1) + Get(x + 1, z - 1) + Get(x - 1, z + 1) + Get(x + 1, z + 1)) / 16f;
             float h = map[x, z];
-            map[x, z] = h + (avg - h) * k * Brush.Falloff(d);
+            map[x, z] = h + (avg - h) * k * w;
         });
     }
 
     /// <summary>
-    /// The height most of the brush area already sits at: a falloff-weighted histogram of heights,
+    /// The height most of the brush area already sits at: a brush-weighted histogram of heights,
     /// taking the heaviest bin (with its neighbours) and returning the weighted mean inside it.
     /// Used by Level when no target height has been picked.
     /// </summary>
@@ -130,10 +131,10 @@ public static class SculptOps
     {
         var samples = new List<(float H, float W)>();
         float min = float.MaxValue, max = float.MinValue;
-        Visit(map, center, brush, (x, z, d) =>
+        Visit(map, center, brush, (x, z, w) =>
         {
             float h = map[x, z];
-            samples.Add((h, Brush.Falloff(d) + 1e-3f));
+            samples.Add((h, w + 1e-3f));
             if (h < min) min = h;
             if (h > max) max = h;
         });
@@ -171,20 +172,18 @@ public static class SculptOps
         return map.CircleRect(center.X, center.Y, brush.Radius);
     }
 
-    /// <summary>Calls <paramref name="op"/>(x, z, normalisedDistance) for every vertex inside the brush circle.</summary>
+    /// <summary>Calls <paramref name="op"/>(x, z, weight) for every vertex the brush covers (weight &gt; 0).</summary>
     private static void Visit(HeightMap map, Vector2 center, Brush brush, Action<int, int, float> op)
     {
         if (brush.Radius <= 0f) return;
         var r = map.CircleRect(center.X, center.Y, brush.Radius);
-        float inv = 1f / brush.Radius;
         for (int z = r.MinZ; z <= r.MaxZ; z++)
         {
             float dz = z * map.CellSize - center.Y;
             for (int x = r.MinX; x <= r.MaxX; x++)
             {
-                float dx = x * map.CellSize - center.X;
-                float d = MathF.Sqrt(dx * dx + dz * dz) * inv;
-                if (d < 1f) op(x, z, d);
+                float w = brush.Weight(x * map.CellSize - center.X, dz);
+                if (w > 0f) op(x, z, w);
             }
         }
     }
