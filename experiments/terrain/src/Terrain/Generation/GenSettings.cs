@@ -32,6 +32,25 @@ public sealed record NoiseSettings
     public float RegionSize { get; init; } = 10000f;
     /// <summary>0 = hills look the same everywhere, 1 = strong contrast between ranges and plains.</summary>
     public float RegionStrength { get; init; } = 0.7f;
+    /// <summary>Steepest ground allowed, in degrees: steeper peaks and faces are cut down to it. 90 = no limit.</summary>
+    public float MaxSlope { get; init; } = 35f;
+
+    /// <summary>
+    /// Depth of the branching, lightning-like channels carved into the lowlands (future creeks and long lakes), in
+    /// metres. 0 = none. They fade out going up into hills.
+    /// </summary>
+    public float ChannelDepth { get; init; }
+    /// <summary>Width of a channel, in metres.</summary>
+    public float ChannelWidth { get; init; } = 12f;
+    /// <summary>Rough distance between channels, in metres.</summary>
+    public float ChannelSpacing { get; init; } = 700f;
+
+    /// <summary>How much of the lowlands sinks into flat-bottomed basins (future lakes): 0 = none, 1 = a lot.</summary>
+    public float BasinAmount { get; init; }
+    /// <summary>Depth of a basin's level floor below the lowest ground around it, in metres.</summary>
+    public float BasinDepth { get; init; } = 8f;
+    /// <summary>Rough size of a basin, in metres.</summary>
+    public float BasinSize { get; init; } = 400f;
 }
 
 /// <summary>
@@ -44,7 +63,10 @@ public sealed record ShapeSettings
     public float Size { get; init; } = 0.7f;
     /// <summary>Coast: which side the sea is on, in degrees (0 = north, 90 = east).</summary>
     public float Direction { get; init; } = 180f;
-    /// <summary>Width of the land-to-sea-floor blend (map units; 0.1 on a 2 km map is ~100 m).</summary>
+    /// <summary>
+    /// Width of the shore (map units; 0.1 on a 2 km map is ~100 m): gentle stretches get a beach about this wide and a
+    /// shelf a bit wider; steep ones a fraction of it.
+    /// </summary>
     public float EdgeWidth { get; init; } = 0.15f;
     /// <summary>How much the coastline wanders (0 = a clean circle or line).</summary>
     public float Roughness { get; init; } = 0.5f;
@@ -103,6 +125,11 @@ public sealed record GenSettings
     public float FlatHeight { get; init; } = 40f;
     /// <summary>Height the sea shapes blend down to. No water yet: below it is sandy low ground.</summary>
     public float SeaLevel { get; init; } = 6f;
+    /// <summary>
+    /// Share of shores (sea, basins, channels) that are gentle beaches rather than steep banks, 0..1. Which stretches
+    /// are which comes from low-frequency noise, so a coast changes character along its length.
+    /// </summary>
+    public float GentleShores { get; init; } = 0.6f;
     /// <summary>1-2-1 blur passes at full resolution, to soften creases.</summary>
     public int SmoothPasses { get; init; } = 2;
 

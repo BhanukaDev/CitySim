@@ -3,7 +3,7 @@ using System;
 namespace CitySim.TerrainSystem.Generation;
 
 /// <summary>
-/// The land/sea mask: 1 on land, 0 on the sea floor, with a soft blend <see cref="ShapeSettings.EdgeWidth"/> wide.
+/// The land/sea shape as a signed distance to the coastline (see <see cref="Signed"/>).
 /// Works in map units (-1..1 across the map) so a shape is the same at every map size and resolution. Thread-safe.
 /// </summary>
 public sealed class ShapeMask
@@ -39,34 +39,32 @@ public sealed class ShapeMask
         _dirZ = -MathF.Cos(a);
     }
 
-    /// <summary>Land weight at map position (<paramref name="u"/>, <paramref name="v"/>), both 0..1 across the map.</summary>
-    public float Sample(float u, float v)
+    /// <summary>
+    /// Signed distance to the coastline at map position (<paramref name="u"/>, <paramref name="v"/>), both 0..1 across
+    /// the map: positive on land, negative at sea, roughly in map units (so <see cref="ShapeSettings.EdgeWidth"/> reads
+    /// as a width). The generator shapes the beach on one side and the drop to the sea floor on the other.
+    /// </summary>
+    public float Signed(float u, float v)
     {
         float x = u * 2f - 1f, z = v * 2f - 1f;
-        float e = MathF.Max(_s.EdgeWidth, 1e-3f);
         float wobble = _s.Roughness * 0.35f * _coast.GetNoise(x, z);
         switch (_s.Kind)
         {
             case ShapeKind.Island:
-            {
-                float d = MathF.Sqrt(x * x + z * z);
-                return SmoothStep(-e, e, _s.Size - d + wobble);
-            }
+                return _s.Size - MathF.Sqrt(x * x + z * z) + wobble;
             case ShapeKind.Coast:
             {
                 // Distance along the sea direction, -1 (far inland edge) to 1 (sea edge) for an axis-aligned direction.
                 float along = x * _dirX + z * _dirZ;
-                float line = -1f + 2f * _s.Size;
-                return SmoothStep(-e, e, line - along + wobble);
+                return -1f + 2f * _s.Size - along + wobble;
             }
             case ShapeKind.Archipelago:
             {
-                float n = _islands.GetNoise(x, z) + wobble * 0.5f;
                 // Size 0..1 → threshold: more land at larger sizes. fBm rarely leaves ±0.6.
-                float land = SmoothStep(-e, e, n - (0.5f - _s.Size) * 1.2f);
-                // Fade to sea near the map border, so it reads as islands in a sea.
+                float land = _islands.GetNoise(x, z) + wobble * 0.5f - (0.5f - _s.Size) * 1.2f;
+                // Sea near the map border, so it reads as islands in a sea.
                 float d = MathF.Max(MathF.Abs(x), MathF.Abs(z));
-                return land * SmoothStep(1f, 0.75f, d);
+                return MathF.Min(land, 0.85f - d);
             }
             default:
                 return 1f;

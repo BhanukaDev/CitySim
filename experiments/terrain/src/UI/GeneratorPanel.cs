@@ -164,6 +164,24 @@ public partial class GeneratorPanel : PanelContainer
             "How much small detail the hills get");
         Slider(grid, "Warp", 0, 300, 5, "{0:0} m", () => _s.Noise.WarpAmplitude, v => _s = _s with { Noise = _s.Noise with { WarpAmplitude = v } }, _noiseRows,
             "Twists the hills into winding ridges and valleys");
+        Slider(grid, "Max Slope", 15, 90, 1, "{0:0}°", () => _s.Noise.MaxSlope, v => _s = _s with { Noise = _s.Noise with { MaxSlope = v } }, _noiseRows,
+            "Steeper ground is cut down to this angle (90° = no limit)");
+
+        Section(grid, "Lakes", _noiseRows);
+        Slider(grid, "Channel Depth", 0, 20, 0.5, "{0:0.#} m", () => _s.Noise.ChannelDepth, v => _s = _s with { Noise = _s.Noise with { ChannelDepth = v } }, _noiseRows,
+            "Branching, lightning-like channels cut into the lowlands (0 = none)");
+        Slider(grid, "Channel Width", 4, 60, 1, "{0:0} m", () => _s.Noise.ChannelWidth, v => _s = _s with { Noise = _s.Noise with { ChannelWidth = v } }, _noiseRows,
+            "How wide each channel is");
+        Slider(grid, "Channel Spacing", 200, 3000, 10, "{0:0} m", () => _s.Noise.ChannelSpacing, v => _s = _s with { Noise = _s.Noise with { ChannelSpacing = v } }, _noiseRows,
+            "Rough distance between channels");
+        Slider(grid, "Basins", 0, 1, 0.01, "{0:0%}", () => _s.Noise.BasinAmount, v => _s = _s with { Noise = _s.Noise with { BasinAmount = v } }, _noiseRows,
+            "How much of the lowlands sinks into flat-bottomed basins for lakes (0 = none)");
+        Slider(grid, "Basin Depth", 1, 40, 0.5, "{0:0.#} m", () => _s.Noise.BasinDepth, v => _s = _s with { Noise = _s.Noise with { BasinDepth = v } }, _noiseRows,
+            "Depth of a basin's level floor below the lowest ground around it");
+        Slider(grid, "Basin Size", 100, 2000, 10, "{0:0} m", () => _s.Noise.BasinSize, v => _s = _s with { Noise = _s.Noise with { BasinSize = v } }, _noiseRows,
+            "Rough size of a basin");
+        Slider(grid, "Gentle Shores", 0, 1, 0.01, "{0:0%}", () => _s.GentleShores, v => _s = _s with { GentleShores = v }, _noiseRows,
+            "Share of sea, lake and channel shores that are gentle beaches; the rest are steep banks");
 
         Section(grid, "Heightmap", _imageRows);
         var fileRow = new HBoxContainer();
@@ -200,9 +218,11 @@ public partial class GeneratorPanel : PanelContainer
         Slider(grid, "Sea Side", 0, 360, 5, "{0:0}°", () => _s.Shape.Direction, v => _s = _s with { Shape = _s.Shape with { Direction = v } }, _coastRows,
             "Which side the sea is on: 0° north, 90° east, 180° south, 270° west");
         Slider(grid, "Shore Width", 0.02, 0.5, 0.01, "{0:0.00}", () => _s.Shape.EdgeWidth, v => _s = _s with { Shape = _s.Shape with { EdgeWidth = v } }, _shapeRows,
-            "How gradually the land slopes into the sea (in map half-widths)");
+            "Width of the gentlest beaches and sea shelves (in map half-widths); steep shores use a fraction of it");
         Slider(grid, "Coast Roughness", 0, 1.5, 0.01, "{0:0.00}", () => _s.Shape.Roughness, v => _s = _s with { Shape = _s.Shape with { Roughness = v } }, _shapeRows,
             "How much the coastline wanders: bays and headlands");
+        Slider(grid, "Gentle Shores", 0, 1, 0.01, "{0:0%}", () => _s.GentleShores, v => _s = _s with { GentleShores = v }, _shapeRows,
+            "Share of sea, lake and channel shores that are gentle beaches; the rest are steep banks");
         Slider(grid, "Sea Level", -50, 200, 1, "{0:0} m", () => _s.SeaLevel, v => _s = _s with { SeaLevel = v }, _shapeRows,
             "Height the shore blends down to (no water yet; sand shows below ~9 m)");
         Slider(grid, "Sea Depth", 0, 200, 1, "{0:0} m", () => _s.Shape.SeaDepth, v => _s = _s with { Shape = _s.Shape with { SeaDepth = v } }, _shapeRows,

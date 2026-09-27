@@ -113,9 +113,36 @@ public partial class DebugOverlay : CanvasLayer
                 }
             double rms = Math.Sqrt(sum / (previewVerts * previewVerts));
             var (min, max) = full.GetRange();
-            GD.Print($"Demo generate: {preset.Name,-14} preview {previewMs} ms, range {min:0}–{max:0} m, preview vs full rms {rms:0.00} m");
+            var (maxSlope, p99, flat) = SlopeStats(full);
+            GD.Print($"Demo generate: {preset.Name,-14} preview {previewMs} ms, range {min:0}–{max:0} m, preview vs full rms {rms:0.00} m, " +
+                     $"slope max {maxSlope:0}° p99 {p99:0}°, under 5° {flat:0%}");
             if (rms > 3.0) { ok = false; GD.PushError($"Demo generate: {preset.Name} preview differs from the full map"); }
         }
+
+        // Lakes: channels and basins each lower part of the lowlands.
+        var hills = GenPresets.Default.ApplyTo(baseSettings);
+        var dry = TerrainGen.Create(hills with { Noise = hills.Noise with { ChannelDepth = 0f, BasinAmount = 0f } });
+        float Lowered(GenSettings s)
+        {
+            var m = TerrainGen.Create(s);
+            int n = 0;
+            for (int i = 0; i < m.Data.Length; i++) if (dry.Data[i] - m.Data[i] > 1f) n++;
+            return n / (float)m.Data.Length;
+        }
+        float channels = Lowered(hills with { Noise = hills.Noise with { BasinAmount = 0f } });
+        var basinMap = TerrainGen.Create(hills with { Noise = hills.Noise with { ChannelDepth = 0f } });
+        float basins = Lowered(hills with { Noise = hills.Noise with { ChannelDepth = 0f } });
+        GD.Print($"Demo generate: {hills.Preset} lowered > 1 m by channels {channels:0.0%}, by basins {basins:0.0%}");
+        // Basin floors should be level, banks a mix of gentle and steep.
+        var (floorFlat, _, _) = SlopeWhere(basinMap, i => dry.Data[i] - basinMap.Data[i] > 1f, 1f);
+        var (bankFlat, bankP50, bankP90) = SlopeWhere(basinMap, i => dry.Data[i] - basinMap.Data[i] is > 0.2f and < 3f, 5f);
+        GD.Print($"Demo generate: basins: dug ground (level floors + banks) under 1° {floorFlat:0%}; banks under 5° {bankFlat:0%}, p50 {bankP50:0}°, p90 {bankP90:0}°");
+        // Sea shores: ground within 3 m of sea level.
+        var coast = GenPresets.Find("coast")!.ApplyTo(baseSettings);
+        var coastMap = TerrainGen.Create(coast);
+        var (shoreFlat, shoreP50, shoreP90) = SlopeWhere(coastMap, i => MathF.Abs(coastMap.Data[i] - coast.SeaLevel) < 3f, 5f);
+        GD.Print($"Demo generate: coast: shore under 5° {shoreFlat:0%}, p50 {shoreP50:0}°, p90 {shoreP90:0}°");
+        if (channels < 0.005f || basins < 0.005f) { ok = false; GD.PushError("Demo generate: channels or basins missing"); }
 
         // Tiling: at half scale, the image repeats every half map.
         var image = HeightmapImage.FromHeightMap(map, out var range);
@@ -143,6 +170,32 @@ public partial class DebugOverlay : CanvasLayer
         GD.Print($"Demo generate: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
         ok &= undoOk && redoOk;
         GD.Print(ok ? "Demo generate: ok" : "Demo generate: FAILED");
+    }
+
+    /// <summary>Over the vertices <paramref name="pick"/> selects: share under <paramref name="under"/>°, median and p90 slope.</summary>
+    private static (float Under, float P50, float P90) SlopeWhere(HeightMap map, Func<int, bool> pick, float under)
+    {
+        var slopes = new System.Collections.Generic.List<float>();
+        for (int z = 0; z < map.Depth; z++)
+            for (int x = 0; x < map.Width; x++)
+                if (pick(z * map.Width + x))
+                    slopes.Add(MathF.Acos(Math.Clamp(map.GetNormal(x, z).Y, -1f, 1f)) * (180f / MathF.PI));
+        if (slopes.Count == 0) return (0, 0, 0);
+        slopes.Sort();
+        return (slopes.Count(v => v < under) / (float)slopes.Count, slopes[slopes.Count / 2], slopes[slopes.Count * 9 / 10]);
+    }
+
+    /// <summary>Steepest vertex, 99th-percentile slope (degrees) and the share of vertices under 5° (buildable-ish).</summary>
+    private static (float Max, float P99, float Flat) SlopeStats(HeightMap map)
+    {
+        var hist = new int[91];
+        for (int z = 0; z < map.Depth; z++)
+            for (int x = 0; x < map.Width; x++)
+                hist[(int)(MathF.Acos(Math.Clamp(map.GetNormal(x, z).Y, -1f, 1f)) * (180f / MathF.PI))]++;
+        int total = map.Width * map.Depth, top = 90, seen = 0, p99 = 0;
+        while (top > 0 && hist[top] == 0) top--;
+        for (int d = 0; d <= 90; d++) { seen += hist[d]; if (seen >= total * 0.99) { p99 = d; break; } }
+        return (top + 1, p99 + 1, (hist[0] + hist[1] + hist[2] + hist[3] + hist[4]) / (float)total);
     }
 
     /// <summary>

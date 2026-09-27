@@ -200,6 +200,66 @@ public sealed class HeightMap
         Invalidate();
     }
 
+    /// <summary>
+    /// Cuts everything steeper than <paramref name="maxSlopeDegrees"/> down to it: each vertex ends up no higher than any
+    /// other vertex plus the slope times the 8-neighbour path length between them (an octagon close to a circle). Only
+    /// lowers ground, so valleys and plains stay put and too-steep peaks become ridges at exactly the max slope.
+    /// Done as 1-D sweeps along rows, columns and both diagonals, each line in parallel: on a rectangle any shortest
+    /// 8-neighbour path can be reordered into those four legs, so this equals the full two-pass chamfer.
+    /// </summary>
+    public void LimitSlope(float maxSlopeDegrees, CancellationToken ct = default)
+    {
+        if (maxSlopeDegrees >= 89.9f) return;
+        float a = MathF.Tan(Math.Clamp(maxSlopeDegrees, 0.1f, 89.9f) * (MathF.PI / 180f)) * CellSize;
+        float b = a * MathF.Sqrt(2f);
+        int w = Width, d = Depth;
+        var h = _heights;
+        var options = new ParallelOptions { CancellationToken = ct };
+
+        // Rows.
+        Parallel.For(0, d, options, z =>
+        {
+            var row = h.AsSpan(z * w, w);
+            for (int x = 1; x < w; x++) row[x] = MathF.Min(row[x], row[x - 1] + a);
+            for (int x = w - 2; x >= 0; x--) row[x] = MathF.Min(row[x], row[x + 1] + a);
+        });
+
+        // Columns, in strips so each step reads a contiguous run of the row above or below.
+        const int strip = 256;
+        Parallel.For(0, (w + strip - 1) / strip, options, s =>
+        {
+            int x0 = s * strip, x1 = Math.Min(w, x0 + strip);
+            for (int z = 1; z < d; z++)
+                for (int i = z * w + x0, e = z * w + x1; i < e; i++) h[i] = MathF.Min(h[i], h[i - w] + a);
+            for (int z = d - 2; z >= 0; z--)
+                for (int i = z * w + x0, e = z * w + x1; i < e; i++) h[i] = MathF.Min(h[i], h[i + w] + a);
+        });
+
+        // Diagonals, in bands of adjacent diagonals (c = x - z, or x + z) so each row step is contiguous too.
+        const int band = 64;
+        int bands = (w + d - 1 + band - 1) / band;
+        foreach (int dir in (ReadOnlySpan<int>)[1, -1])
+        {
+            Parallel.For(0, bands, options, k =>
+            {
+                // dir 1: c = x - z in [-(d-1), w-1], step (+1, +1). dir -1: c = x + z in [0, w+d-2], step (-1, +1).
+                int c0 = (dir == 1 ? -(d - 1) : 0) + k * band;
+                for (int z = 1; z < d; z++) Step(z, z - 1, -dir);
+                for (int z = d - 2; z >= 0; z--) Step(z, z + 1, dir);
+
+                // Lowers row z from row zp, whose neighbour on the same diagonal is at x + dx.
+                void Step(int z, int zp, int dx)
+                {
+                    int lo = dir == 1 ? c0 + z : c0 - z, hi = lo + band;
+                    int x0 = Math.Max(lo, Math.Max(0, -dx)), x1 = Math.Min(hi, Math.Min(w, w - dx));
+                    int i = z * w, j = zp * w + dx;
+                    for (int x = x0; x < x1; x++) h[i + x] = MathF.Min(h[i + x], h[j + x] + b);
+                }
+            });
+        }
+        Invalidate();
+    }
+
     /// <summary>Vertices within the square bounding a circle at a local position (world units), clamped to the map.</summary>
     public VertexRect CircleRect(float cx, float cz, float radius) =>
         VertexRect.Circle(cx, cz, radius, CellSize, Width, Depth);

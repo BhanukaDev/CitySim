@@ -301,6 +301,22 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
   heightmap open the editor with the panel showing; height range and placement are set there.
 - Timing (M1): 2 km full generate ~90 ms + rebuilding 256 chunks ~140 ms. `<Optimize>true</Optimize>` in the csproj
   (also for Debug) made generation ~6× faster (570 → 90 ms); the debugger may show locals as optimized away.
+- Flatter maps, max slope, lakes (implemented, waiting for the user to test):
+  - The hills weight is squared (hills rise out of the lowlands more slowly) and the lowland ripple is lower: ground under
+    5° went from 49 → 60% (Rolling Hills), 10 → 24% (Mountains). Mountains peaks are lower (340 → 241 m on 3.6 km).
+  - `Max Slope` (default 35°, 90 = off): `HeightMap.LimitSlope` lowers anything steeper (8-neighbour chamfer envelope as
+    parallel row/column/diagonal sweeps), before smoothing, preview included. Measured max ~38° (octagon + rounding).
+    28.7 km generate 2.2 → 2.6 s.
+  - **Lakes** section: lightning-like **channels** (zero lines of warped fBm, `ChannelDepth/Width/Spacing`; flat bed, banks)
+    and **basins** (`BasinAmount/Depth/Size`), both only in the lowlands. On in Rolling Hills, Flat Lowlands and Coast.
+    They're dips until M5 water fills them. Channels add ~1.5 s to a 28.7 km fill.
+  - Basins are found on the coarse grid (`TerrainGen.FindBasins`: flood-fill labels, level = lowest ground − depth, then a
+    chamfer distance carrying each basin's level), so every basin has one **level floor**; the bank blends the land back in.
+  - **Gentle Shores** (`GenSettings.GentleShores`, default 60%): a ~1 km shore-style noise makes some shores beaches and
+    others steep banks, for the sea (`ShapeMask.Signed` + `TerrainGen.Coast`: beach on land, shelf under water), basin banks
+    (12–160 m) and channel banks. Coast shores within 3 m of sea level: under 5° went 19 → 78% (p90 still 8° for cliffs).
+  - `--demo-generate` prints slope max / p99 / share under 5° per preset, basin floor/bank and coast shore slopes, and
+    checks that channels and basins lower the ground.
 - Next: user tests; water (M5) will make Sea Level real; maybe rivers/valley shapes, a "blend with current map" mode,
   and saving generator settings in the map file.
 
