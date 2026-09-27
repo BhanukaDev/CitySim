@@ -465,6 +465,22 @@ public partial class TerrainToolController : Node
         Changed();
     }
 
+    /// <summary>
+    /// Puts eroded heights (same size as the map) on the terrain as one undo step. Returns false if the map was
+    /// replaced meanwhile.
+    /// </summary>
+    public bool ApplyEroded(HeightMap heights)
+    {
+        if (Terrain?.Map is not { } map || heights.Width != map.Width || heights.Depth != map.Depth) return false;
+        CommitGenerated();
+        EndStroke();
+        var before = map.Snapshot();
+        Terrain.ReplaceHeights(heights, Terrain.Settings);
+        History.PushHeights(before, map);
+        Changed();
+        return true;
+    }
+
     private void ApplyHistory(Func<HeightMap, SplatMap, UndoChange> op)
     {
         CommitGenerated();

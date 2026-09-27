@@ -30,6 +30,10 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
 - `src/Terrain/Terrain3DBridge.cs`: the render copy in the Terrain3D addon (`addons/terrain_3d/`, MIT); the only file
   that calls Terrain3D
 - `src/Terrain/TerrainSkirt.cs`, `shaders/terrain_skirt.gdshader`: fog ring hiding the map edge
+- `native/erosion/`: C++ library (plain C ABI, no Godot) for droplet + thermal erosion, draining hollows and finding
+  lakes. The macOS build in `bin/` is committed; rebuild with `native/erosion/build.sh` after changing the C++
+- `src/Terrain/Erosion/`: engine-agnostic C# side (settings, `ErosionSim`, `Lakes`/`LakeMap`, function-pointer calls
+  into the library); `src/Terrain/LakeWater.cs` + `shaders/lake_water.gdshader` draw the lakes; `src/UI/ErosionPanel.cs`
 - `src/Camera/CityCamera.cs`: city-builder orbit camera
 - `src/Terrain/TerrainLayers.cs`, `SplatMap.cs`: ground layer list and engine-agnostic painted layers (sparse Terrain3D-style control values)
 - `src/Terrain/Sculpt/PaintOps.cs`: paint/erase brush ops on the splat map

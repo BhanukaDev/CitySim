@@ -3,6 +3,7 @@ using System;
 using CitySim.App;
 using CitySim.CameraSystem;
 using CitySim.TerrainSystem;
+using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
 using System.Linq;
 using CitySim.Tools;
@@ -14,7 +15,7 @@ namespace CitySim.Debug;
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
-/// --demo-heightmap, --demo-generate, --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
+/// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion, --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-terrain-textures and --bake-brushes (bake textures / brush masks for import, then quit; see TextureBaker).
 /// </summary>
@@ -63,6 +64,19 @@ public partial class DebugOverlay : CanvasLayer
                 Callable.From(RunHeightmapDemo).CallDeferred();
             else if (arg == "--demo-generate")
                 Callable.From(RunGenerateDemo).CallDeferred();
+            else if (arg == "--show-erosion")
+                Callable.From(() =>
+                {
+                    foreach (var node in GetParent().GetChildren())
+                        if (node is GameUi ui) ui.OpenErosion();
+                }).CallDeferred();
+            else if (arg == "--demo-erosion")
+                Callable.From(RunErosionDemo).CallDeferred();
+            else if (arg == "--erode" || arg.StartsWith("--erode="))
+            {
+                var preset = ErosionPresets.Find(arg.Length > "--erode=".Length ? arg["--erode=".Length..] : "") ?? ErosionPresets.Default;
+                Callable.From(() => Erode(preset.Settings)).CallDeferred();
+            }
             else if (arg == "--demo-scale" || arg.StartsWith("--demo-scale="))
             {
                 int cells = arg.Length > "--demo-scale=".Length && int.TryParse(arg["--demo-scale=".Length..], out int n) ? n : 8192;
@@ -119,30 +133,11 @@ public partial class DebugOverlay : CanvasLayer
             if (rms > 3.0) { ok = false; GD.PushError($"Demo generate: {preset.Name} preview differs from the full map"); }
         }
 
-        // Lakes: channels and basins each lower part of the lowlands.
-        var hills = GenPresets.Default.ApplyTo(baseSettings);
-        var dry = TerrainGen.Create(hills with { Noise = hills.Noise with { ChannelDepth = 0f, BasinAmount = 0f } });
-        float Lowered(GenSettings s)
-        {
-            var m = TerrainGen.Create(s);
-            int n = 0;
-            for (int i = 0; i < m.Data.Length; i++) if (dry.Data[i] - m.Data[i] > 1f) n++;
-            return n / (float)m.Data.Length;
-        }
-        float channels = Lowered(hills with { Noise = hills.Noise with { BasinAmount = 0f } });
-        var basinMap = TerrainGen.Create(hills with { Noise = hills.Noise with { ChannelDepth = 0f } });
-        float basins = Lowered(hills with { Noise = hills.Noise with { ChannelDepth = 0f } });
-        GD.Print($"Demo generate: {hills.Preset} lowered > 1 m by channels {channels:0.0%}, by basins {basins:0.0%}");
-        // Basin floors should be level, banks a mix of gentle and steep.
-        var (floorFlat, _, _) = SlopeWhere(basinMap, i => dry.Data[i] - basinMap.Data[i] > 1f, 1f);
-        var (bankFlat, bankP50, bankP90) = SlopeWhere(basinMap, i => dry.Data[i] - basinMap.Data[i] is > 0.2f and < 3f, 5f);
-        GD.Print($"Demo generate: basins: dug ground (level floors + banks) under 1° {floorFlat:0%}; banks under 5° {bankFlat:0%}, p50 {bankP50:0}°, p90 {bankP90:0}°");
         // Sea shores: ground within 3 m of sea level.
         var coast = GenPresets.Find("coast")!.ApplyTo(baseSettings);
         var coastMap = TerrainGen.Create(coast);
         var (shoreFlat, shoreP50, shoreP90) = SlopeWhere(coastMap, i => MathF.Abs(coastMap.Data[i] - coast.SeaLevel) < 3f, 5f);
         GD.Print($"Demo generate: coast: shore under 5° {shoreFlat:0%}, p50 {shoreP50:0}°, p90 {shoreP90:0}°");
-        if (channels < 0.005f || basins < 0.005f) { ok = false; GD.PushError("Demo generate: channels or basins missing"); }
 
         // Tiling: at half scale, the image repeats every half map.
         var image = HeightmapImage.FromHeightMap(map, out var range);
@@ -170,6 +165,142 @@ public partial class DebugOverlay : CanvasLayer
         GD.Print($"Demo generate: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
         ok &= undoOk && redoOk;
         GD.Print(ok ? "Demo generate: ok" : "Demo generate: FAILED");
+    }
+
+    /// <summary>Erodes the current map (blocking) as one undo step.</summary>
+    private void Erode(ErosionSettings settings)
+    {
+        if (Terrain?.Map is not { } map || Tools is null) return;
+        var copy = new HeightMap(map.Width, map.Depth, map.CellSize);
+        map.Data.CopyTo(copy.Data);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        ErosionSim.Run(copy, settings, Terrain.SeaLevel);
+        GD.Print($"Erode: {settings.Preset ?? "custom"} on {map.Width}² in {sw.ElapsedMilliseconds} ms");
+        Tools.ApplyEroded(copy);
+    }
+
+    /// <summary>
+    /// Checks erosion and lakes: timing per preset, how much ground moved, that a run is repeatable, that lakes sit in
+    /// real depressions (level at or above the ground, never below a dry neighbour that isn't sea), and that erosion
+    /// undoes and redoes as one step. Prints "Demo erosion: ok".
+    /// </summary>
+    private void RunErosionDemo()
+    {
+        if (Terrain?.Map is not { } map || Tools is null) return;
+        bool ok = true;
+        float? sea = Terrain.SeaLevel;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var lakesBefore = Lakes.Find(map, Terrain.LakeSettings, sea)!;
+        GD.Print($"Demo erosion: lakes before: {lakesBefore.Count} lakes, {lakesBefore.WetVertices() * map.CellSize * map.CellSize / 1e6f:0.###} km², {sw.ElapsedMilliseconds} ms");
+
+        HeightMap? medium = null;
+        // Big maps: Medium only, and no repeat run (each run takes a while there).
+        bool big = map.Width > 2049;
+        foreach (var preset in big ? [ErosionPresets.Default] : ErosionPresets.All)
+        {
+            var copy = new HeightMap(map.Width, map.Depth, map.CellSize);
+            map.Data.CopyTo(copy.Data);
+            sw.Restart();
+            ErosionSim.Run(copy, preset.Settings, sea);
+            long ms = sw.ElapsedMilliseconds;
+            double sumAbs = 0, net = 0;
+            float cut = 0, fill = 0;
+            for (int i = 0; i < copy.Data.Length; i++)
+            {
+                float d = copy.Data[i] - map.Data[i];
+                sumAbs += MathF.Abs(d);
+                net += d;
+                cut = MathF.Min(cut, d);
+                fill = MathF.Max(fill, d);
+            }
+            var (maxSlope, p99, flat) = SlopeStats(copy);
+            double droplets = preset.Settings.Droplets * (double)(map.Width - 1) * (map.Depth - 1);
+            GD.Print($"Demo erosion: {preset.Name,-6} {ms} ms ({droplets / Math.Max(ms, 1) / 1000:0.0} M droplets/s), mean change {sumAbs / copy.Data.Length:0.00} m, " +
+                     $"deepest cut {-cut:0.0} m, highest fill {fill:0.0} m, net {net / copy.Data.Length * 1000:0.0} mm, slope max {maxSlope:0}° p99 {p99:0}°, under 5° {flat:0%}");
+            if (!float.IsFinite(cut) || !float.IsFinite(fill) || sumAbs / copy.Data.Length < 0.01) { ok = false; GD.PushError($"Demo erosion: {preset.Name} did nothing or broke the map"); }
+            if (preset == ErosionPresets.Default) medium = copy;
+        }
+
+        // Same seed, same result.
+        if (!big)
+        {
+            var again = new HeightMap(map.Width, map.Depth, map.CellSize);
+            map.Data.CopyTo(again.Data);
+            ErosionSim.Run(again, ErosionPresets.Default.Settings, sea);
+            bool repeatable = again.Data.SequenceEqual(medium!.Data);
+            GD.Print($"Demo erosion: repeatable {(repeatable ? "ok" : "FAILED")}");
+            ok &= repeatable;
+        }
+
+        sw.Restart();
+        var lakes = Lakes.Find(medium!, Terrain.LakeSettings, sea)!;
+        long lakeMs = sw.ElapsedMilliseconds;
+        // Every wet vertex: level above its ground, and every dry neighbour stands at or above the level (else the water
+        // would spill there).
+        int bad = 0;
+        for (int z = 1; z < map.Depth - 1; z++)
+            for (int x = 1; x < map.Width - 1; x++)
+            {
+                float level = lakes.LevelAt(x, z);
+                if (float.IsNaN(level)) continue;
+                if (level <= medium[x, z]) bad++;
+                for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (float.IsNaN(lakes.LevelAt(x + dx, z + dz)) && medium[x + dx, z + dz] < level - 1e-3f && !(sea is { } s && medium[x + dx, z + dz] < s))
+                            bad++;
+            }
+        PrintLakeDepths(medium, lakes);
+        GD.Print($"Demo erosion: lakes after Medium: {lakes.Count} lakes, {lakes.WetVertices() * map.CellSize * map.CellSize / 1e6f:0.###} km², {lakeMs} ms, " +
+                 $"{bad} vertices breaking the spill rule");
+        ok &= bad == 0;
+
+        // One undo step, exact restore.
+        var before = map.Snapshot();
+        Tools.ApplyEroded(medium);
+        var after = map.Snapshot();
+        Tools.Undo();
+        bool undoOk = map.Data.SequenceEqual(before);
+        Tools.Redo();
+        bool redoOk = map.Data.SequenceEqual(after);
+        GD.Print($"Demo erosion: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
+        ok &= undoOk && redoOk;
+        GD.Print(ok ? "Demo erosion: ok" : "Demo erosion: FAILED");
+    }
+
+    /// <summary>Share of lake area by water depth, and where the biggest lake is (for close-up screenshots).</summary>
+    private static void PrintLakeDepths(HeightMap map, LakeMap lakes)
+    {
+        int wet = 0, under1 = 0, under2 = 0, under4 = 0;
+        double sx = 0, sz = 0;
+        float deepest = 0;
+        for (int z = 0; z < map.Depth; z++)
+            for (int x = 0; x < map.Width; x++)
+            {
+                float level = lakes.LevelAt(x, z);
+                if (float.IsNaN(level)) continue;
+                float d = level - map[x, z];
+                wet++;
+                if (d < 1) under1++;
+                if (d < 2) under2++;
+                if (d < 4) under4++;
+                deepest = MathF.Max(deepest, d);
+                sx += x;
+                sz += z;
+            }
+        if (wet == 0) return;
+        // A shore vertex near the map centre, for close-up screenshots.
+        int bx = -1, bz = -1;
+        float best = float.MaxValue;
+        for (int z = 1; z < map.Depth - 1; z++)
+            for (int x = 1; x < map.Width - 1; x++)
+                if (!float.IsNaN(lakes.LevelAt(x, z)) && float.IsNaN(lakes.LevelAt(x + 1, z)))
+                {
+                    float d = MathF.Abs(x - map.Width / 2f) + MathF.Abs(z - map.Depth / 2f);
+                    if (d < best) { best = d; bx = x; bz = z; }
+                }
+        GD.Print($"Demo erosion: shore point ({bx * map.CellSize:0}, {bz * map.CellSize:0})");
+        GD.Print($"Demo erosion: lake depth: under 1 m {under1 / (float)wet:0%}, under 2 m {under2 / (float)wet:0%}, under 4 m {under4 / (float)wet:0%}, " +
+                 $"deepest {deepest:0.0} m; wet centroid ({sx / wet * map.CellSize:0}, {sz / wet * map.CellSize:0})");
     }
 
     /// <summary>Over the vertices <paramref name="pick"/> selects: share under <paramref name="under"/>°, median and p90 slope.</summary>
@@ -307,6 +438,8 @@ public partial class DebugOverlay : CanvasLayer
             if (Tools.Cursor is { } c)
                 text += $"  ·  cursor height {c.Y:0.0} m, slope {Terrain.GetSlopeDegrees(c.X, c.Z):0.0}°";
             text += $"\nLast push {Terrain.LastPushRegions} regions in {Terrain.LastPushMs:0.0} ms";
+            if (Terrain.Lakes is { } lakes)
+                text += $"  ·  {lakes.Count} lakes (found in {Terrain.LastLakeMs:0} ms)";
         }
         text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
                 "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool / menu · G grid · C contours";

@@ -19,20 +19,18 @@ public static class GenPresets
 {
     // Sand shows below ~9 m (terrain shader's sand_height), so a sea level of 6 m gives beaches.
     private static readonly NoiseSettings Coastal = new() { BaseHeight = 8f, HeightScale = 200f, Flatness = 0.5f };
-    // Lightning channels and basins in the lowlands: dips for creeks and lakes once there's water (M5).
-    private static readonly NoiseSettings Wet = new() { ChannelDepth = 5f, BasinAmount = 0.25f, BasinDepth = 6f };
 
     public static readonly GenPreset[] All =
     [
-        new("Rolling Hills", "Hills and wide buildable lowlands, with creeks and lakes", Wet, new()),
+        new("Rolling Hills", "Hills and wide buildable lowlands", new(), new()),
         new("Mountains", "High, rugged ranges with narrow valleys",
             new() { HeightScale = 480f, Flatness = 0.15f, Frequency = 0.0012f, Gain = 0.46f, WarpAmplitude = 120f }, new()),
         new("Flat Lowlands", "Mostly flat land with gentle rises",
-            Wet with { HeightScale = 70f, Flatness = 0.75f, Frequency = 0.001f, Gain = 0.4f }, new()),
+            new NoiseSettings { HeightScale = 70f, Flatness = 0.75f, Frequency = 0.001f, Gain = 0.4f }, new()),
         new("Island", "One island surrounded by sea", Coastal,
             new() { Kind = ShapeKind.Island, Size = 0.72f, EdgeWidth = 0.14f, Roughness = 0.6f, SeaDepth = 35f }),
         new("Coast", "Land on one side, sea on the other",
-            Coastal with { ChannelDepth = Wet.ChannelDepth, BasinAmount = Wet.BasinAmount, BasinDepth = Wet.BasinDepth },
+            Coastal,
             new() { Kind = ShapeKind.Coast, Size = 0.65f, Direction = 180f, EdgeWidth = 0.12f, Roughness = 0.6f, SeaDepth = 35f }),
         new("Archipelago", "A scatter of small islands",
             Coastal with { HeightScale = 140f }, new() { Kind = ShapeKind.Archipelago, Size = 0.4f, EdgeWidth = 0.1f, Roughness = 0.4f, SeaDepth = 30f }),

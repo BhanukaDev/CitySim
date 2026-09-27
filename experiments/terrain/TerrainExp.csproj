@@ -7,5 +7,7 @@
          "optimized away" in the debugger; remove this line while debugging if that gets in the way. -->
     <Optimize>true</Optimize>
     <RootNamespace>CitySim</RootNamespace>
+    <!-- The erosion library is called through function pointers (src/Terrain/Erosion/Native.cs). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 </Project>

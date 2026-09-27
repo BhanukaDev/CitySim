@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 using CitySim.TerrainSystem;
+using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
 using CitySim.Tools;
 
@@ -72,7 +73,7 @@ public partial class GeneratorPanel : PanelContainer
             CustomMinimumSize = new Vector2(0, 300),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            TooltipText = "Top-down preview, north up. Blue: below sea level.",
+            TooltipText = "Top-down preview, north up. Blue: lakes, and below sea level.",
         };
         col.AddChild(_preview);
 
@@ -167,22 +168,6 @@ public partial class GeneratorPanel : PanelContainer
         Slider(grid, "Max Slope", 15, 90, 1, "{0:0}°", () => _s.Noise.MaxSlope, v => _s = _s with { Noise = _s.Noise with { MaxSlope = v } }, _noiseRows,
             "Steeper ground is cut down to this angle (90° = no limit)");
 
-        Section(grid, "Lakes", _noiseRows);
-        Slider(grid, "Channel Depth", 0, 20, 0.5, "{0:0.#} m", () => _s.Noise.ChannelDepth, v => _s = _s with { Noise = _s.Noise with { ChannelDepth = v } }, _noiseRows,
-            "Branching, lightning-like channels cut into the lowlands (0 = none)");
-        Slider(grid, "Channel Width", 4, 60, 1, "{0:0} m", () => _s.Noise.ChannelWidth, v => _s = _s with { Noise = _s.Noise with { ChannelWidth = v } }, _noiseRows,
-            "How wide each channel is");
-        Slider(grid, "Channel Spacing", 200, 3000, 10, "{0:0} m", () => _s.Noise.ChannelSpacing, v => _s = _s with { Noise = _s.Noise with { ChannelSpacing = v } }, _noiseRows,
-            "Rough distance between channels");
-        Slider(grid, "Basins", 0, 1, 0.01, "{0:0%}", () => _s.Noise.BasinAmount, v => _s = _s with { Noise = _s.Noise with { BasinAmount = v } }, _noiseRows,
-            "How much of the lowlands sinks into flat-bottomed basins for lakes (0 = none)");
-        Slider(grid, "Basin Depth", 1, 40, 0.5, "{0:0.#} m", () => _s.Noise.BasinDepth, v => _s = _s with { Noise = _s.Noise with { BasinDepth = v } }, _noiseRows,
-            "Depth of a basin's level floor below the lowest ground around it");
-        Slider(grid, "Basin Size", 100, 2000, 10, "{0:0} m", () => _s.Noise.BasinSize, v => _s = _s with { Noise = _s.Noise with { BasinSize = v } }, _noiseRows,
-            "Rough size of a basin");
-        Slider(grid, "Gentle Shores", 0, 1, 0.01, "{0:0%}", () => _s.GentleShores, v => _s = _s with { GentleShores = v }, _noiseRows,
-            "Share of sea, lake and channel shores that are gentle beaches; the rest are steep banks");
-
         Section(grid, "Heightmap", _imageRows);
         var fileRow = new HBoxContainer();
         _fileName = new Label { SizeFlagsHorizontal = SizeFlags.ExpandFill, ClipText = true, Modulate = UiTheme.TextDim };
@@ -222,7 +207,7 @@ public partial class GeneratorPanel : PanelContainer
         Slider(grid, "Coast Roughness", 0, 1.5, 0.01, "{0:0.00}", () => _s.Shape.Roughness, v => _s = _s with { Shape = _s.Shape with { Roughness = v } }, _shapeRows,
             "How much the coastline wanders: bays and headlands");
         Slider(grid, "Gentle Shores", 0, 1, 0.01, "{0:0%}", () => _s.GentleShores, v => _s = _s with { GentleShores = v }, _shapeRows,
-            "Share of sea, lake and channel shores that are gentle beaches; the rest are steep banks");
+            "Share of sea shores that are gentle beaches; the rest are steep banks");
         Slider(grid, "Sea Level", -50, 200, 1, "{0:0} m", () => _s.SeaLevel, v => _s = _s with { SeaLevel = v }, _shapeRows,
             "Height the shore blends down to (no water yet; sand shows below ~9 m)");
         Slider(grid, "Sea Depth", 0, 200, 1, "{0:0} m", () => _s.Shape.SeaDepth, v => _s = _s with { Shape = _s.Shape with { SeaDepth = v } }, _shapeRows,
@@ -351,6 +336,7 @@ public partial class GeneratorPanel : PanelContainer
         var map = TerrainGen.Preview(_s, PreviewVerts);
         var (min, max) = map.GetRange();
         bool sea = _s.Shape.Kind != ShapeKind.None;
+        var lakes = PreviewLakes(map, sea);
         float landMin = sea ? MathF.Max(min, _s.SeaLevel) : min;
         float span = MathF.Max(max - landMin, 1f);
         var light = System.Numerics.Vector3.Normalize(new(-1f, 1.4f, -1f));
@@ -362,7 +348,14 @@ public partial class GeneratorPanel : PanelContainer
                 var n = map.GetNormal(x, z);
                 float shade = 0.55f + 0.6f * MathF.Max(0f, System.Numerics.Vector3.Dot(n, light));
                 Color c;
-                if (sea && h < _s.SeaLevel)
+                float lake = lakes?.LevelAt(x, z) ?? float.NaN;
+                if (!float.IsNaN(lake))
+                {
+                    float depth = Mathf.Clamp((lake - h) / 6f, 0f, 1f);
+                    c = new Color(0.36f, 0.62f, 0.66f).Lerp(new Color(0.10f, 0.28f, 0.42f), depth);
+                    shade = 0.9f + 0.1f * shade;
+                }
+                else if (sea && h < _s.SeaLevel)
                 {
                     float depth = Mathf.Clamp((_s.SeaLevel - h) / MathF.Max(_s.Shape.SeaDepth, 1f), 0f, 1f);
                     c = new Color(0.38f, 0.66f, 0.78f).Lerp(new Color(0.12f, 0.28f, 0.48f), depth);
@@ -393,7 +386,26 @@ public partial class GeneratorPanel : PanelContainer
             _previewImage.SetData(PreviewVerts, PreviewVerts, false, Image.Format.Rgb8, bytes);
             _previewTexture!.Update(_previewImage);
         }
-        _preview.TooltipText = $"Top-down preview, north up. {min:0}–{max:0} m" + (sea ? ", blue below sea level" : "") + $" ({sw.ElapsedMilliseconds} ms)";
+        _preview.TooltipText = $"Top-down preview, north up. {min:0}–{max:0} m" + (sea ? ", blue below sea level" : "") +
+                               (lakes is null ? "" : $", {lakes.Count} lakes") + $" ({sw.ElapsedMilliseconds} ms)";
+    }
+
+    private bool _previewLakesFailed;
+
+    /// <summary>Lakes on the preview grid, with the terrain's lake settings (null if the erosion library is missing).</summary>
+    private LakeMap? PreviewLakes(HeightMap map, bool sea)
+    {
+        if (_previewLakesFailed) return null;
+        try
+        {
+            return Lakes.Find(map, Tools?.Terrain?.LakeSettings ?? new LakeSettings(), sea ? _s.SeaLevel : null);
+        }
+        catch (DllNotFoundException e)
+        {
+            _previewLakesFailed = true;
+            GD.PushWarning($"Generator preview: no lakes ({e.Message})");
+            return null;
+        }
     }
 
     /// <summary>Generates the full map on a worker thread and puts it on the terrain; a newer Apply supersedes an older one.</summary>

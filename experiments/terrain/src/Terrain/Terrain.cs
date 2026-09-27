@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using Godot;
 using CitySim.App;
+using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
 
 namespace CitySim.TerrainSystem;
@@ -38,6 +41,8 @@ public partial class Terrain : Node3D
     [Export] public Material? Material { get; set; }
     /// <summary>Fog-only material for the ring around the map; gets the terrain's edge fog settings.</summary>
     [Export] public Material? SkirtMaterial { get; set; }
+    /// <summary>Lake surfaces (<c>lake_water.gdshader</c>).</summary>
+    [Export] public Material? WaterMaterial { get; set; }
 
     [ExportToolButton("Regenerate")]
     public Callable RegenerateButton => Callable.From(Generate);
@@ -47,6 +52,13 @@ public partial class Terrain : Node3D
     private bool _skirtDirty;
     private VertexRect _heightDirty = VertexRect.Empty, _splatDirty = VertexRect.Empty;
     private double _paramCopyTimer;
+    private LakeWater? _water;
+    private double _lakeTimer = -1;
+    private CancellationTokenSource? _lakeJob;
+    private bool _lakesFailed;
+
+    /// <summary>Wait after the last height edit before finding lakes again (a stroke edits every tick).</summary>
+    private const double LakeDelay = 0.5;
 
     public HeightMap? Map { get; private set; }
 
@@ -62,10 +74,39 @@ public partial class Terrain : Node3D
     public double LastPushMs { get; private set; }
     public int LastPushRegions { get; private set; }
 
+    /// <summary>Goes up with every height change, so work started on older heights can tell it's stale.</summary>
+    public int HeightVersion { get; private set; }
+
+    /// <summary>Standing water found on the current heights, or null until the first search finishes.</summary>
+    public LakeMap? Lakes { get; private set; }
+    /// <summary>Time the last lake search took (find + mesh arrays).</summary>
+    public double LastLakeMs { get; private set; }
+    /// <summary>Raised on the main thread when <see cref="Lakes"/> is replaced.</summary>
+    public event System.Action? LakesChanged;
+
+    private LakeSettings _lakeSettings = new();
+    /// <summary>Which depressions count as lakes. Changing it finds the lakes again.</summary>
+    public LakeSettings LakeSettings
+    {
+        get => _lakeSettings;
+        set { _lakeSettings = value; RefreshLakes(0.25); }
+    }
+
+    private bool _showLakes = true;
+    public bool ShowLakes
+    {
+        get => _showLakes;
+        set { _showLakes = value; if (_water is not null) _water.Visible = value; }
+    }
+
+    /// <summary>Sea level for lake finding: ground below it connected to the edge is sea. Null when the map has no sea shape.</summary>
+    public float? SeaLevel => Settings.Shape.Kind != ShapeKind.None ? Settings.SeaLevel : null;
+
     public override void _Ready()
     {
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
+        Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
         if (Engine.IsEditorHint()) Generate();
         else Open(MapSession.TakePending());
         CheckTextures();
@@ -139,6 +180,60 @@ public partial class Terrain : Node3D
             _skirt?.Rebuild();
         }
         PushDirty();
+        if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
+    }
+
+    public override void _ExitTree() => _lakeJob?.Cancel();
+
+    /// <summary>Finds the lakes again after <paramref name="delay"/> seconds (restarted by every height edit).</summary>
+    public void RefreshLakes(double delay = LakeDelay) => _lakeTimer = delay;
+
+    /// <summary>Finds lakes and builds their mesh arrays on a worker; the result is dropped if the heights changed meanwhile.</summary>
+    private void StartLakeSearch()
+    {
+        _lakeTimer = -1;
+        if (Map is not { } map || _lakesFailed) return;
+        _lakeJob?.Cancel();
+        var job = _lakeJob = new CancellationTokenSource();
+        int version = HeightVersion;
+        var settings = _lakeSettings;
+        float? sea = SeaLevel;
+        Task.Run(() =>
+        {
+            var sw = Stopwatch.StartNew();
+            var lakes = TerrainSystem.Erosion.Lakes.Find(map, settings, sea, job.Token);
+            if (lakes is null) return;
+            var arrays = LakeWater.Build(lakes);
+            double ms = sw.Elapsed.TotalMilliseconds;
+            Callable.From(() =>
+            {
+                if (!IsInstanceValid(this) || job.IsCancellationRequested || map != Map || version != HeightVersion) return;
+                Lakes = lakes;
+                LastLakeMs = ms;
+                EnsureWater().Apply(arrays);
+                LakesChanged?.Invoke();
+            }).CallDeferred();
+        }, job.Token).ContinueWith(t =>
+        {
+            if (!t.IsFaulted) return;
+            var error = t.Exception!.GetBaseException();
+            Callable.From(() =>
+            {
+                // A missing library won't appear by itself: stop retrying until the next map.
+                if (error is System.DllNotFoundException) _lakesFailed = true;
+                GD.PushError($"Terrain: finding lakes failed: {error.Message}");
+            }).CallDeferred();
+        });
+    }
+
+    private LakeWater EnsureWater()
+    {
+        if (_water is null || !IsInstanceValid(_water))
+        {
+            _water = new LakeWater { Name = "Lakes", Material = WaterMaterial, Visible = _showLakes };
+            AddChild(_water);
+        }
+        return _water;
     }
 
     /// <summary>Copies this frame's edits to Terrain3D.</summary>
@@ -196,6 +291,7 @@ public partial class Terrain : Node3D
         PushDirty();
         _render?.RecalcHeightRange();
         UpdateMaterialRange();
+        RefreshLakes(0);
     }
 
     /// <summary>
@@ -220,9 +316,14 @@ public partial class Terrain : Node3D
         _render?.Free();
         _render = null;
         foreach (var child in GetChildren())
-            if (child is TerrainSkirt)
+            if (child is TerrainSkirt or LakeWater)
                 child.Free();
+        _water = null;
         _heightDirty = _splatDirty = VertexRect.Empty;
+        _lakeJob?.Cancel();
+        Lakes = null;
+        _lakesFailed = false;
+        HeightVersion++;
 
         Map = map;
         CellsX = map.Width - 1;
@@ -241,6 +342,7 @@ public partial class Terrain : Node3D
         _skirtDirty = false;
 
         GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms");
+        RefreshLakes(0);
     }
 
     // --- Queries (world space) ---
@@ -259,6 +361,16 @@ public partial class Terrain : Node3D
         var n = Map.SampleNormal(worldX - o.X, worldZ - o.Z);
         return new Vector3(n.X, n.Y, n.Z);
     }
+
+    /// <summary>Depth of lake water at a world position, in metres (0 on dry ground or before lakes are found).</summary>
+    public float GetWaterDepth(float worldX, float worldZ)
+    {
+        if (Map is null || Lakes is null) return 0f;
+        var o = GlobalPosition;
+        return Lakes.WaterDepth(Map, worldX - o.X, worldZ - o.Z);
+    }
+
+    public bool IsUnderwater(float worldX, float worldZ) => GetWaterDepth(worldX, worldZ) > 0f;
 
     public float GetSlopeDegrees(float worldX, float worldZ)
     {
@@ -387,6 +499,8 @@ public partial class Terrain : Node3D
         if (_render is not null && (minX <= 0 || minZ <= 0 || maxX >= _render.RenderedX - 1 || maxZ >= _render.RenderedZ - 1))
             _skirtDirty = true;
         _heightDirty = _heightDirty.Union(new VertexRect(minX, minZ, maxX, maxZ));
+        HeightVersion++;
+        RefreshLakes();
     }
 
     /// <summary>Copies the uniforms tuned on <see cref="Material"/> to Terrain3D's material and the skirt.</summary>

@@ -19,6 +19,9 @@ Cities: Skylines-style city builder. When it's stable, it's merged into the main
   deferred until profiling shows a hot path. GDExtension classes have no generated C# bindings, so every
   call from C# goes through `Call("method")` strings.
 - **.NET 9**: `TargetFramework net9.0`, because no .NET 8 runtime is installed.
+- **C++ for erosion** (since M5.0): a plain `extern "C"` library in `native/erosion/`, loaded with `NativeLibrary` and
+  called through C# function pointers on `HeightMap.Data` in place. Not a GDExtension: no godot-cpp/scons, no
+  `Call("…")` strings, no array copies, and it stays engine-agnostic.
 - **`HeightMap` stays engine-agnostic** (plain C#, `System.Numerics`). Godot-specific code lives in
   `Terrain`, `Terrain3DBridge` and `TerrainSkirt`. The generator (`src/Terrain/Generation/`) is engine-agnostic too (vendored C# FastNoiseLite).
 - **Rendering via Terrain3D** (since M6 phase 2; M1–M5 used our own 64²-cell chunk meshes): `HeightMap`/`SplatMap` are the
@@ -54,6 +57,7 @@ plus frame-to-frame jerk while flying over the mountains at four zooms (prints `
 ```sh
 cd experiments/terrain
 dotnet build                                                   # compile check
+native/erosion/build.sh                                        # only after changing the C++ (the macOS dylib is committed)
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
@@ -62,6 +66,8 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
+#   --demo-erosion (erosion per preset, repeatability, lakes obey the spill rule, one-step undo), --erode[=light|medium|heavy],
+#   --show-erosion (open the Erosion & Lakes panel),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
 #   --size=cells (8192 = 28.7 km)
 # any flag skips the start menu (scenes/Menu.tscn)
@@ -307,7 +313,7 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
   - `Max Slope` (default 35°, 90 = off): `HeightMap.LimitSlope` lowers anything steeper (8-neighbour chamfer envelope as
     parallel row/column/diagonal sweeps), before smoothing, preview included. Measured max ~38° (octagon + rounding).
     28.7 km generate 2.2 → 2.6 s.
-  - **Lakes** section: lightning-like **channels** (zero lines of warped fBm, `ChannelDepth/Width/Spacing`; flat bed, banks)
+  - *(Removed in M5.0, replaced by erosion + real lakes)* **Lakes** section: lightning-like **channels** (zero lines of warped fBm, `ChannelDepth/Width/Spacing`; flat bed, banks)
     and **basins** (`BasinAmount/Depth/Size`), both only in the lowlands. On in Rolling Hills, Flat Lowlands and Coast.
     They're dips until M5 water fills them. Channels add ~1.5 s to a 28.7 km fill.
   - Basins are found on the coarse grid (`TerrainGen.FindBasins`: flood-fill labels, level = lowest ground − depth, then a
@@ -319,6 +325,52 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
     checks that channels and basins lower the ground.
 - Next: user tests; water (M5) will make Sea Level real; maybe rivers/valley shapes, a "blend with current map" mode,
   and saving generator settings in the map file.
+
+### 🔶 M5.0: Erosion + real lakes (implemented, waiting for the user to test)
+The M4.2 channels and basins were noise stamped onto the map, so they didn't follow the ground. Replaced (code, settings,
+sliders and preset values removed) by a simulation and by lakes computed from the heights.
+- **C++ library** `native/erosion/` (`erosion.h/.cpp`, `build.sh`, credits in `LICENSE.md`), see Tech decisions:
+  - `cs_erode`: droplet erosion after Beyer 2015 / Sebastian Lague's Hydraulic-Erosion (MIT). Heights in metres, slopes
+    unitless, so settings work at any cell size; speed grows downhill (the reference had the sign flipped). Threads: tiles
+    wider than a droplet's reach, coloured in a 3×3 pattern, one colour at a time; a random stream per tile and round,
+    so a seed always gives the same map. The border is the base level: erosion fades in over the brush radius + 8 cells
+    (without that, sediment carried off the edge cut 90–660 m canyons back into the map). Then a thermal (slump) pass
+    that moves material pairwise, so none is lost. Last, **drain hollows** (breaching): from each pit under the
+    Priority-Flood fill, follow the flood path over the rim and cut a descending channel if no cell needs more than
+    `DrainDepth` (default 2 m). Must run last: sediment filled channels cut before the rain. Up to 3 passes (a channel's
+    banks can reshape the hollows next to it).
+  - Channel shape (after user feedback: straight trenches with hard corners looked fake): the 8-direction flood path is
+    smoothed (24 × 1-2-1) and given a slow meander (±2 cells, 45-cell wave, faded in over 12 cells at each end), then
+    carved as a ~2-cell bed falling 1 mm per cell with parabolic banks (30° three cells out) reaching 12 cells (shorter
+    reaches leave cliffs where a channel notches a ridge: 8 cells → max slope 85°). All channels go into one surface
+    that's applied once per pass; then bank tops are rounded by lowering cells near channels to their 8-neighbour
+    average. Tried first: a smooth-min per channel, which lowered shared routes once per channel and dug new pits
+    (4 → 13 lakes); the neighbour average can't make a pit.
+  - `cs_find_lakes`: Priority-Flood (Barnes 2014) from the border and the sea (ground below sea level connected to the
+    border, only when a shape is on), then connected raised cells are lakes; drops those under `MinDepth` (1 m) or
+    `MinArea` (0.5 ha). Each lake is level at its spill height.
+- **C#** `src/Terrain/Erosion/`: `ErosionSettings` + Light/Medium/Heavy presets, `LakeSettings`, `ErosionSim.Run`,
+  `Lakes.Find` → `LakeMap` (level per vertex, NaN = dry; `WaterDepth`, `IsUnderwater`), `Native` (function pointers).
+- `Terrain`: finds lakes on a worker 0.5 s after the last height edit (strokes, undo, generate, load, erosion) and drops
+  stale results (`HeightVersion`). `GetWaterDepth`/`IsUnderwater` queries, `LakeSettings`, `ShowLakes`, `LakesChanged`.
+- `LakeWater` + `shaders/lake_water.gdshader`: flat quads at each lake's level over cells touching water (row runs merged,
+  256² cells per mesh), so the terrain cuts the shoreline. Depth-tinted from the depth buffer, soft shore fade, sine
+  ripples that fade out by 450 m (they made a moiré further away). No shadows.
+- **Erosion & Lakes panel** (bottom bar **Erode**, Map Editor only; closes tools/generator): preset, seed, Rain, Reach,
+  Strength, Carry, Width, Drain Hollows, Slump Angle, **Run Erosion** (worker, % and Cancel; dropped if the terrain changed
+  meanwhile), then one undo step (`TerrainToolController.ApplyEroded`). Lakes: Show water, Min Depth, Min Area, count/area.
+- Generator preview shows lakes too.
+- Measured (M1, 3.6 km Rolling Hills): Medium ~1.7 s (droplets ~1 s, the rest is draining), Light 0.9 s, Heavy 4.8 s;
+  lakes ~95 ms. Medium: mean change 1.5 m, deepest cut ~20 m, max slope 38 → 56° (p99 37°), under 5° 76%. Lakes before
+  erosion: 40 (3.1 km², mostly 1–2 m deep); after Medium: 5 (1.1 km²), linked by drained channels (rivers where they
+  run into a lake). Mountains 3.6 km: Medium 1.4 s, 9 lakes (1.2 km²).
+- 28.7 km Mountains (M1 8 GB): Medium 89 s (71 s before the channel reshaping), lakes 8 s, peak footprint 3.1 GB. Lakes:
+  1432 before (266 km²), 293 after (227 km², 28% of the map, deepest 140 m): the noise makes closed valleys that a 2 m drain can't
+  open, so they fill as big valley lakes. Needs a decision (deeper drain on big maps, or generator valleys that drain).
+- The old channels/basins numbers in M4.2 no longer apply
+  (`--demo-generate` coast shores under 5°: 78 → 66%, the basin floors no longer count).
+- Not done / next: rivers (flow accumulation → water along channels), the sea plane (M5), saving lakes settings in the map
+  file, a C# fallback or Windows/Linux builds of the library, erosion as a brush, partial re-search of lakes after small edits.
 
 ### ⬜ M5: Water
 - Sea level plane with a simple water shader (depth colour, shoreline foam)
@@ -433,7 +485,6 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - Clean public API surface; document it here before merging into the main game
 
 ### Nice-to-have / ideas
-- Hydraulic + thermal erosion (a good first C++ GDExtension candidate)
 - Edge-of-map: the M3.1 skirt is flat fog. A real fake-terrain ring (low-poly hills fading into the fog) could replace it
 - Camera: double-click to focus
 
@@ -470,3 +521,8 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
   Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
   map files store 16-bit heights, like CS2 and heightmap exports.
+- M5.0: lakes are **computed, not generated**: every depression fills to its spill height (Priority-Flood), so water always
+  follows the ground. The M4.2 noise channels/basins were removed (user's choice). Erosion is a separate, undoable step run
+  from its own panel, not part of the generator. C++ as a plain C library via P/Invoke-style function pointers rather than a
+  GDExtension (no C# bindings, needs godot-cpp/scons, copies arrays). Shallow hollows are drained by cutting outlets
+  (breaching) at the end of erosion; without it noise terrain turns 17–30% of the map into ponds and valley lakes.

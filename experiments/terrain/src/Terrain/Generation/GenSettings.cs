@@ -35,22 +35,6 @@ public sealed record NoiseSettings
     /// <summary>Steepest ground allowed, in degrees: steeper peaks and faces are cut down to it. 90 = no limit.</summary>
     public float MaxSlope { get; init; } = 35f;
 
-    /// <summary>
-    /// Depth of the branching, lightning-like channels carved into the lowlands (future creeks and long lakes), in
-    /// metres. 0 = none. They fade out going up into hills.
-    /// </summary>
-    public float ChannelDepth { get; init; }
-    /// <summary>Width of a channel, in metres.</summary>
-    public float ChannelWidth { get; init; } = 12f;
-    /// <summary>Rough distance between channels, in metres.</summary>
-    public float ChannelSpacing { get; init; } = 700f;
-
-    /// <summary>How much of the lowlands sinks into flat-bottomed basins (future lakes): 0 = none, 1 = a lot.</summary>
-    public float BasinAmount { get; init; }
-    /// <summary>Depth of a basin's level floor below the lowest ground around it, in metres.</summary>
-    public float BasinDepth { get; init; } = 8f;
-    /// <summary>Rough size of a basin, in metres.</summary>
-    public float BasinSize { get; init; } = 400f;
 }
 
 /// <summary>
@@ -126,7 +110,7 @@ public sealed record GenSettings
     /// <summary>Height the sea shapes blend down to. No water yet: below it is sandy low ground.</summary>
     public float SeaLevel { get; init; } = 6f;
     /// <summary>
-    /// Share of shores (sea, basins, channels) that are gentle beaches rather than steep banks, 0..1. Which stretches
+    /// Share of sea shores that are gentle beaches rather than steep banks, 0..1. Which stretches
     /// are which comes from low-frequency noise, so a coast changes character along its length.
     /// </summary>
     public float GentleShores { get; init; } = 0.6f;

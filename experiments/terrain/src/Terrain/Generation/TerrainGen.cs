@@ -71,15 +71,12 @@ public static class TerrainGen
         float coarseShare = 0.05f, fillShare = smooth ? 0.85f : 1f;
 
         // Coarse grid: every g-th vertex, plus one past the far edge so every cell has four corners.
-        // Fields: the noise's own, then shore style, the coast's signed distance, and each basin's distance and level.
+        // Fields: the noise's own, then shore style and the coast's signed distance.
         int g = CoarseStep(spacing);
         int cw = (w - 1) / g + 2, cd = (d - 1) / g + 2;
         int fields = noise is null ? 0 : NoiseSource.CoarseFields;
         int styleField = fields++;
         int shapeField = shape is not null ? fields++ : -1;
-        bool basins = noise is not null && noise.HasBasins;
-        int basinField = basins ? fields : -1;
-        if (basins) fields += 2;
         var coarse = new float[cw * cd * fields];
         Parallel.For(0, cd, new ParallelOptions { CancellationToken = ct }, cz =>
         {
@@ -92,15 +89,12 @@ public static class TerrainGen
                 if (shape is not null) f[shapeField] = shape.Signed(cx * g / (w - 1f), cz * g / (d - 1f));
             }
         });
-        // Basins stay clear of the sea: only ground a little above sea level holds one.
-        float basinFloor = shape is not null ? s.SeaLevel + 2f : float.MinValue;
-        if (basins) FindBasins(coarse, cw, cd, fields, g * spacing, basinField, noise!, basinFloor, ct, (f, carve) => Surface(f, carve));
         progress?.Invoke(coarseShare);
 
-        // Height before basins: the base (with channels if carve), then the coast.
-        float Surface(ReadOnlySpan<float> f, bool carve)
+        // The base, then the coast.
+        float Surface(ReadOnlySpan<float> f)
         {
-            float h = noise is not null ? noise.Fine(f, f[styleField], carve) : flatBase;
+            float h = noise is not null ? noise.Fine(f) : flatBase;
             return shape is not null ? Coast(h, f[shapeField], f[styleField], s) : h;
         }
 
@@ -128,14 +122,7 @@ public static class TerrainGen
                     h = image.Sample(x / (w - 1f), v);
                     if (shape is not null) h = Coast(h, f[shapeField], f[styleField], s);
                 }
-                else h = Surface(f, true);
-                if (basins)
-                {
-                    // Level floor inside the basin; the bank blends the land back in over a width set by the shore style.
-                    float dist = f[basinField], level = f[basinField + 1];
-                    float bank = Lerp(12f, 160f, f[styleField]);
-                    if (dist < bank) h = MathF.Min(h, level + (h - level) * ShapeMask.SmoothStep(0f, bank, dist));
-                }
+                else h = Surface(f);
                 row[x] = h;
             }
             int done = Interlocked.Increment(ref rowsDone);
@@ -172,111 +159,13 @@ public static class TerrainGen
         return s.SeaLevel - s.Shape.SeaDepth * (1f - p);
     }
 
-    /// <summary>
-    /// Finds the basins on the coarse grid and gives each a level: connected lowland nodes where the basin noise is
-    /// high, lowered to the lowest ground in them minus <see cref="NoiseSettings.BasinDepth"/>. Then writes, for every
-    /// node, the distance to the nearest basin (metres) and that basin's level, into fields <paramref name="field"/>
-    /// and +1. Runs on the coarse grid, so it's cheap even at 28 km.
-    /// </summary>
-    private static void FindBasins(float[] coarse, int cw, int cd, int fields, float step, int field, NoiseSource noise,
-        float minGround, CancellationToken ct, Func<float[], bool, float> surface)
-    {
-        int n = cw * cd;
-        var ground = new float[n];
-        var core = new bool[n];
-        Parallel.For(0, cd, new ParallelOptions { CancellationToken = ct }, () => new float[fields], (cz, _, f) =>
-        {
-            for (int cx = 0; cx < cw; cx++)
-            {
-                int i = cz * cw + cx;
-                coarse.AsSpan(i * fields, fields).CopyTo(f);
-                ground[i] = surface(f, false);
-                core[i] = noise.IsBasinCore(f) && ground[i] > minGround;
-            }
-            return f;
-        }, _ => { });
-
-        // Label connected cores (4-neighbour flood fill) and take each one's lowest ground.
-        var label = new int[n];
-        var levels = new System.Collections.Generic.List<float> { 0f };
-        var stack = new System.Collections.Generic.Stack<int>();
-        for (int i = 0; i < n; i++)
-        {
-            if (!core[i] || label[i] != 0) continue;
-            int id = levels.Count;
-            float low = float.MaxValue;
-            label[i] = id;
-            stack.Push(i);
-            while (stack.Count > 0)
-            {
-                int j = stack.Pop();
-                low = MathF.Min(low, ground[j]);
-                int x = j % cw;
-                if (x > 0) Visit(j - 1);
-                if (x < cw - 1) Visit(j + 1);
-                if (j >= cw) Visit(j - cw);
-                if (j < n - cw) Visit(j + cw);
-            }
-            levels.Add(low - noise.BasinDepth);
-
-            void Visit(int k)
-            {
-                if (core[k] && label[k] == 0) { label[k] = id; stack.Push(k); }
-            }
-        }
-
-        // Distance to the nearest basin, carrying its level: two-pass 8-neighbour chamfer.
-        var dist = new float[n];
-        var level = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            dist[i] = label[i] != 0 ? 0f : 1e9f;
-            level[i] = levels[label[i]];
-        }
-        float a = step, b = step * MathF.Sqrt(2f);
-        for (int z = 0; z < cd; z++)
-            for (int x = 0; x < cw; x++)
-            {
-                int i = z * cw + x;
-                if (x > 0) Relax(i, i - 1, a);
-                if (z > 0)
-                {
-                    Relax(i, i - cw, a);
-                    if (x > 0) Relax(i, i - cw - 1, b);
-                    if (x < cw - 1) Relax(i, i - cw + 1, b);
-                }
-            }
-        for (int z = cd - 1; z >= 0; z--)
-            for (int x = cw - 1; x >= 0; x--)
-            {
-                int i = z * cw + x;
-                if (x < cw - 1) Relax(i, i + 1, a);
-                if (z < cd - 1)
-                {
-                    Relax(i, i + cw, a);
-                    if (x < cw - 1) Relax(i, i + cw + 1, b);
-                    if (x > 0) Relax(i, i + cw - 1, b);
-                }
-            }
-        for (int i = 0; i < n; i++)
-        {
-            coarse[i * fields + field] = dist[i];
-            coarse[i * fields + field + 1] = level[i];
-        }
-
-        void Relax(int i, int from, float cost)
-        {
-            if (dist[from] + cost < dist[i]) { dist[i] = dist[from] + cost; level[i] = level[from]; }
-        }
-    }
-
     /// <summary>Coarse grid step in vertices: about <see cref="CoarseSpacing"/> metres, or every vertex on coarse maps.</summary>
     private static int CoarseStep(float spacing) => Math.Max(1, (int)(CoarseSpacing / spacing));
 
     private static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
     /// <summary>
-    /// Where shores (sea, basins, channels) are gentle beaches (1) or steep banks (0): low-frequency noise in metres,
+    /// Where sea shores are gentle beaches (1) or steep banks (0): low-frequency noise in metres,
     /// so a coast changes character every kilometre or so. <see cref="GenSettings.GentleShores"/> sets the balance.
     /// </summary>
     private sealed class ShoreStyle
@@ -307,17 +196,14 @@ public static class TerrainGen
     /// </summary>
     private sealed class NoiseSource
     {
-        /// <summary>Values <see cref="Coarse"/> writes: warped x and z, lowland mask, region, basin noise.</summary>
-        public const int CoarseFields = 5;
+        /// <summary>Values <see cref="Coarse"/> writes: warped x and z, lowland mask, region.</summary>
+        public const int CoarseFields = 4;
         private const int WarpOctaves = 5, WarpLacunarity = 6;
 
         private readonly NoiseSettings _s;
         private readonly FastNoiseLite _detail, _mask;
-        private readonly FastNoiseLite? _warp, _region, _channels, _basins;
-        private readonly float _regionStrength, _channelHalfWidth, _basinThreshold;
-
-        public bool HasBasins => _basins is not null;
-        public float BasinDepth => _s.BasinDepth;
+        private readonly FastNoiseLite? _warp, _region;
+        private readonly float _regionStrength;
         private readonly int _coarseWarpOctaves, _fineWarpOctaves;
 
         /// <param name="coarseSpacing">Spacing of the coarse grid in metres; decides which warp octaves run on it.</param>
@@ -369,30 +255,6 @@ public static class TerrainGen
                 _fineWarpOctaves = resolvable - _coarseWarpOctaves;
             }
 
-            if (s.ChannelDepth > 0f && s.ChannelSpacing > 0f)
-            {
-                // Channels follow the zero lines of fBm: thin, winding lines that fork where the finer octaves cross.
-                _channels = new FastNoiseLite(s.Seed + 3);
-                _channels.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2S);
-                _channels.SetFrequency(1f / s.ChannelSpacing);
-                _channels.SetFractalType(FastNoiseLite.FractalType.FBm);
-                _channels.SetFractalOctaves(3);
-                _channels.SetFractalGain(0.5f);
-                // The noise changes by roughly 2 * frequency per metre near a zero line, so metres * 2 / spacing is noise units.
-                _channelHalfWidth = s.ChannelWidth / s.ChannelSpacing;
-            }
-            if (s.BasinAmount > 0f && s.BasinSize > 0f)
-            {
-                _basins = new FastNoiseLite(s.Seed + 4);
-                _basins.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2S);
-                _basins.SetFrequency(1f / s.BasinSize);
-                _basins.SetFractalType(FastNoiseLite.FractalType.FBm);
-                _basins.SetFractalOctaves(2);
-                _basins.SetFractalGain(0.4f);
-                // Noise rarely leaves ±0.6: amount 0 puts the threshold above that (no basins), 1 near the middle.
-                _basinThreshold = 0.6f - Math.Clamp(s.BasinAmount, 0f, 1f) * 0.6f;
-            }
-
             // Low-frequency mask: low values become wide, gentle lowlands to build on, high values keep the full hill detail.
             _mask = new FastNoiseLite(s.Seed + 1);
             _mask.SetNoiseType(FastNoiseLite.NoiseType.OpenSimplex2S);
@@ -406,14 +268,13 @@ public static class TerrainGen
             f[2] = _mask.GetNoise(wx, wz) * 0.5f + 0.5f;
             // r: 0 = plains (flatter, lower hills), 1 = mountain ranges (rugged, taller, raised).
             f[3] = _region is null ? 0.5f : Math.Clamp(_region.GetNoise(wx, wz) * 0.75f + 0.5f, 0f, 1f);
-            f[4] = _basins?.GetNoise(wx, wz) ?? 0f;
             _warp?.DomainWarpProgressiveOctaves(ref wx, ref wz, 0, _coarseWarpOctaves);
             f[0] = wx;
             f[1] = wz;
         }
 
         /// <summary>The height from interpolated coarse values.</summary>
-        public float Fine(ReadOnlySpan<float> f, float style, bool carveChannels)
+        public float Fine(ReadOnlySpan<float> f)
         {
             float wx = f[0], wz = f[1];
             var (flatness, scale, uplift) = Region(f);
@@ -421,22 +282,8 @@ public static class TerrainGen
             float n = _detail.GetNoise(wx, wz) * 0.5f + 0.5f;
             float hills = Hills(f[2], flatness);
             float h01 = n * 0.1f + (n * n * 1.2f - n * 0.1f) * hills;
-            float h = _s.BaseHeight + uplift + h01 * scale;
-            // Channels cut the lowlands and fade out going up into the hills. A flat bed, then banks that are
-            // steep or gentle with the shore style.
-            float low = 1f - hills;
-            if (carveChannels && _channels is not null && low > 1e-3f)
-            {
-                float c = MathF.Abs(_channels.GetNoise(wx, wz));
-                float bank = Lerp(2f, 25f, style) * 2f / _s.ChannelSpacing;
-                h -= _s.ChannelDepth * low * (1f - ShapeMask.SmoothStep(_channelHalfWidth * 0.4f, _channelHalfWidth + bank, c));
-            }
-            return h;
+            return _s.BaseHeight + uplift + h01 * scale;
         }
-
-        /// <summary>A basin sits where the basin noise is high, on ground that's mostly lowland.</summary>
-        public bool IsBasinCore(ReadOnlySpan<float> f) =>
-            _basins is not null && f[4] > _basinThreshold && Hills(f[2], Region(f).Flatness) < 0.5f;
 
         /// <summary>Hills weight 0..1 from the lowland mask. Squared: hills rise out of the lowlands more slowly, so more of
         /// the map stays flat enough to build on.</summary>

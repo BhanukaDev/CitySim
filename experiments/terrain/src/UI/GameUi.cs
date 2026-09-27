@@ -18,6 +18,8 @@ public partial class GameUi : CanvasLayer
     private ToolCategory? _open;
     private GeneratorPanel? _generator;
     private Button? _generatorButton;
+    private ErosionPanel? _erosion;
+    private Button? _erosionButton;
     private Label _toast = null!;
     private int _toastId;
 
@@ -55,6 +57,14 @@ public partial class GameUi : CanvasLayer
             {
                 if (_generator.Visible) _generator.Close(); else OpenGenerator();
             });
+
+            _erosion = new ErosionPanel { Tools = Tools };
+            _erosion.Closed += () => _erosionButton?.SetPressedNoSignal(false);
+            root.AddChild(_erosion);
+            _erosionButton = _bar.AddToggle("Erode", "Rain erosion and lakes", () =>
+            {
+                if (_erosion.Visible) _erosion.Close(); else OpenErosion();
+            });
         }
 
         _toast = new Label
@@ -67,7 +77,7 @@ public partial class GameUi : CanvasLayer
         _toast.GrowHorizontal = Control.GrowDirection.Both;
         _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
 
-        var pause = new PauseMenu { Tools = Tools, Generator = _generator };
+        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion };
         pause.Notify += ShowToast;
         pause.GeneratorRequested += OpenGenerator;
         root.AddChild(pause);
@@ -89,13 +99,25 @@ public partial class GameUi : CanvasLayer
     {
         if (_generator is null) return;
         if (_open is not null) Close();
+        _erosion?.Close();
         _generator.Open();
         _generatorButton?.SetPressedNoSignal(true);
+    }
+
+    /// <summary>Shows the erosion panel (closes the tools and the generator, which share its side of the screen).</summary>
+    public void OpenErosion()
+    {
+        if (_erosion is null) return;
+        if (_open is not null) Close();
+        _generator?.Close();
+        _erosion.Open();
+        _erosionButton?.SetPressedNoSignal(true);
     }
 
     private void Open(ToolCategory cat)
     {
         _generator?.Close();
+        _erosion?.Close();
         _open = cat;
         _bar.SetActive(cat);
         _toolPanel.SetSelectedTool(Tools?.Tool ?? TerrainTool.None, Tools?.PaintLayer ?? -1);
