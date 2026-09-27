@@ -2,6 +2,7 @@ using System;
 using Godot;
 using CitySim.TerrainSystem;
 using CitySim.Tools;
+using CitySim.WaterSystem;
 
 namespace CitySim.UI;
 
@@ -29,6 +30,12 @@ public partial class ConfigPanel : PanelContainer
     private readonly Label _angle = NewValueLabel();
     private readonly Button _rotationMode = new() { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(64, 24) };
     private readonly Control[] _rotationRow;
+    private readonly Control[] _sizeRow, _strengthRow;
+    // Water tools.
+    private readonly Label _waterRadius = NewValueLabel(), _flowRate = NewValueLabel(), _waterDepth = NewValueLabel(),
+        _targetLevel = NewValueLabel(), _maxFlow = NewValueLabel(), _seaLevel = NewValueLabel();
+    private readonly CheckButton _snap = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Rivers placed near the map border snap onto it" };
+    private readonly Control[] _waterRadiusRow, _flowRateRow, _waterDepthRow, _targetLevelRow, _maxFlowRow, _seaLevelRow, _snapRow;
 
     public ConfigPanel()
     {
@@ -52,10 +59,10 @@ public partial class ConfigPanel : PanelContainer
         grid.AddThemeConstantOverride("v_separation", 6);
         col.AddChild(grid);
 
-        AddRow(grid, "Brush Size", Stepper(_size,
+        _sizeRow = AddRow(grid, "Brush Size", Stepper(_size,
             () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius * 2f, -1) / 2f),
             () => Tools(t => t.BrushRadius = SizeStep(t.BrushRadius * 2f, +1) / 2f)));
-        AddRow(grid, "Brush Strength", Stepper(_strength,
+        _strengthRow = AddRow(grid, "Brush Strength", Stepper(_strength,
             () => Tools(t => t.BrushStrength -= 0.05f),
             () => Tools(t => t.BrushStrength += 0.05f)));
         _brushRow = AddRow(grid, "Brush", BrushPicker());
@@ -84,6 +91,27 @@ public partial class ConfigPanel : PanelContainer
         _slopeRow = AddRow(grid, "Start Point", ValueWithButton(_slopeAnchor, "Clear",
             "Clear the slope start point", () => Tools(t => t.SlopeAnchor = null)));
 
+        _waterRadiusRow = AddRow(grid, "Radius", Stepper(_waterRadius,
+            () => Tools(t => t.Water.Radius = SizeStep(t.Water.Radius, -1)),
+            () => Tools(t => t.Water.Radius = SizeStep(t.Water.Radius, +1))));
+        _flowRateRow = AddRow(grid, "Flow Rate", Stepper(_flowRate,
+            () => Tools(t => t.Water.FlowRate /= 1.25f),
+            () => Tools(t => t.Water.FlowRate *= 1.25f)));
+        _waterDepthRow = AddRow(grid, "Depth", Stepper(_waterDepth,
+            () => Tools(t => t.Water.Depth -= t.Water.Depth > 10f ? 5f : 1f),
+            () => Tools(t => t.Water.Depth += t.Water.Depth >= 10f ? 5f : 1f)));
+        _targetLevelRow = AddRow(grid, "Target Level", ValueWithButton(_targetLevel, "Auto",
+            "Forget the picked elevation: the level is the ground at the source plus the depth",
+            () => Tools(t => t.Water.PickedLevel = null)));
+        _maxFlowRow = AddRow(grid, "Max Flow", Stepper(_maxFlow,
+            () => Tools(t => t.Water.MaxFlow /= 1.5f),
+            () => Tools(t => t.Water.MaxFlow *= 1.5f)));
+        _seaLevelRow = AddRow(grid, "Sea Level", Stepper(_seaLevel,
+            () => Tools(t => t.Water.SeaLevel -= 0.5f),
+            () => Tools(t => t.Water.SeaLevel += 0.5f)));
+        _snap.Toggled += on => Tools(t => t.Water.Snap = on);
+        _snapRow = AddRow(grid, "Snapping", _snap);
+
         _hint.AddThemeColorOverride("font_color", UiTheme.TextDim);
         _hint.AddThemeFontSizeOverride("font_size", 12);
         col.AddChild(_hint);
@@ -99,9 +127,29 @@ public partial class ConfigPanel : PanelContainer
     {
         if (_tools is null) return;
         var tool = _tools.Tool;
-        _title.Text = tool == TerrainTool.Paint
-            ? $"Paint: {_tools.PaintMaterial?.Label ?? "?"}"
+        var water = TerrainToolController.WaterKind(tool);
+        var w = _tools.Water;
+        _title.Text = tool == TerrainTool.Paint ? $"Paint: {_tools.PaintMaterial?.Label ?? "?"}"
+            : water is { } k ? WaterSource.Label(k) + (w.SelectedSource is { } sel && sel.Kind == k ? $" #{sel.Id} (selected)" : "")
             : tool.ToString();
+        foreach (var c in _sizeRow) c.Visible = water is null;
+        foreach (var c in _strengthRow) c.Visible = water is null;
+        foreach (var c in _waterRadiusRow) c.Visible = water is not null and not WaterSourceKind.Sea;
+        foreach (var c in _flowRateRow) c.Visible = water == WaterSourceKind.Stream;
+        foreach (var c in _waterDepthRow) c.Visible = water is WaterSourceKind.River or WaterSourceKind.Lake;
+        foreach (var c in _targetLevelRow) c.Visible = water is WaterSourceKind.River or WaterSourceKind.Lake;
+        foreach (var c in _maxFlowRow) c.Visible = water == WaterSourceKind.Lake;
+        foreach (var c in _seaLevelRow) c.Visible = water == WaterSourceKind.Sea;
+        foreach (var c in _snapRow) c.Visible = water == WaterSourceKind.River;
+        // Shown as diameter, like the brush; the tool works in radius.
+        _waterRadius.Text = $"{w.Radius * 2f:0} m";
+        _flowRate.Text = $"{w.FlowRate:0.#} m³/s";
+        _waterDepth.Text = $"{w.Depth:0.#} m";
+        _targetLevel.Text = w.SelectedSource is { Kind: WaterSourceKind.River or WaterSourceKind.Lake } src && src.Kind == water
+            ? $"{src.Level:0.0} m" : w.PickedLevel is { } picked ? $"{picked:0.0} m" : "Auto";
+        _maxFlow.Text = $"{w.MaxFlow:0} m³/s";
+        _seaLevel.Text = $"{w.SeaLevel:0.0} m";
+        _snap.SetPressedNoSignal(w.Snap);
         // Shown as diameter; the controller works in radius.
         _size.Text = $"{_tools.BrushRadius * 2f:0} m";
         _strength.Text = $"{_tools.BrushStrength * 100f:0} %";
@@ -135,8 +183,16 @@ public partial class ConfigPanel : PanelContainer
             TerrainTool.Slope => _tools.SlopeAnchor.HasValue
                 ? "Left-press at the end point and drag along the ramp · Right-click: move start"
                 : "Right-click to set the start point",
+            TerrainTool.WaterStream => "Adds a constant flow of water.",
+            TerrainTool.WaterRiver => "Holds a constant level; water flows in or out. Near the border it snaps onto it.",
+            TerrainTool.WaterLake => "Fills to its level at up to Max Flow; never drains.",
+            TerrainTool.WaterSea => "Holds the whole map border at sea level. One per map.",
             _ => "",
-        } + "\n[ ] or Shift+wheel: size · Alt+wheel: strength"
+        } + (water is not null
+            ? "\nLeft-click: place · click a source: select, drag: move · Right-click a source: remove"
+              + (water == WaterSourceKind.Stream ? "" : " · Right-click ground: pick elevation")
+              + "\n[ ] or Shift+wheel: radius · Esc: deselect"
+            : "\n[ ] or Shift+wheel: size · Alt+wheel: strength")
           + (_tools.UsesBrushShape ? "\nCtrl+move mouse: rotate · Ctrl+Q/E: 15° steps" : "")
           + "\nC: contours · G: grid · Ctrl/Cmd+Z: undo";
 

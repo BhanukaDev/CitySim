@@ -17,7 +17,7 @@ public abstract record MapRequest;
 public sealed record GeneratedMapRequest(GenSettings Settings, bool ShowGenerator = false, HeightMap? Map = null) : MapRequest;
 
 /// <summary>A map already read from a file (loaded before the scene change, so errors show in the menu).</summary>
-public sealed record LoadedMapRequest(HeightMap Map, SplatMap Splat, string Path) : MapRequest;
+public sealed record LoadedMapRequest(HeightMap Map, SplatMap Splat, string Path, CitySim.WaterSystem.WaterData? Water = null) : MapRequest;
 
 /// <summary>
 /// State that outlives a scene change: the app mode, the map the next map scene should open, and the

@@ -35,6 +35,13 @@ public static class ToolCatalog
             new ToolDef("Slope", "Slope: right-click sets the start point, left-drag builds a ramp to where you pressed", TerrainTool.Slope, Icon("slope")),
         ]),
         new ToolTab("Paint", [], EditorOnly: true, PaintTab: true),
+        new ToolTab("Water",
+        [
+            new ToolDef("Stream", "Stream: a constant flow of water (m³/s).\nLeft-click to place, drag a source to move it, right-click a source to remove it.", TerrainTool.WaterStream),
+            new ToolDef("River", "River: holds a constant level and lets water flow in or out. Near the border it snaps onto it, like a river entering the map.\nLeft-click to place, right-click on ground to pick the target elevation, right-click a source to remove it.", TerrainTool.WaterRiver),
+            new ToolDef("Lake", "Lake: fills to its level at up to a maximum flow and never drains; evaporation and outflow lower it.\nLeft-click to place, right-click on ground to pick the target elevation, right-click a source to remove it.", TerrainTool.WaterLake),
+            new ToolDef("Sea", "Sea: holds the whole map border at sea level, so the sea fills every low shore.\nLeft-click to place (one per map), right-click on ground to set the sea level there.", TerrainTool.WaterSea),
+        ], EditorOnly: true),
         // Later: more tabs here (e.g. Vegetation, Resources) once those tools exist.
     ], Icon("terrain"));
 

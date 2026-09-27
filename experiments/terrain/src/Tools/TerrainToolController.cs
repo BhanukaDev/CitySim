@@ -4,10 +4,11 @@ using CitySim.CameraSystem;
 using CitySim.TerrainSystem;
 using CitySim.TerrainSystem.Generation;
 using CitySim.TerrainSystem.Sculpt;
+using CitySim.WaterSystem;
 
 namespace CitySim.Tools;
 
-public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint }
+public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint, WaterStream, WaterRiver, WaterLake, WaterSea }
 
 /// <summary>How the brush angle is chosen: set by hand, rolled at random on each press, or turned along the drag.</summary>
 public enum BrushRotationMode { Fixed, Random, Follow }
@@ -18,7 +19,8 @@ public enum BrushRotationMode { Fixed, Random, Follow }
 /// Shift: LMB raise, RMB lower. Level: RMB picks the target height; with none picked, each stroke
 /// levels to the dominant height under the brush. Smooth: LMB. Slope: RMB sets the start point,
 /// LMB-drag builds a ramp from it to where you pressed. Paint: LMB paints <see cref="PaintLayer"/>,
-/// RMB erases painting (the ground goes back to the automatic layers).
+/// RMB erases painting (the ground goes back to the automatic layers). Water tools (Stream, River, Lake, Sea) place
+/// and edit water sources; see <see cref="WaterSourceTool"/>.
 /// G toggles the grid, C the contour lines. Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength,
 /// hold Ctrl and move the mouse to rotate (the brush stays put), Ctrl+Q/E for 15° steps (45° with Shift), Ctrl+wheel.
 /// Ctrl/Cmd+Z undo, +Shift (or Ctrl+Y) redo.
@@ -71,6 +73,31 @@ public partial class TerrainToolController : Node
 
     public UndoStack History { get; } = new();
 
+    /// <summary>The water tools' state and input (sources, their settings, the selection).</summary>
+    public WaterSourceTool Water { get; }
+
+    public TerrainToolController() => Water = new WaterSourceTool(this);
+
+    /// <summary>The water source kind a tool places, or null for other tools.</summary>
+    public static WaterSourceKind? WaterKind(TerrainTool tool) => tool switch
+    {
+        TerrainTool.WaterStream => WaterSourceKind.Stream,
+        TerrainTool.WaterRiver => WaterSourceKind.River,
+        TerrainTool.WaterLake => WaterSourceKind.Lake,
+        TerrainTool.WaterSea => WaterSourceKind.Sea,
+        _ => null,
+    };
+
+    public static TerrainTool ToolFor(WaterSourceKind kind) => kind switch
+    {
+        WaterSourceKind.Stream => TerrainTool.WaterStream,
+        WaterSourceKind.River => TerrainTool.WaterRiver,
+        WaterSourceKind.Lake => TerrainTool.WaterLake,
+        _ => TerrainTool.WaterSea,
+    };
+
+    public bool IsWaterTool => WaterKind(_tool) is not null;
+
     /// <summary>Terrain point under the mouse, if any.</summary>
     public Vector3? Cursor { get; private set; }
 
@@ -86,7 +113,9 @@ public partial class TerrainToolController : Node
         {
             if (_tool == value) return;
             EndStroke();
+            if (IsWaterTool && WaterKind(value) is null) Water.Leave();
             _tool = value;
+            if (WaterKind(value) is { } kind) Water.SetKind(kind);
             // A fresh visit to the slope tool starts without a start point.
             _slopeAnchor = null;
             Changed();
@@ -185,7 +214,20 @@ public partial class TerrainToolController : Node
         RotationMode = (BrushRotationMode)(((int)_rotationMode + 1) % Enum.GetValues<BrushRotationMode>().Length);
 
     /// <summary>Whether the current tool uses the brush shape and angle. Slope always uses a round brush.</summary>
-    public bool UsesBrushShape => _tool is not (TerrainTool.None or TerrainTool.Slope);
+    public bool UsesBrushShape => _tool is not (TerrainTool.None or TerrainTool.Slope) && !IsWaterTool;
+
+    /// <summary>Switches to a water tool without dropping the selected source (used when a source is selected).</summary>
+    public void SelectWaterTool(WaterSourceKind kind)
+    {
+        var tool = ToolFor(kind);
+        if (_tool == tool) return;
+        EndStroke();
+        _tool = tool;
+        Changed();
+    }
+
+    /// <summary>Raises <see cref="StateChanged"/> (for the water tool's settings).</summary>
+    public void NotifyChanged() => Changed();
 
     /// <summary>Steps through <see cref="ContourIntervals"/>.</summary>
     public void StepContourInterval(int dir)
@@ -223,10 +265,13 @@ public partial class TerrainToolController : Node
         }
         else if (key.Keycode == Key.Y && key.IsCommandOrControlPressed())
             Redo();
+        else if (key.Keycode is Key.Bracketleft or Key.Bracketright && IsWaterTool)
+            Water.Radius *= key.Keycode == Key.Bracketright ? 1.15f : 1f / 1.15f;
         else if (key.Keycode == Key.Bracketleft && _tool != TerrainTool.None)
             BrushRadius /= 1.15f;
         else if (key.Keycode == Key.Bracketright && _tool != TerrainTool.None)
             BrushRadius *= 1.15f;
+        else if (key.Keycode == Key.Escape && IsWaterTool && Water.Deselect()) { }
         else if (key.Keycode == Key.Escape && _tool != TerrainTool.None)
             Tool = TerrainTool.None;
         else if (key.Keycode is Key.Q or Key.E && key.CtrlPressed && UsesBrushShape)
@@ -260,7 +305,9 @@ public partial class TerrainToolController : Node
         if (mb.Pressed && mb.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
         {
             float dir = mb.ButtonIndex == MouseButton.WheelUp ? 1f : -1f;
-            if (mb.ShiftPressed) BrushRadius *= Mathf.Pow(1.1f, dir);
+            if (mb.ShiftPressed && IsWaterTool) Water.Radius *= Mathf.Pow(1.1f, dir);
+            else if (IsWaterTool) return;
+            else if (mb.ShiftPressed) BrushRadius *= Mathf.Pow(1.1f, dir);
             else if (mb.AltPressed) BrushStrength += 0.05f * dir;
             else if (mb.CtrlPressed) BrushAngle += 5f * dir;
             else return;
@@ -279,6 +326,11 @@ public partial class TerrainToolController : Node
         if (IsStroking || Cursor is not { } hit) return;
 
         bool left = mb.ButtonIndex == MouseButton.Left;
+        if (IsWaterTool)
+        {
+            Water.Press(left, hit);
+            return;
+        }
         switch (_tool)
         {
             case TerrainTool.Shift:
@@ -316,6 +368,7 @@ public partial class TerrainToolController : Node
             _generatedBefore = null;
             _map = map;
             _slopeAnchor = null;
+            Water.Deselect();
             Changed();
         }
 
@@ -336,10 +389,15 @@ public partial class TerrainToolController : Node
             }
         }
 
-        bool showBrush = _tool != TerrainTool.None && Cursor.HasValue;
-        var shape = UsesBrushShape ? BrushLibrary.Get(_brushIndex) : null;
-        Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush, shape?.Mask is null ? null : shape.Texture,
-            Mathf.DegToRad(_brushAngle), UsesBrushShape);
+        if (IsWaterTool)
+            Water.Process(Cursor, ForcedCursor is null && Input.IsMouseButtonPressed(MouseButton.Left));
+        else
+        {
+            bool showBrush = _tool != TerrainTool.None && Cursor.HasValue;
+            var shape = UsesBrushShape ? BrushLibrary.Get(_brushIndex) : null;
+            Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush, shape?.Mask is null ? null : shape.Texture,
+                Mathf.DegToRad(_brushAngle), UsesBrushShape);
+        }
         Terrain.SetAnchor(_tool == TerrainTool.Slope ? _slopeAnchor : null);
         Terrain.SetContours(_showContours, ContourInterval);
         Terrain.SetGrid(_showGrid);

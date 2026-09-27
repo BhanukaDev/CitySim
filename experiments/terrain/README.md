@@ -31,9 +31,14 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
   that calls Terrain3D
 - `src/Terrain/TerrainSkirt.cs`, `shaders/terrain_skirt.gdshader`: fog ring hiding the map edge
 - `native/erosion/`: C++ library (plain C ABI, no Godot) for droplet + thermal erosion, draining hollows and finding
-  lakes. The macOS build in `bin/` is committed; rebuild with `native/erosion/build.sh` after changing the C++
+  lakes. `bin/` is gitignored: build with `native/erosion/build.sh` (first checkout, and after changing the C++)
 - `src/Terrain/Erosion/`: engine-agnostic C# side (settings, `ErosionSim`, `Lakes`/`LakeMap`, function-pointer calls
-  into the library); `src/Terrain/LakeWater.cs` + `shaders/lake_water.gdshader` draw the lakes; `src/UI/ErosionPanel.cs`
+  into the library); `src/UI/ErosionPanel.cs`
+- `native/water/`: C++ water simulation (virtual pipes shallow water, stateful handle, persistent thread pool in
+  `native/common/parallel.h`). Build with `native/water/build.sh`
+- `src/Water/`: engine-agnostic C# side (`WaterSim` worker thread + snapshot queries, `WaterSource`, `WaterFile`);
+  `src/Terrain/WaterSurface.cs` + `shaders/water.gdshader` draw it; `src/Tools/WaterSourceTool.cs` (Terrain → Water tab),
+  `src/UI/WaterPanel.cs`
 - `src/Camera/CityCamera.cs`: city-builder orbit camera
 - `src/Terrain/SplatMap.cs`: engine-agnostic painted materials (sparse Terrain3D-style control values, plus the map's
   theme id and a palette of material ids, so paint survives theme changes)

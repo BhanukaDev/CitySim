@@ -22,6 +22,8 @@ public partial class GameUi : CanvasLayer
     private Button? _erosionButton;
     private ThemePanel? _themePanel;
     private Button? _themeButton;
+    private WaterPanel? _waterPanel;
+    private Button? _waterButton;
     private Label _toast = null!;
     private int _toastId;
 
@@ -68,6 +70,14 @@ public partial class GameUi : CanvasLayer
                 if (_erosion.Visible) _erosion.Close(); else OpenErosion();
             });
 
+            _waterPanel = new WaterPanel { Tools = Tools };
+            _waterPanel.Closed += () => _waterButton?.SetPressedNoSignal(false);
+            root.AddChild(_waterPanel);
+            _waterButton = _bar.AddToggle("Water", "Water simulation: run/pause, speed, evaporation, fill hollows (place sources in Terrain → Water)", () =>
+            {
+                if (_waterPanel.Visible) _waterPanel.Close(); else OpenWater();
+            });
+
             _themePanel = new ThemePanel { Tools = Tools };
             _themePanel.Closed += () => _themeButton?.SetPressedNoSignal(false);
             root.AddChild(_themePanel);
@@ -87,7 +97,7 @@ public partial class GameUi : CanvasLayer
         _toast.GrowHorizontal = Control.GrowDirection.Both;
         _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
 
-        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, ThemePanel = _themePanel };
+        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, ThemePanel = _themePanel, Water = _waterPanel };
         pause.Notify += ShowToast;
         pause.GeneratorRequested += OpenGenerator;
         root.AddChild(pause);
@@ -112,6 +122,7 @@ public partial class GameUi : CanvasLayer
         if (_open is not null) Close();
         _erosion?.Close();
         _themePanel?.Close();
+        _waterPanel?.Close();
         _generator.Open();
         _generatorButton?.SetPressedNoSignal(true);
     }
@@ -123,6 +134,7 @@ public partial class GameUi : CanvasLayer
         if (_open is not null) Close();
         _generator?.Close();
         _themePanel?.Close();
+        _waterPanel?.Close();
         _erosion.Open();
         _erosionButton?.SetPressedNoSignal(true);
     }
@@ -134,8 +146,23 @@ public partial class GameUi : CanvasLayer
         if (_open is not null) Close();
         _generator?.Close();
         _erosion?.Close();
+        _waterPanel?.Close();
         _themePanel.Open();
         _themeButton?.SetPressedNoSignal(true);
+    }
+
+    /// <summary>
+    /// Shows the water panel. It shares the right side with the other panels but not the tools: sources are placed with
+    /// the Water tab while it's open.
+    /// </summary>
+    public void OpenWater()
+    {
+        if (_waterPanel is null) return;
+        _generator?.Close();
+        _erosion?.Close();
+        _themePanel?.Close();
+        _waterPanel.Open();
+        _waterButton?.SetPressedNoSignal(true);
     }
 
     /// <summary>The Paint tab lists the theme's materials, so it's rebuilt when the theme changes.</summary>

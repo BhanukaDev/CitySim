@@ -67,8 +67,8 @@ public static class MapFiles
     {
         try
         {
-            var (map, splat) = MapFile.Load(path);
-            MapSession.Pending = new LoadedMapRequest(map, splat, path);
+            var (map, splat, water) = MapFile.LoadWithWater(path);
+            MapSession.Pending = new LoadedMapRequest(map, splat, path, water);
             MapSession.CurrentPath = path;
             return null;
         }
@@ -88,7 +88,7 @@ public static class MapFiles
         try
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            MapFile.Save(path, terrain.Map, terrain.Splat);
+            MapFile.Save(path, terrain.Map, terrain.Splat, terrain.SaveWater());
             MapSession.CurrentPath = path;
             GD.Print($"Saved {path} ({new FileInfo(path).Length / 1024} KB, {sw.ElapsedMilliseconds} ms)");
             return $"Saved {Path.GetFileName(path)}";

@@ -18,6 +18,7 @@ public partial class PauseMenu : Control
     public GeneratorPanel? Generator { get; set; }
     public ErosionPanel? Erosion { get; set; }
     public ThemePanel? ThemePanel { get; set; }
+    public WaterPanel? Water { get; set; }
 
     /// <summary>Raised by "Terrain Generator…".</summary>
     public event Action? GeneratorRequested;
@@ -63,6 +64,8 @@ public partial class PauseMenu : Control
         else if (Generator is { Visible: true }) Generator.Close();
         else if (Erosion is { Visible: true }) Erosion.Close();
         else if (ThemePanel is { Visible: true }) ThemePanel.Close();
+        // The water panel stays open next to the water tools: Esc puts the tool away first.
+        else if (Water is { Visible: true } && (Tools is null || Tools.Tool == TerrainTool.None)) Water.Close();
         else if (Tools is null || Tools.Tool == TerrainTool.None) Open();
         else return; // let the tool controller deselect the tool
         GetViewport().SetInputAsHandled();

@@ -4,13 +4,14 @@ using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using CitySim.WaterSystem;
 
 namespace CitySim.TerrainSystem;
 
 /// <summary>
 /// Reads and writes a map (heights plus painted layers) as a <c>.csmap</c> file. Engine-agnostic.
 ///
-/// Version 3, little-endian: magic "CSMP", u16 version, then
+/// Version 4, little-endian: magic "CSMP", u16 version, then
 /// <list type="bullet">
 /// <item>i32 width, i32 depth, f32 cell size, f32 min height, f32 max height, i32 tile size (256).</item>
 /// <item>Heights: for each tile (row-major), i32 length + a zlib stream of u16 heights (0 = min, 65535 = max), each row
@@ -20,7 +21,9 @@ namespace CitySim.TerrainSystem;
 /// <item>i32 background count: 0 for now. Reserved for the coarse 70 km background map (M6 phase 3).</item>
 /// <item>Theme (v3): string theme id, i32 palette length, then a string (material id) per painted layer index
 ///   (<see cref="SplatMap.Palette"/>). Strings are .NET BinaryWriter strings (7-bit length + UTF-8).</item>
+/// <item>Water (v4): see <see cref="WaterFile"/>.</item>
 /// </list>
+/// Version 3 files have no water: they load with none, and the map fills its hollows once (see <c>Terrain.SetMap</c>).
 /// Version 2 files have no theme section: they load with the default theme and the pre-theme layer ids
 /// (<see cref="SplatMap.LegacyPalette"/>).
 /// Heights are quantised to 16 bits over the map's range (7.6 mm steps over 500 m, like CS2). Tiles are compressed and
@@ -29,13 +32,13 @@ namespace CitySim.TerrainSystem;
 public static class MapFile
 {
     public const string Extension = "csmap";
-    public const ushort Version = 3;
+    public const ushort Version = 4;
     public const string LegacyThemeId = "default";
     private static readonly byte[] Magic = "CSMP"u8.ToArray();
     private const int MaxVertices = 8193;
     private const int HeightTile = 256;
 
-    public static void Save(string path, HeightMap map, SplatMap splat)
+    public static void Save(string path, HeightMap map, SplatMap splat, WaterData? water = null)
     {
         if (splat.Width != map.Width || splat.Depth != map.Depth)
             throw new ArgumentException("Splat map size doesn't match the heightmap.", nameof(splat));
@@ -83,6 +86,7 @@ public static class MapFile
                 w.Write(splat.ThemeId);
                 w.Write(splat.Palette.Length);
                 foreach (var id in splat.Palette) w.Write(id);
+                WaterFile.Write(w, water ?? new WaterData(new WaterSettings(), [], 0, 0, null));
             }
             File.Move(tmp, path, overwrite: true);
         }
@@ -96,6 +100,13 @@ public static class MapFile
     /// <summary>Loads a map. Throws <see cref="InvalidDataException"/> for files that aren't valid maps.</summary>
     public static (HeightMap Map, SplatMap Splat) Load(string path)
     {
+        var (map, splat, _) = LoadWithWater(path);
+        return (map, splat);
+    }
+
+    /// <summary>Loads a map and its water (null for files older than v4).</summary>
+    public static (HeightMap Map, SplatMap Splat, WaterData? Water) LoadWithWater(string path)
+    {
         using var file = File.OpenRead(path);
         Span<byte> magic = stackalloc byte[4];
         file.ReadExactly(magic);
@@ -108,7 +119,12 @@ public static class MapFile
             throw new InvalidDataException($"Map file version {version} is newer than this build supports ({Version}).");
         try
         {
-            return version == 1 ? LoadV1(file) : LoadV2(file, version);
+            if (version == 1)
+            {
+                var (m, sp) = LoadV1(file);
+                return (m, sp, null);
+            }
+            return LoadV2(file, version);
         }
         catch (EndOfStreamException)
         {
@@ -120,7 +136,7 @@ public static class MapFile
         }
     }
 
-    private static (HeightMap, SplatMap) LoadV2(Stream file, ushort version)
+    private static (HeightMap, SplatMap, WaterData?) LoadV2(Stream file, ushort version)
     {
         using var r = new BinaryReader(file);
         int width = r.ReadInt32(), depth = r.ReadInt32();
@@ -189,7 +205,8 @@ public static class MapFile
             splat.ThemeId = LegacyThemeId;
             splat.Palette = (string[])SplatMap.LegacyPalette.Clone();
         }
-        return (map, splat);
+        var water = version >= 4 ? WaterFile.Read(r) : null;
+        return (map, splat, water);
     }
 
     private static (HeightMap, SplatMap) LoadV1(Stream file)
@@ -260,14 +277,14 @@ public static class MapFile
         return r.ReadBytes(length);
     }
 
-    private static byte[] Deflate(ReadOnlySpan<byte> data)
+    internal static byte[] Deflate(ReadOnlySpan<byte> data)
     {
         using var ms = new MemoryStream();
         using (var z = new ZLibStream(ms, CompressionLevel.Fastest)) z.Write(data);
         return ms.ToArray();
     }
 
-    private static void Inflate(byte[] blob, Span<byte> into)
+    internal static void Inflate(byte[] blob, Span<byte> into)
     {
         using var z = new ZLibStream(new MemoryStream(blob), CompressionMode.Decompress);
         try

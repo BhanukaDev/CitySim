@@ -10,6 +10,7 @@ using CitySim.TerrainSystem.Themes;
 using System.Linq;
 using CitySim.Tools;
 using CitySim.UI;
+using CitySim.WaterSystem;
 
 namespace CitySim.Debug;
 
@@ -18,7 +19,8 @@ namespace CitySim.Debug;
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
-/// --theme=id (switch the map's theme), --show-theme, --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
+/// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
+/// --show-water (Water panel), --hide-water (don't draw it), --water-speed=n, --water-run=seconds (simulate that long right away), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
@@ -75,6 +77,22 @@ public partial class DebugOverlay : CanvasLayer
                     foreach (var node in GetParent().GetChildren())
                         if (node is GameUi ui) ui.OpenErosion();
                 }).CallDeferred();
+            else if (arg == "--demo-water")
+                Callable.From(RunWaterDemo).CallDeferred();
+            else if (arg == "--hide-water" && Terrain is not null)
+                Terrain.ShowWater = false;
+            else if (arg == "--show-water")
+                Callable.From(() =>
+                {
+                    foreach (var node in GetParent().GetChildren())
+                        if (node is GameUi ui) ui.OpenWater();
+                }).CallDeferred();
+            else if (arg.StartsWith("--water-speed=") && float.TryParse(arg["--water-speed=".Length..],
+                         System.Globalization.CultureInfo.InvariantCulture, out float speed))
+                Callable.From(() => { if (Terrain?.Water is { } w) w.Settings = w.Settings with { Speed = speed }; }).CallDeferred();
+            else if (arg.StartsWith("--water-run=") && double.TryParse(arg["--water-run=".Length..],
+                         System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+                Callable.From(() => Terrain?.Water?.RunFor(seconds)).CallDeferred();
             else if (arg == "--show-theme")
                 Callable.From(() =>
                 {
@@ -121,6 +139,51 @@ public partial class DebugOverlay : CanvasLayer
                 GetTree().Quit(ok ? 0 : 1);
             }
         }
+    }
+
+    /// <summary>
+    /// Water self-checks (<see cref="WaterDemo"/>), then puts a stream near the highest ground, a river on the west border
+    /// and a lake in the lowest spot of this map, and simulates 15 minutes at once, for a screenshot.
+    /// </summary>
+    private void RunWaterDemo()
+    {
+        WaterDemo.Run(line => GD.Print(line));
+        if (Terrain?.Map is not { } map || Terrain.Water is not { } water || Tools is null) return;
+        int w = map.Width, d = map.Depth;
+        (int X, int Z) high = (w / 2, d / 2), low = high, border = (0, d / 2);
+        for (int z = d / 5; z < d * 4 / 5; z += 2)
+            for (int x = w / 5; x < w * 4 / 5; x += 2)
+            {
+                if (map[x, z] > map[high.X, high.Z]) high = (x, z);
+                if (map[x, z] < map[low.X, low.Z]) low = (x, z);
+            }
+        for (int z = d / 5; z < d * 4 / 5; z++)
+            if (map[0, z] > map[0, border.Z]) border = (0, z);
+        // The tool: a river placed near the west border snaps onto it, undo/redo, right-click removes it.
+        Tools.Tool = TerrainTool.WaterRiver;
+        int count = water.Sources.Count;
+        float pz = map.SizeZ * 0.3f;
+        Tools.Water.Press(true, new Vector3(20f, Terrain.GetHeight(20f, pz), pz));
+        bool placed = water.Sources.Count == count + 1 && water.Sources[^1] is { Kind: WaterSourceKind.River, X: 0f };
+        Tools.Undo();
+        bool undone = water.Sources.Count == count;
+        Tools.Redo();
+        bool redone = water.Sources.Count == count + 1;
+        Tools.Water.Press(false, new Vector3(5f, Terrain.GetHeight(5f, pz), pz));
+        bool removed = water.Sources.Count == count;
+        bool toolOk = placed && undone && redone && removed;
+        GD.Print($"Demo water: tool snaps to the border {placed}, undo {undone}, redo {redone}, right-click removes {removed}: " +
+                 (toolOk ? "ok" : "FAILED"));
+
+        float cs = map.CellSize;
+        water.SetSources([
+            new WaterSource(1, WaterSourceKind.Stream, high.X * cs, high.Z * cs, 20f, 0f, FlowRate: 40f),
+            new WaterSource(2, WaterSourceKind.River, 0f, border.Z * cs, 60f, map[0, border.Z] + 4f),
+            new WaterSource(3, WaterSourceKind.Lake, low.X * cs, low.Z * cs, 60f, map[low.X, low.Z] + 6f, MaxFlow: 200f),
+        ]);
+        water.RunFor(900);
+        Tools.Tool = TerrainTool.WaterRiver;
+        GD.Print($"Demo water: stream at ({high.X * cs:0}, {high.Z * cs:0}), river at (0, {border.Z * cs:0}), lake at ({low.X * cs:0}, {low.Z * cs:0})");
     }
 
     /// <summary>
@@ -536,7 +599,18 @@ public partial class DebugOverlay : CanvasLayer
                 text += $"  ·  cursor height {c.Y:0.0} m, slope {Terrain.GetSlopeDegrees(c.X, c.Z):0.0}°";
             text += $"\nLast push {Terrain.LastPushRegions} regions in {Terrain.LastPushMs:0.0} ms";
             if (Terrain.Lakes is { } lakes)
-                text += $"  ·  {lakes.Count} lakes (found in {Terrain.LastLakeMs:0} ms)";
+                text += $"  ·  {lakes.Count} hollows (found in {Terrain.LastLakeMs:0} ms)";
+            if (Terrain.Water is { } water)
+            {
+                var st = water.LastStats;
+                text += $"\nWater {st.Volume / 1e6:0.###} Mm³, {st.WetCells * water.CellSize * water.CellSize / 1e6:0.##} km², " +
+                        $"× {water.SimRatio:0.#}, {water.StepMs:0.00} ms/substep, {st.ActiveTiles} tiles";
+                if (Tools.Cursor is { } wc && Terrain.GetWaterDepth(wc.X, wc.Z) is > 0.01f and var depth)
+                {
+                    var v = Terrain.GetWaterVelocity(wc.X, wc.Z);
+                    text += $"  ·  cursor depth {depth:0.00} m, flow {v.Length():0.0} m/s";
+                }
+            }
         }
         text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
                 "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool / menu · G grid · C contours";

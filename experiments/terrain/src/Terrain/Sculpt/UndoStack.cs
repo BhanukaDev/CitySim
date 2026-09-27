@@ -33,6 +33,7 @@ public sealed class UndoStack
         public required VertexRect Rect;
         public required List<Tile> Tiles;
         public float[]? AllHeights;
+        public Action? UndoAction, RedoAction;
         public bool Heights, Splat;
         public long Bytes;
     }
@@ -113,6 +114,15 @@ public sealed class UndoStack
         });
     }
 
+    /// <summary>
+    /// Records a change that isn't heights or paint (e.g. placing a water source) as a pair of actions, so it shares the
+    /// one history with strokes.
+    /// </summary>
+    public void PushAction(Action undo, Action redo)
+    {
+        Push(new Entry { Rect = VertexRect.Empty, Tiles = [], UndoAction = undo, RedoAction = redo, Bytes = 256 });
+    }
+
     private void Push(Entry e)
     {
         _undo.AddLast(e);
@@ -133,6 +143,11 @@ public sealed class UndoStack
         var e = _undo.Last.Value;
         _undo.RemoveLast();
         _redo.Push(e);
+        if (e.UndoAction is { } undo)
+        {
+            undo();
+            return UndoChange.None;
+        }
         return Swap(e, map, splat);
     }
 
@@ -141,6 +156,11 @@ public sealed class UndoStack
         if (InStroke || _redo.Count == 0) return UndoChange.None;
         var e = _redo.Pop();
         _undo.AddLast(e);
+        if (e.RedoAction is { } redo)
+        {
+            redo();
+            return UndoChange.None;
+        }
         return Swap(e, map, splat);
     }
 

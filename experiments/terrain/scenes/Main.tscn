@@ -6,7 +6,7 @@
 [ext_resource type="Script" path="res://src/Tools/TerrainToolController.cs" id="5_tools"]
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
 [ext_resource type="Shader" path="res://shaders/terrain_skirt.gdshader" id="9_skirt"]
-[ext_resource type="Shader" path="res://shaders/lake_water.gdshader" id="10_water"]
+[ext_resource type="Shader" path="res://shaders/water.gdshader" id="10_water"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
 frequency = 0.008

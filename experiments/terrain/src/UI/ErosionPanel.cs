@@ -12,8 +12,8 @@ namespace CitySim.UI;
 
 /// <summary>
 /// Map Editor panel (right side): runs rain erosion (C++, <see cref="ErosionSim"/>) on the current map as one undo
-/// step, and sets which depressions count as lakes. Lakes fill every depression up to where it would spill over, so
-/// they follow the ground and move when it's sculpted or eroded.
+/// step, and sets which hollows count as lakes: those drive the shore/stream ground textures and what the Water panel's
+/// Fill Hollows fills. The water itself is simulated (Water panel).
 /// </summary>
 public partial class ErosionPanel : PanelContainer
 {
@@ -141,11 +141,7 @@ public partial class ErosionPanel : PanelContainer
         Slider(grid, "Slump Angle", 25, 60, 1, "{0:0}°", () => _s.TalusDegrees, v => _s = _s with { TalusDegrees = v },
             "After the rain, ground steeper than this slides down (cleans up sharp gully walls)");
 
-        Section(grid, "Lakes");
-        var show = new CheckButton { Text = "Show water", ButtonPressed = true, FocusMode = FocusModeEnum.None };
-        show.Toggled += on => { if (Terrain is { } t) t.ShowLakes = on; };
-        _sync.Add(() => show.SetPressedNoSignal(Terrain?.ShowLakes ?? true));
-        Row(grid, "", show);
+        Section(grid, "Hollows");
         Slider(grid, "Min Depth", 0.2, 10, 0.1, "{0:0.0} m", () => Terrain?.LakeSettings.MinDepth ?? 1f,
             v => { if (Terrain is { } t) t.LakeSettings = t.LakeSettings with { MinDepth = v }; },
             "Hollows shallower than this stay dry");
@@ -216,7 +212,7 @@ public partial class ErosionPanel : PanelContainer
     {
         if (Terrain?.Lakes is not { } lakes) { _lakeInfo.Text = "Finding lakes…"; return; }
         float km2 = lakes.WetVertices() * lakes.CellSize * lakes.CellSize / 1e6f;
-        _lakeInfo.Text = $"{lakes.Count} lakes, {km2:0.##} km²";
+        _lakeInfo.Text = $"{lakes.Count} hollows would hold lakes, {km2:0.##} km² (Water panel → Fill Hollows)";
     }
 
     // --- Run ---
