@@ -67,7 +67,8 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
 #   --demo-erosion (erosion per preset, repeatability, lakes obey the spill rule, one-step undo), --erode[=light|medium|heavy],
-#   --show-erosion (open the Erosion & Lakes panel),
+#   --show-erosion (open the Erosion & Lakes panel), --show-materials (open the Materials panel),
+#   --rule-debug=<index>|layers|cost (material debug views), --demo-materials, --write-default-look,
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
 #   --size=cells (8192 = 28.7 km)
 # any flag skips the start menu (scenes/Menu.tscn)
@@ -166,12 +167,12 @@ Layers (`TerrainLayers.cs`, same indices in the shader):
 |---|---|---|---|---|
 | 0 | grass | Grass005 | ✔ | base |
 | 1 | grass_dry | Grass004 | ✔ | noise patches, more on high ground |
-| 2 | grass_dirt | Ground037 | ✔ | medium slopes (`dirt_slope`) |
+| 2 | grass_dirt | Ground037 | ✔ | medium slopes; worn band beyond shore sand (M3.4) |
 | 3 | dirt | Ground103 | ✔ | – |
 | 4 | gravel | Ground062S | ✔ | scree just below rock, broken up by noise |
 | 5 | sand | Ground101 | ✔ | along lakes, rivers and the sea (ground masks, M5.1; was below `sand_height`) |
-| 6 | rock | Rock051 | ✔ | slope > `rock_slope`, triplanar |
-| 7 | snow | Snow010A | ✔ | above `snow_height` on gentle slopes; noisy, thinning edge over `snow_blend` |
+| 6 | rock | Rock051 | ✔ | steep slopes (gentler where scoured), triplanar |
+| 7 | snow | Snow010A | ✔ | paint only (the automatic snow line was removed in M3.4) |
 
 Done:
 - Shader: automatic weights from height, slope and noise. Painted weights override them by their coverage.
@@ -394,6 +395,40 @@ follows every edit (strokes, undo, generate, erosion) and needs no saving or und
 - Not done: river water surfaces (the beds are dry sand/gravel), `RiverMinArea`/`GullyMinArea` in the Erosion panel,
   partial re-search after small edits (would help the 28.7 km delay).
 
+### 🔶 M3.4: Material rule stack + Materials panel (implemented, waiting for the user to test)
+The automatic ground is now data, not shader code, so it can be tuned in the Map Editor. Motivation: hard grass→sand and
+grass→gravel edges along lakes, rivers and gullies. The automatic snow line is gone (snow is paint-only).
+- **Rules** (`src/Terrain/Look/`): `TerrainLook` (resource, `materials/terrain_look.tres`, one shared file for every map) holds
+  an ordered list of `MaterialRule`s, the 8 layer tints, and the height-blend knobs. Each rule lays one layer over the
+  ones before it with coverage = strength × condition A × condition B. A condition reads one input (height, relative
+  height, slope in degrees, shore distance, gully distance, wear, deposit, or one of four noise fields). It is 1 inside
+  [from, to] (either end can be open) and fades out over `Fade`, which is the softness knob. `Edge Noise` moves the
+  edges using the fine (~10 m), patchy (~35 m), medium or large field.
+- Default look: the original mountain rules ported one to one (the cliff close-up is unchanged), plus softer water.
+  Sand fades over 18 m of shore distance with patchy noise, a worn grass & dirt band lies beyond it, dirt fringes the
+  gully gravel, and there's a "dry grass up high" rule. Shore distance counts each metre above the water as 4, so
+  its fades must be wide.
+- **Materials panel** (Map Editor bottom bar). The first version showed the raw rule editor, and the user found it too
+  complex. Now it shows plain **cards**: beach sand (width, soft edge, patchy), worn grass near water, gully gravel, dirt along
+  gullies, cliffs (starts at, soft edge), grassy dirt on slopes, scree, dry grass, eroded ground. Each card has an on/off
+  box and 1–3 sliders that drive fields of the shipped rules, found by `MaterialRule.Id`. Collapsed below: **Colours &
+  blending** (tints, height blend, softness) and **Advanced: all rules** (rule list, full rule editor, and a debug View
+  showing the selected rule's coverage, the strongest layer, or cost = textures blended per pixel). Footer: Save / Revert /
+  Defaults. Edits are live.
+- **Performance** (`RuleShaderGen`): `Terrain` draws with a runtime copy of `terrain.gdshader` whose rule block (between
+  `@rules-begin`/`@rules-end`, a generic loop in the file) is replaced by straight-line code for the current stack.
+  Settled looks are **baked** with the numbers as constants. While editing, it reads them from the `rules[]` uniform
+  (no recompiles while dragging) and re-bakes 0.5 s after the last edit. Findings on M1 at 1600×900 (cliff view, baseline 53):
+  the generic loop gave 39 FPS; generated code reading uniforms 41–43 (uniform-edged smoothstep costs a division, so
+  ramps use a precomputed 1/fade); baked 50–51. A free noise size per condition cost ~2 FPS each, so edge noise reuses
+  the shader's existing noise fields. Terrain3D copies the override's code when it's set, so a code change calls
+  `set_shader_override` again.
+- Remaining cost is the softer look itself: the shore band blends 4 textures (see the Cost view). Shore close-up
+  50 → 45 FPS, cliff 53 → 50. Layers that provably can't show in the height blend are no longer sampled.
+- Debug flags: `--show-materials`, `--rule-debug=<index>|layers|cost`, `--demo-materials` (live → baked switch, structural
+  edit, save/load round trip), `--write-default-look` (writes `TerrainLook.CreateDefault()` to the shared file, then quits).
+- Not done: per-map looks and presets (the user chose one shared file), undo in the panel, rules keyed to painted layers.
+
 ### ⬜ M5: Water
 - Sea level plane with a simple water shader (depth colour, shoreline foam)
 - Later: rivers/lakes (flow simulation or painted water sources); buildable = above water
@@ -538,8 +573,10 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6: 70 km map = 28 km build area at 3.5 m (8192²) + coarse 70 km background, like CS2. Uniform 2 m over 70 km would be
   1.2B heights (4.9 GB) plus 39 GB of paint weights. Rendering via the Terrain3D addon (user's choice over our own clipmap).
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.
-- M6 phase 2: snow line is relative to the map's height range (`snow_line`), with `snow_height` as the floor. Terrain3D regions
-  are 256²/512² (smallest that fits 16 per side), not 1024², because each edit re-uploads whole regions.
+- M6 phase 2: Terrain3D regions are 256²/512² (smallest that fits 16 per side), not 1024², because each edit re-uploads whole
+  regions. (The relative snow line decided here was removed in M3.4: snow is paint-only.)
+- M3.4: ground rules are a data-driven stack in one shared look file (not per map), edited in an in-app Materials panel;
+  the shader is specialised (baked) per look for speed. No automatic snow.
 - M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
   Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
   map files store 16-bit heights, like CS2 and heightmap exports.

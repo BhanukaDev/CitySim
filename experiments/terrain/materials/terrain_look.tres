@@ -1,0 +1,306 @@
+[gd_resource type="Resource" script_class="TerrainLook" format=3]
+
+[ext_resource type="Script" path="res://src/Terrain/Look/MaterialRule.cs" id="1_1ki7w"]
+[ext_resource type="Script" path="res://src/Terrain/Look/RuleCondition.cs" id="2_dbwl6"]
+[ext_resource type="Script" path="res://src/Terrain/Look/TerrainLook.cs" id="3_8wrj5"]
+
+[sub_resource type="Resource" id="Resource_15cd4"]
+script = ExtResource("2_dbwl6")
+Input = 7
+From = 0.8
+FromOpen = false
+Fade = 0.45
+Noise = 0.15
+
+[sub_resource type="Resource" id="Resource_a4cae"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_bcnde"]
+script = ExtResource("1_1ki7w")
+Id = "dry_patches"
+Name = "Dry grass patches"
+Layer = 1
+Strength = 0.5
+A = SubResource("Resource_15cd4")
+B = SubResource("Resource_a4cae")
+
+[sub_resource type="Resource" id="Resource_mkgtq"]
+script = ExtResource("2_dbwl6")
+Input = 1
+From = 0.7
+FromOpen = false
+Fade = 0.5
+
+[sub_resource type="Resource" id="Resource_vydh8"]
+script = ExtResource("2_dbwl6")
+Input = 7
+From = 0.55
+FromOpen = false
+Fade = 0.3
+Noise = 0.15
+
+[sub_resource type="Resource" id="Resource_3108s"]
+script = ExtResource("1_1ki7w")
+Id = "dry_high"
+Name = "Dry grass up high"
+Layer = 1
+Strength = 0.4
+A = SubResource("Resource_mkgtq")
+B = SubResource("Resource_vydh8")
+
+[sub_resource type="Resource" id="Resource_wqa2n"]
+script = ExtResource("2_dbwl6")
+Input = 2
+From = 41.0
+FromOpen = false
+Fade = 17.0
+Noise = 4.0
+
+[sub_resource type="Resource" id="Resource_ily6w"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_v2qek"]
+script = ExtResource("1_1ki7w")
+Id = "worn_slopes"
+Name = "Worn slopes"
+Layer = 2
+A = SubResource("Resource_wqa2n")
+B = SubResource("Resource_ily6w")
+
+[sub_resource type="Resource" id="Resource_credg"]
+script = ExtResource("2_dbwl6")
+Input = 6
+From = 1.8
+FromOpen = false
+Noise = 1.0
+
+[sub_resource type="Resource" id="Resource_blasv"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_gnsbx"]
+script = ExtResource("1_1ki7w")
+Id = "deposits"
+Name = "Deposits"
+Strength = 0.7
+A = SubResource("Resource_credg")
+B = SubResource("Resource_blasv")
+
+[sub_resource type="Resource" id="Resource_fj75w"]
+script = ExtResource("2_dbwl6")
+Input = 6
+From = 2.8
+FromOpen = false
+Fade = 1.2
+Noise = 1.5
+NoiseSize = 2
+
+[sub_resource type="Resource" id="Resource_rgdhe"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_826oj"]
+script = ExtResource("1_1ki7w")
+Id = "thick_deposits"
+Name = "Thick deposits"
+Layer = 4
+Strength = 0.7
+A = SubResource("Resource_fj75w")
+B = SubResource("Resource_rgdhe")
+
+[sub_resource type="Resource" id="Resource_hhege"]
+script = ExtResource("2_dbwl6")
+Input = 5
+From = 3.0
+FromOpen = false
+Noise = 1.0
+
+[sub_resource type="Resource" id="Resource_ow83s"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_ykue7"]
+script = ExtResource("1_1ki7w")
+Id = "scoured_dirt"
+Name = "Scoured dirt"
+Strength = 0.8
+A = SubResource("Resource_hhege")
+B = SubResource("Resource_ow83s")
+
+[sub_resource type="Resource" id="Resource_8qblk"]
+script = ExtResource("2_dbwl6")
+Input = 5
+From = 4.0
+FromOpen = false
+Noise = 1.0
+
+[sub_resource type="Resource" id="Resource_udas3"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_0vi6q"]
+script = ExtResource("1_1ki7w")
+Id = "scoured_gravel"
+Name = "Scoured gravel"
+Layer = 4
+Strength = 0.8
+A = SubResource("Resource_8qblk")
+B = SubResource("Resource_udas3")
+
+[sub_resource type="Resource" id="Resource_kl0i3"]
+script = ExtResource("2_dbwl6")
+Input = 2
+From = 44.0
+FromOpen = false
+Fade = 7.0
+Noise = 4.0
+
+[sub_resource type="Resource" id="Resource_c6mn7"]
+script = ExtResource("2_dbwl6")
+Input = 8
+From = 0.65
+FromOpen = false
+Fade = 0.3
+
+[sub_resource type="Resource" id="Resource_yj42e"]
+script = ExtResource("1_1ki7w")
+Id = "scree"
+Name = "Scree"
+Layer = 4
+Strength = 0.5
+A = SubResource("Resource_kl0i3")
+B = SubResource("Resource_c6mn7")
+
+[sub_resource type="Resource" id="Resource_pggst"]
+script = ExtResource("2_dbwl6")
+Input = 2
+From = 49.5
+FromOpen = false
+Fade = 8.0
+Noise = 4.0
+
+[sub_resource type="Resource" id="Resource_7vwdk"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_sgmwj"]
+script = ExtResource("1_1ki7w")
+Id = "cliffs"
+Name = "Cliffs"
+Layer = 6
+A = SubResource("Resource_pggst")
+B = SubResource("Resource_7vwdk")
+
+[sub_resource type="Resource" id="Resource_q386p"]
+script = ExtResource("2_dbwl6")
+Input = 2
+From = 45.5
+FromOpen = false
+Fade = 7.0
+Noise = 4.0
+
+[sub_resource type="Resource" id="Resource_8vo26"]
+script = ExtResource("2_dbwl6")
+Input = 5
+From = 4.0
+FromOpen = false
+Fade = 2.0
+
+[sub_resource type="Resource" id="Resource_w6th4"]
+script = ExtResource("1_1ki7w")
+Id = "scoured_rock"
+Name = "Scoured rock"
+Layer = 6
+A = SubResource("Resource_q386p")
+B = SubResource("Resource_8vo26")
+
+[sub_resource type="Resource" id="Resource_mdfsw"]
+script = ExtResource("2_dbwl6")
+Input = 3
+To = 16.0
+ToOpen = false
+Fade = 26.0
+Noise = 16.0
+NoiseSize = 1
+
+[sub_resource type="Resource" id="Resource_nkpqp"]
+script = ExtResource("2_dbwl6")
+Input = 2
+To = 42.0
+ToOpen = false
+Fade = 8.0
+
+[sub_resource type="Resource" id="Resource_b24o5"]
+script = ExtResource("1_1ki7w")
+Id = "shore_worn"
+Name = "Shore: worn grass"
+Layer = 2
+Strength = 0.6
+A = SubResource("Resource_mdfsw")
+B = SubResource("Resource_nkpqp")
+
+[sub_resource type="Resource" id="Resource_pmsyk"]
+script = ExtResource("2_dbwl6")
+Input = 3
+To = 5.0
+ToOpen = false
+Fade = 18.0
+Noise = 14.0
+NoiseSize = 1
+
+[sub_resource type="Resource" id="Resource_bsu1p"]
+script = ExtResource("2_dbwl6")
+Input = 2
+To = 42.0
+ToOpen = false
+Fade = 8.0
+
+[sub_resource type="Resource" id="Resource_kbq1q"]
+script = ExtResource("1_1ki7w")
+Id = "shore_sand"
+Name = "Shore: sand"
+Layer = 5
+A = SubResource("Resource_pmsyk")
+B = SubResource("Resource_bsu1p")
+
+[sub_resource type="Resource" id="Resource_mn33w"]
+script = ExtResource("2_dbwl6")
+Input = 4
+To = 2.0
+ToOpen = false
+Fade = 6.0
+Noise = 3.0
+
+[sub_resource type="Resource" id="Resource_mdgac"]
+script = ExtResource("2_dbwl6")
+
+[sub_resource type="Resource" id="Resource_ms5i6"]
+script = ExtResource("1_1ki7w")
+Id = "gully_banks"
+Name = "Gully banks"
+Strength = 0.4
+A = SubResource("Resource_mn33w")
+B = SubResource("Resource_mdgac")
+
+[sub_resource type="Resource" id="Resource_v4ywc"]
+script = ExtResource("2_dbwl6")
+Input = 4
+To = -0.5
+ToOpen = false
+Fade = 4.0
+Noise = 2.0
+
+[sub_resource type="Resource" id="Resource_vso0u"]
+script = ExtResource("2_dbwl6")
+Input = 2
+To = 50.0
+ToOpen = false
+Fade = 10.0
+
+[sub_resource type="Resource" id="Resource_5h7ky"]
+script = ExtResource("1_1ki7w")
+Id = "gully_beds"
+Name = "Gully beds"
+Layer = 4
+Strength = 0.85
+A = SubResource("Resource_v4ywc")
+B = SubResource("Resource_vso0u")
+
+[resource]
+script = ExtResource("3_8wrj5")
+Rules = Array[ExtResource("1_1ki7w")]([SubResource("Resource_bcnde"), SubResource("Resource_3108s"), SubResource("Resource_v2qek"), SubResource("Resource_gnsbx"), SubResource("Resource_826oj"), SubResource("Resource_ykue7"), SubResource("Resource_0vi6q"), SubResource("Resource_yj42e"), SubResource("Resource_sgmwj"), SubResource("Resource_w6th4"), SubResource("Resource_b24o5"), SubResource("Resource_kbq1q"), SubResource("Resource_ms5i6"), SubResource("Resource_5h7ky")])

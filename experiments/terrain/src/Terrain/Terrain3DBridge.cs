@@ -268,6 +268,9 @@ public sealed class Terrain3DBridge
     /// <summary>Recomputes every region's height range exactly (pushes only ever widen it).</summary>
     public void RecalcHeightRange() => _data.Call("calc_height_range", true);
 
+    /// <summary>Swaps the shader override (Terrain3D copies its code when set, so edits to the Shader need this).</summary>
+    public void SetShader(Shader shader) => _material.Call("set_shader_override", shader);
+
     public void SetParam(string name, Variant value) => _material.Call("set_shader_param", name, value);
 
     /// <summary>Copies every public uniform set on <paramref name="source"/> (the material tuned in the inspector).</summary>

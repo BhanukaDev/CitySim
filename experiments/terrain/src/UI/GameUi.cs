@@ -20,6 +20,8 @@ public partial class GameUi : CanvasLayer
     private Button? _generatorButton;
     private ErosionPanel? _erosion;
     private Button? _erosionButton;
+    private MaterialsPanel? _materials;
+    private Button? _materialsButton;
     private Label _toast = null!;
     private int _toastId;
 
@@ -65,6 +67,14 @@ public partial class GameUi : CanvasLayer
             {
                 if (_erosion.Visible) _erosion.Close(); else OpenErosion();
             });
+
+            _materials = new MaterialsPanel { Tools = Tools };
+            _materials.Closed += () => _materialsButton?.SetPressedNoSignal(false);
+            root.AddChild(_materials);
+            _materialsButton = _bar.AddToggle("Materials", "Ground materials: the rules that place each layer, tints and blending", () =>
+            {
+                if (_materials.Visible) _materials.Close(); else OpenMaterials();
+            });
         }
 
         _toast = new Label
@@ -77,7 +87,7 @@ public partial class GameUi : CanvasLayer
         _toast.GrowHorizontal = Control.GrowDirection.Both;
         _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
 
-        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion };
+        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, Materials = _materials };
         pause.Notify += ShowToast;
         pause.GeneratorRequested += OpenGenerator;
         root.AddChild(pause);
@@ -100,6 +110,7 @@ public partial class GameUi : CanvasLayer
         if (_generator is null) return;
         if (_open is not null) Close();
         _erosion?.Close();
+        _materials?.Close();
         _generator.Open();
         _generatorButton?.SetPressedNoSignal(true);
     }
@@ -110,14 +121,27 @@ public partial class GameUi : CanvasLayer
         if (_erosion is null) return;
         if (_open is not null) Close();
         _generator?.Close();
+        _materials?.Close();
         _erosion.Open();
         _erosionButton?.SetPressedNoSignal(true);
+    }
+
+    /// <summary>Shows the materials panel (closes the tools and the other side panels).</summary>
+    public void OpenMaterials()
+    {
+        if (_materials is null) return;
+        if (_open is not null) Close();
+        _generator?.Close();
+        _erosion?.Close();
+        _materials.Open();
+        _materialsButton?.SetPressedNoSignal(true);
     }
 
     private void Open(ToolCategory cat)
     {
         _generator?.Close();
         _erosion?.Close();
+        _materials?.Close();
         _open = cat;
         _bar.SetActive(cat);
         _toolPanel.SetSelectedTool(Tools?.Tool ?? TerrainTool.None, Tools?.PaintLayer ?? -1);

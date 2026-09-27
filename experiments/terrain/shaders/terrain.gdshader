@@ -33,9 +33,13 @@ uniform highp sampler2DArray _control_maps : repeat_disable;
 uniform highp sampler2DArray _color_maps : repeat_disable;
 
 // Ground layers, in texture-array order. Must match TerrainLayers.cs.
-// 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow
+// 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow (paint only)
 const int LAYERS = 8;
 const int ROCK = 6;
+const int INPUTS = 11;
+const int MAX_RULES = 24;
+// Rule range ends beyond this are open (TerrainLook.Open).
+const float OPEN_END = 1e5;
 // Average brightness the baker normalised every layer's colour to (TextureBaker.NeutralGrey).
 const float NEUTRAL_GREY = 0.4;
 
@@ -65,6 +69,8 @@ uniform float macro_scale = 700.0;
 uniform float breakup_scale = 45.0;
 // Fine noise that wobbles automatic layer borders, so they read as organic rather than contour-smooth.
 uniform float edge_noise_scale = 11.0;
+// Coarser border noise that breaks shores and banks into patches.
+uniform float patchy_noise_scale = 35.0;
 
 group_uniforms Style;
 // Each layer's colour. The texture only adds light/dark detail on top of it.
@@ -113,39 +119,24 @@ uniform float terminator_strength : hint_range(0.0, 1.0) = 0.3;
 uniform vec3 shadow_tint : source_color = vec3(0.62, 0.72, 1.0);
 uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 
-group_uniforms AutoLayers;
-// Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°). Sand comes from the
-// ground masks (WaterAndErosion), along real water.
-// The snow line sits snow_line of the way up the map's height range, but never below snow_height, so tall maps
-// keep snow to their peaks and low or flat maps stay green.
-uniform float snow_line : hint_range(0.0, 1.0) = 0.5;
-uniform float snow_height = 125.0;
-uniform float snow_blend = 10.0;
-uniform float snow_max_slope : hint_range(0.0, 1.0) = 0.4;
-uniform float rock_slope : hint_range(0.0, 1.0) = 0.3;
-uniform float dirt_slope : hint_range(0.0, 1.0) = 0.17;
-uniform float dry_amount : hint_range(0.0, 1.0) = 0.5;
-uniform float gravel_amount : hint_range(0.0, 1.0) = 0.5;
-
-group_uniforms WaterAndErosion;
-// From the ground masks worked out with the lakes: sand along lakes, the sea and rivers; gravel in gully beds; bare dirt
-// and rock where running water scours; dirt and gravel where its sediment settles.
-// Sand reaches this far from the water (metres; each metre of height above the water counts as 4).
-uniform float shore_sand_width = 10.0;
-uniform float shore_sand_amount : hint_range(0.0, 1.0) = 1.0;
-// Gravel in beds of gullies and rivers.
-uniform float gully_gravel_amount : hint_range(0.0, 1.0) = 0.85;
-// Wear is log2(1 + stream power); dirt from wear_dirt, gravel from wear_gravel (both fade in over 1).
-// On an eroded 3.6 km map about 10% of the ground is above 1.8 and 1% above 2.9.
-uniform float wear_dirt = 2.0;
-uniform float wear_gravel = 3.0;
-// Scoured ground shows rock at gentler slopes, by up to this much (slope units, 0.1 is about 25 degrees less).
-uniform float wear_rock : hint_range(0.0, 0.3) = 0.08;
-uniform float wear_amount : hint_range(0.0, 1.0) = 0.8;
-// Deposits (log2 scale): dirt from deposit_start, some gravel where they're thickest. About 1% of the ground is above 1.2.
-uniform float deposit_start = 0.8;
-uniform float deposit_amount : hint_range(0.0, 1.0) = 0.7;
-// 1 shore, 2 gully, 3 wear, 4 deposit: shows one mask in greyscale instead of the ground.
+group_uniforms Rules;
+// The automatic ground: an ordered stack of rules, set from a TerrainLook (materials/terrain_look.tres) by
+// Terrain.ApplyLook and edited in the Materials panel. Grass is the base; each rule lays its layer over the ones
+// before it by its coverage. Four vec4 per rule (packed by TerrainLook.Pack):
+//   [0] layer, strength, invert A, invert B
+//   [1] condition A: input, from - fade, to, 1 / fade    (input -1 = unused; ends beyond +-OPEN_END = open)
+//   [2] condition B: same
+//   [3] edge noise A, noise field A, edge noise B, noise field B   (field: 0 fine, 1 patchy, 2 medium, 3 large)
+// Inputs: 0 height (m), 1 height (0-1 of the map's range), 2 slope (degrees), 3 shore distance (m),
+// 4 gully distance (m), 5 wear, 6 deposit, 7 noise large, 8 noise medium, 9 noise fine, 10 noise patchy.
+// A condition is 1 inside [from, to] and fades to 0 over `fade` outside it.
+uniform int rule_count = 0;
+uniform vec4 rules[96];
+// -1 off; a rule index shows that rule's coverage; -2 colours each pixel by its strongest layer; -3 shows how many
+// textures each pixel blends (the main cost).
+uniform int rule_debug = -1;
+// 1 shore, 2 gully, 3 wear, 4 deposit: shows one ground mask in greyscale instead of the ground.
+// Masks are worked out with the lakes (M5.1): distance to lakes/sea/rivers, distance to gully beds, stream power, sediment.
 uniform int ground_debug : hint_range(0, 4) = 0;
 
 group_uniforms EdgeFog;
@@ -319,12 +310,6 @@ vec3 layer_tint(int i) {
 	return tint_snow;
 }
 
-// Lays a layer over the ones below it with coverage c.
-void lay(inout float w[LAYERS], int layer, float c) {
-	for (int i = 0; i < LAYERS; i++) w[i] *= 1.0 - c;
-	w[layer] += c;
-}
-
 // Unpacks a tangent-space normal (OpenGL convention) and scales its bumpiness.
 vec3 unpack_normal(vec3 t) {
 	vec3 n = t * 2.0 - 1.0;
@@ -398,63 +383,94 @@ vec3 stylize(vec3 tex, int layer, float h01, float up) {
 	return tint * pow(max(ratio, vec3(0.0)), vec3(2.2 * contrast));
 }
 
+// Two octaves of fine noise at unrelated scales (so the wobble doesn't repeat visibly), about -0.5..0.5.
+float edge_noise(vec2 xz, float size) {
+	size = max(size, 0.1);
+	return texture(macro_noise, xz / size + vec2(0.61, 0.23)).r * 0.6
+			+ texture(macro_noise, xz / (size * 2.7) + vec2(0.11, 0.89)).r * 0.4 - 0.5;
+}
+
+// smoothstep(0, 1, t): edges come from uniforms, where smoothstep(a, b, x) costs a division.
+float ramp(float t) {
+	t = clamp(t, 0.0, 1.0);
+	return t * t * (3.0 - 2.0 * t);
+}
+
+// Picks component i of v (0-3) without dynamic indexing, which GPUs may spill to memory.
+float pick4(vec4 v, int i) { return dot(v, vec4(equal(ivec4(i), ivec4(0, 1, 2, 3)))); }
+
+// One rule condition: 1 inside [from, to], fading to 0 over `fade` outside; noise moves the value (so the edges).
+// Inputs are packed as in0 = inputs 0-3, in1 = 4-7, in2 = 8-11; edge_noises holds the fine, patchy, medium and large fields.
+float rule_condition(vec4 c, float noise_amount, int noise_field, float invert, vec4 in0, vec4 in1, vec4 in2, vec4 edge_noises) {
+	int src = int(c.x);
+	if (src < 0 || src >= INPUTS) return 1.0;
+	float v = pick4(in0, src) + pick4(in1, src - 4) + pick4(in2, src - 8)
+			+ pick4(edge_noises, noise_field) * noise_amount;
+	float k = 1.0;
+	if (c.y > -OPEN_END) k *= ramp((v - c.y) * c.w);
+	if (c.z < OPEN_END) k *= 1.0 - ramp((v - c.z) * c.w);
+	return invert > 0.5 ? 1.0 - k : k;
+}
+
+// Distinct colours for the "strongest layer" debug view (TerrainLayers order).
+vec3 debug_layer_color(int i) {
+	if (i == 0) return vec3(0.2, 0.7, 0.2);
+	if (i == 1) return vec3(0.85, 0.85, 0.2);
+	if (i == 2) return vec3(0.55, 0.45, 0.1);
+	if (i == 3) return vec3(0.6, 0.3, 0.1);
+	if (i == 4) return vec3(0.5, 0.5, 0.55);
+	if (i == 5) return vec3(1.0, 0.8, 0.5);
+	if (i == 6) return vec3(0.35, 0.2, 0.45);
+	return vec3(1.0);
+}
+
 void fragment() {
 	vec3 world_pos = v_vertex;
 	ivec3 corner[4];
 	vec4 corner_w;
 	vec3 n = terrain_normal(UV, corner, corner_w);
-	float slope = 1.0 - n.y;
 	float y = world_pos.y;
 	float h01 = clamp((y - height_min) / max(height_max - height_min, 0.001), 0.0, 1.0);
 
 	float noise_a = texture(macro_noise, world_pos.xz / macro_scale).r;
 	float noise_b = texture(macro_noise, world_pos.xz / (macro_scale * 0.21) + vec2(0.37, 0.71)).r;
-	// Two fine octaves at unrelated scales, so the wobble itself doesn't repeat visibly.
-	float edge = texture(macro_noise, world_pos.xz / edge_noise_scale + vec2(0.61, 0.23)).r * 0.6
-			+ texture(macro_noise, world_pos.xz / (edge_noise_scale * 2.7) + vec2(0.11, 0.89)).r * 0.4 - 0.5;
-	float slope_n = slope + (noise_b - 0.5) * 0.08 + edge * 0.05;
-	float y_n = y + (noise_b - 0.5) * 8.0 + edge;
 
 	// Ground masks, bilinear between the four surrounding vertices.
 	vec4 gm = vec4(0.0);
 	for (int k = 0; k < 4; k++)
 		if (corner[k].z >= 0) gm += texelFetch(_color_maps, corner[k], 0) * corner_w[k];
-	float shore_d = 64.0 - gm.r * 80.0;
-	float gully_d = 24.0 - gm.g * 32.0;
-	float wear = gm.b * 255.0 / 32.0;
-	float deposit = gm.a * 255.0 / 32.0;
 
-	// --- Automatic layers, laid bottom to top ---
+	// --- Automatic layers: the rule stack, laid bottom to top over grass ---
+	// Inputs (see the Rules uniforms): height, relative height, slope (degrees), shore distance, gully distance, wear,
+	// deposit, noise large / medium / fine.
+	vec4 in0 = vec4(y, h01, degrees(acos(clamp(n.y, 0.0, 1.0))), 64.0 - gm.r * 80.0);
+	vec4 in1 = vec4(24.0 - gm.g * 32.0, gm.b * 255.0 / 32.0, gm.a * 255.0 / 32.0, noise_a);
+	float fine = edge_noise(world_pos.xz, edge_noise_scale);
+	float patchy = edge_noise(world_pos.xz, patchy_noise_scale);
+	vec4 in2 = vec4(noise_b, fine + 0.5, patchy + 0.5, 0.0);
+	// Edge noise reuses those fields (no extra texture reads): fine, patchy, medium, large.
+	vec4 edge_noises = vec4(fine, patchy, noise_b - 0.5, noise_a - 0.5);
+	// Layer weights 0-3 and 4-7; each rule lays its layer over the ones below it by its coverage.
+	vec4 wa = vec4(1.0, 0.0, 0.0, 0.0), wb = vec4(0.0);
+	float debug_cov = 0.0;
+	// @rules-begin  Generic rule loop. At runtime Terrain replaces this block with straight-line code for the current
+	// rule stack (RuleShaderGen), which is much cheaper; keep the two in step.
+	for (int r = 0; r < min(rule_count, MAX_RULES); r++) {
+		vec4 head = rules[r * 4];
+		vec4 nz = rules[r * 4 + 3];
+		float c = head.y
+				* rule_condition(rules[r * 4 + 1], nz.x, int(nz.y), head.z, in0, in1, in2, edge_noises)
+				* rule_condition(rules[r * 4 + 2], nz.z, int(nz.w), head.w, in0, in1, in2, edge_noises);
+		c = clamp(c, 0.0, 1.0);
+		if (r == rule_debug) debug_cov = c;
+		int layer = int(head.x);
+		wa = wa * (1.0 - c) + c * vec4(equal(ivec4(layer), ivec4(0, 1, 2, 3)));
+		wb = wb * (1.0 - c) + c * vec4(equal(ivec4(layer), ivec4(4, 5, 6, 7)));
+	}
+	// @rules-end
 	float w[LAYERS];
-	for (int i = 0; i < LAYERS; i++) w[i] = 0.0;
-	w[0] = 1.0;
-	lay(w, 1, smoothstep(0.35, 0.95, noise_a + h01 * 0.35 + edge * 0.15) * dry_amount);
-	lay(w, 2, smoothstep(dirt_slope - 0.08, dirt_slope + 0.08, slope_n));
-	// Where sediment settles: dirt, with gravel patches where it's thickest.
-	float dep = smoothstep(deposit_start, deposit_start + 1.0, deposit + edge) * deposit_amount;
-	lay(w, 3, dep);
-	lay(w, 4, dep * smoothstep(deposit_start + 0.8, deposit_start + 2.0, deposit + (noise_b - 0.5) * 1.5));
-	// Scoured by running water: bare dirt, then gravel.
-	float wear_n = wear + edge;
-	lay(w, 3, smoothstep(wear_dirt, wear_dirt + 1.0, wear_n) * wear_amount);
-	lay(w, 4, smoothstep(wear_gravel, wear_gravel + 1.0, wear_n) * wear_amount);
-	float rock_at = rock_slope - wear_rock * smoothstep(wear_dirt, wear_gravel + 1.0, wear);
-	float rock = smoothstep(rock_at - 0.05, rock_at + 0.05, slope_n);
-	// Scree at the foot of cliffs, broken up by noise so it doesn't outline every rock patch.
-	float scree = smoothstep(rock_at - 0.1, rock_at - 0.02, slope_n) * smoothstep(0.35, 0.65, noise_b);
-	lay(w, 4, scree * gravel_amount);
-	lay(w, ROCK, rock);
-	// Beaches along lakes, the sea and rivers; steep banks stay rock.
-	float shore = 1.0 - smoothstep(shore_sand_width - 3.0, shore_sand_width + 1.0, shore_d + edge * 6.0);
-	lay(w, 5, shore * shore_sand_amount * (1.0 - rock));
-	// Gravel in the bed of gullies and rivers.
-	lay(w, 4, (1.0 - smoothstep(-1.0, 1.5, gully_d + edge * 2.0)) * gully_gravel_amount * (1.0 - rock * 0.5));
-	// Snow line: wanders with noise and thins out over snow_blend metres; height blending then lets
-	// grass tufts and stones poke through the thin edge instead of a separate "snowy grass" texture.
-	float snow_ok = 1.0 - smoothstep(snow_max_slope - 0.08, snow_max_slope + 0.08, slope_n);
-	float y_snow = y_n + (noise_a - 0.5) * snow_blend * 1.5 + edge * snow_blend;
-	float snow_at = max(snow_height, mix(height_min, height_max, snow_line));
-	lay(w, 7, smoothstep(snow_at - snow_blend, snow_at + snow_blend * 0.5, y_snow) * snow_ok);
+	w[0] = wa.x; w[1] = wa.y; w[2] = wa.z; w[3] = wa.w;
+	w[4] = wb.x; w[5] = wb.y; w[6] = wb.z; w[7] = wb.w;
 
 	// --- Painted layers override the automatic ones by their coverage ---
 	// Bilinear between the four surrounding vertices' control values.
@@ -492,7 +508,9 @@ void fragment() {
 		col[k] = vec3(0.0);
 		nrm[k] = n;
 		score[k] = -1.0;
-		if (top_w[k] <= 0.001) continue;
+		// A layer blends in only if its score (weight + texture height * height_blend) comes within blend_softness of
+		// the best, which is at least top_w[0]. Layers that can't are skipped without changing the result.
+		if (top_w[k] <= 0.001 || top_w[k] + height_blend <= top_w[0] - blend_softness) continue;
 		Sample s;
 		if (top_i[k] == ROCK) s = sample_triplanar(ROCK, world_pos, n);
 		else s = sample_planar(top_i[k], world_pos, n, far_t);
@@ -521,6 +539,15 @@ void fragment() {
 	albedo *= 1.0 + breakup * breakup_strength * 2.0;
 
 	vec3 col_out = albedo;
+	if (rule_debug >= 0) col_out = mix(albedo * 0.35, vec3(1.0, 0.3, 0.6), debug_cov);
+	if (rule_debug == -3) {
+		// Cost: textures blended here (green 1, yellow 2, orange 3, red 4). Each one is several texture reads.
+		float blended = 0.0;
+		for (int k = 0; k < 4; k++) blended += score[k] >= 0.0 ? 1.0 : 0.0;
+		col_out = blended <= 1.0 ? vec3(0.1, 0.6, 0.1) : blended <= 2.0 ? vec3(0.9, 0.9, 0.1)
+				: blended <= 3.0 ? vec3(1.0, 0.5, 0.0) : vec3(1.0, 0.0, 0.0);
+	}
+	if (rule_debug == -2) col_out = debug_layer_color(top_i[0]) * (0.75 + 0.25 * n.y);
 	if (ground_debug > 0) {
 		float v = ground_debug == 1 ? gm.r : ground_debug == 2 ? gm.g : ground_debug == 3 ? gm.b : gm.a;
 		col_out = vec3(v * v);

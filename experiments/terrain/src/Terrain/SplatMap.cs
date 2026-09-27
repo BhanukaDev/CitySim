@@ -6,7 +6,7 @@ namespace CitySim.TerrainSystem;
 /// Engine-agnostic painted ground layers: one 32-bit control value per heightmap vertex, laid out like Terrain3D's
 /// control map so it can be copied to the renderer as-is. A vertex mixes at most two painted layers (base and overlay,
 /// with a blend between them) over the automatic ground by its <em>coverage</em>: where coverage is below 1 the shader
-/// fills the rest with its automatic rules (rock on slopes, snow up high, ...), so an unpainted map is fully automatic.
+/// fills the rest with its automatic rules (TerrainLook: rock on slopes, sand by water, ...), so an unpainted map is fully automatic.
 ///
 /// Stored as sparse 256² tiles, allocated only where something was painted: an unpainted 8k map costs nothing.
 ///

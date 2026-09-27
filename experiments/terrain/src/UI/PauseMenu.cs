@@ -17,6 +17,7 @@ public partial class PauseMenu : Control
     /// <summary>The Map Editor's generator panel (null in game mode). Esc closes it before opening this menu.</summary>
     public GeneratorPanel? Generator { get; set; }
     public ErosionPanel? Erosion { get; set; }
+    public MaterialsPanel? Materials { get; set; }
 
     /// <summary>Raised by "Terrain Generator…".</summary>
     public event Action? GeneratorRequested;
@@ -61,6 +62,7 @@ public partial class PauseMenu : Control
         else if (Visible) Close();
         else if (Generator is { Visible: true }) Generator.Close();
         else if (Erosion is { Visible: true }) Erosion.Close();
+        else if (Materials is { Visible: true }) Materials.Close();
         else if (Tools is null || Tools.Tool == TerrainTool.None) Open();
         else return; // let the tool controller deselect the tool
         GetViewport().SetInputAsHandled();

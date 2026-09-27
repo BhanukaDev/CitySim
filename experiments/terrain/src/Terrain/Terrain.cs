@@ -5,6 +5,7 @@ using Godot;
 using CitySim.App;
 using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
+using CitySim.TerrainSystem.Look;
 
 namespace CitySim.TerrainSystem;
 
@@ -43,6 +44,29 @@ public partial class Terrain : Node3D
     [Export] public Material? SkirtMaterial { get; set; }
     /// <summary>Lake surfaces (<c>lake_water.gdshader</c>).</summary>
     [Export] public Material? WaterMaterial { get; set; }
+    /// <summary>
+    /// Automatic ground rules, tints and layer blending (shared by every map; edited in the Materials panel). Applied over
+    /// <see cref="Material"/>'s values. Falls back to <see cref="TerrainLook.DefaultPath"/>, then the built-in default.
+    /// </summary>
+    [Export] public TerrainLook? Look
+    {
+        get => _look;
+        set { _look = value; ApplyLook(); }
+    }
+
+    /// <summary>
+    /// Debug view: a rule index shows that rule's coverage, <see cref="LayerDebugView"/> the strongest layer,
+    /// <see cref="CostDebugView"/> how many textures each pixel blends; -1 off.
+    /// </summary>
+    public int RuleDebug
+    {
+        get => _ruleDebug;
+        set { _ruleDebug = value; _render?.SetParam("rule_debug", value); }
+    }
+    public const int LayerDebugView = -2, CostDebugView = -3;
+
+    /// <summary>The shader code Terrain3D draws with (terrain.gdshader with the rules specialised, see <see cref="RuleShaderGen"/>).</summary>
+    public string? DrawnShaderCode => _liveShader?.Code;
 
     [ExportToolButton("Regenerate")]
     public Callable RegenerateButton => Callable.From(Generate);
@@ -52,6 +76,12 @@ public partial class Terrain : Node3D
     private bool _skirtDirty;
     private VertexRect _heightDirty = VertexRect.Empty, _splatDirty = VertexRect.Empty;
     private double _paramCopyTimer;
+    private TerrainLook? _look;
+    private const double LookBakeDelay = 0.5;
+    private double _lookBakeTimer = -1;
+    // Runtime copy of Material's shader with the rule loop specialised for the look (RuleShaderGen); what Terrain3D draws.
+    private Shader? _liveShader;
+    private int _ruleDebug = -1;
     private LakeWater? _water;
     private double _lakeTimer = -1;
     private CancellationTokenSource? _lakeJob;
@@ -176,6 +206,7 @@ public partial class Terrain : Node3D
         {
             _paramCopyTimer = 0;
             CopyMaterialParams();
+            ApplyLook();
         }
         if (_skirtDirty)
         {
@@ -184,6 +215,7 @@ public partial class Terrain : Node3D
         }
         PushDirty();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
+        if (_lookBakeTimer >= 0 && (_lookBakeTimer -= delta) < 0) ApplyLook();
     }
 
     public override void _ExitTree() => _lakeJob?.Cancel();
@@ -338,8 +370,10 @@ public partial class Terrain : Node3D
         CellsZ = map.Depth - 1;
         CellSize = map.CellSize;
         Splat = splat ?? new SplatMap(map.Width, map.Depth, map.CellSize);
-        _render = Terrain3DBridge.Create(this, Map, Splat, shader);
+        _liveShader = new Shader { Code = shader.Code };
+        _render = Terrain3DBridge.Create(this, Map, Splat, _liveShader);
         CopyMaterialParams();
+        ApplyLook();
         UpdateMaterialRange();
 
         _skirt = new TerrainSkirt();
@@ -523,6 +557,37 @@ public partial class Terrain : Node3D
             var value = sm.GetShaderParameter(name);
             if (value.VariantType != Variant.Type.Nil) skirt.SetShaderParameter(name, value);
         }
+    }
+
+    /// <summary>
+    /// Sends <see cref="Look"/> to the shader: the rule stack, layer tints and blending. With <paramref name="live"/>
+    /// (while editing) the rules are read from uniforms, so repeated edits don't recompile; the shader is re-baked with
+    /// constants, which is much faster to draw, once edits stop for <see cref="LookBakeDelay"/> seconds.
+    /// </summary>
+    public void ApplyLook(bool live = false)
+    {
+        _lookBakeTimer = live ? LookBakeDelay : -1;
+        if (_render is null) return;
+        _look ??= TerrainLook.LoadOrDefault();
+        var rules = _look.Pack(out int count);
+        UpdateLiveShader(rules, count, bake: !live);
+        _render.SetParam("rules", rules);
+        _render.SetParam("rule_count", count);
+        _render.SetParam("rule_debug", _ruleDebug);
+        foreach (var layer in TerrainLayers.All)
+            _render.SetParam("tint_" + layer.Name, _look.Tint(layer.Index));
+        _render.SetParam("height_blend", _look.HeightBlend);
+        _render.SetParam("blend_softness", _look.BlendSoftness);
+    }
+
+    /// <summary>Recompiles the drawn shader when the rule stack's structure (or the shader file, in the editor) changed.</summary>
+    private void UpdateLiveShader(Vector4[] rules, int count, bool bake)
+    {
+        if (_liveShader is null || Material is not ShaderMaterial { Shader: { } source }) return;
+        string code = RuleShaderGen.Specialize(source.Code, rules, count, bake);
+        if (code == _liveShader.Code) return;
+        _liveShader.Code = code;
+        _render?.SetShader(_liveShader);
     }
 
     private void UpdateMaterialRange()
