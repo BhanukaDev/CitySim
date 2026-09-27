@@ -12,7 +12,9 @@ namespace CitySim.Debug;
 /// Self-checks for the water simulation (<c>--demo-water</c>), on small made-up terrains with unthreaded sims so every
 /// run is the same: volume is conserved, streams run downhill, level sources hold their level, unfed water evaporates,
 /// Fill Hollows matches the hollow search, a dam built across a stream backs the water up, the map file keeps the water,
-/// and a step's cost at 1025² and 2049². Prints one line per check and "Demo water: all ok". Engine-agnostic.
+/// runs repeat exactly (also on another thread count), settled water sleeps and wakes without losing any, outflow is
+/// never clamped, pollutant rides the flow with its mass kept, how narrow channels fare on a coarse grid, and a step's
+/// cost at 1025² and 2049². Prints one line per check and "Demo water: all ok". Engine-agnostic.
 /// </summary>
 public static class WaterDemo
 {
@@ -114,19 +116,136 @@ public static class WaterDemo
                 new WaterSource(9, WaterSourceKind.Stream, 100, 100, 12, 0, FlowRate: 7.5f),
             ]);
             sim.FillHollows(Levels(map, 20f, 16f));
-            var data = new WaterData(sim.Settings, sim.Sources, sim.Width, sim.Depth, sim.ReadDepth());
+            var pollution = sim.ReadDepth().Select(d => d > 0 ? d * 0.01f : 0f).ToArray();
+            sim.LoadPollution(pollution);
+            var data = new WaterData(sim.Settings, sim.Sources, sim.Width, sim.Depth, sim.ReadDepth(), sim.ReadPollution());
             string path = Path.Combine(Path.GetTempPath(), "citysim_water_demo.csmap");
             MapFile.Save(path, map, new SplatMap(map.Width, map.Depth, map.CellSize) { ThemeId = "default" }, data);
             var (_, _, loaded) = MapFile.LoadWithWater(path);
             File.Delete(path);
-            float worst = 0;
+            float worst = 0, worstPollution = 0;
             if (loaded?.DepthGrid is { } g)
                 for (int i = 0; i < g.Length; i++) worst = MathF.Max(worst, MathF.Abs(g[i] - data.DepthGrid![i]));
-            bool same = loaded is not null && loaded.Settings == data.Settings && loaded.Sources.SequenceEqual(data.Sources) && loaded.DepthGrid is not null;
-            Check(same && worst < 0.01f, $"map file round trip (worst depth error {worst:0.0000} m)");
+            if (loaded?.PollutionGrid is { } pg)
+                for (int i = 0; i < pg.Length; i++) worstPollution = MathF.Max(worstPollution, MathF.Abs(pg[i] - data.PollutionGrid![i]));
+            bool same = loaded is not null && loaded.Settings == data.Settings && loaded.Sources.SequenceEqual(data.Sources)
+                && loaded.DepthGrid is not null && loaded.PollutionGrid is not null && data.PollutionGrid!.Sum() > 1f;
+            Check(same && worst < 0.01f && worstPollution == 0f,
+                $"map file round trip (worst depth error {worst:0.0000} m, pollutant {worstPollution:0.######} kg)");
         }
 
-        // 8. Cost of a substep with every cell wet (2 m of water on a gentle slope, walls), 1025² and 2049².
+        // 8. The same run gives the same water: twice in a row, and on one thread instead of several.
+        {
+            var map = Make(193, 4f, (x, z) => z * 0.02f + 2f * MathF.Abs(x - 384) / 128f + Pit(x, z, 384, 200, 90, 0f, 3f));
+            ulong Run(int threads)
+            {
+                using var sim = new WaterSim(map, threaded: false, threads: threads);
+                sim.SetSources([
+                    new WaterSource(1, WaterSourceKind.Stream, 384, 700, 12, 0, FlowRate: 15, Pollution: 0.5f),
+                    new WaterSource(2, WaterSourceKind.Lake, 200, 300, 40, 12f, MaxFlow: 30),
+                ]);
+                sim.Advance(240);
+                return Hash(sim.ReadDepth()) ^ (Hash(sim.ReadPollution()) * 31);
+            }
+            ulong a = Run(0), b = Run(0), c = Run(1);
+            Check(a == b && a == c, $"repeatable (hash {a:x16}, again {(a == b ? "same" : "different")}, on 1 thread {(a == c ? "same" : "different")})");
+        }
+
+        // 9. Sleeping: a filled pond settles and sleeps; a stream then feeds it and every drop is accounted for; a
+        //    terrain edit wakes it; outflow is never clamped anywhere.
+        {
+            var map = Make(257, 4f, (x, z) => Pit(x, z, 512, 512, 380, 10f, 6f) + Pit(x, z, 180, 180, 60, 0f, -3f));
+            using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { OpenEdges = false, EvaporationMmPerMin = 0 } };
+            sim.FillHollows(Levels(map, 8f, 9.99f));
+            sim.Advance(120);
+            var settled = sim.LastStats;
+            double before = Volume(sim);
+            const float rate = 4f;
+            sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 180, 180, 10, 0, FlowRate: rate)]);
+            sim.Advance(300);
+            var fed = sim.LastStats;
+            double after = Volume(sim), expected = before + rate * 300;
+            sim.SetSources([]);
+            // The film left on the mound trickles for a few minutes before everything is calm.
+            var calm = sim.LastStats;
+            int waited = 0;
+            while (waited < 1200 && (waited == 0 || calm.ActiveTiles > 0))
+            {
+                sim.Advance(60);
+                waited += 60;
+                calm = sim.LastStats;
+            }
+            for (int z = 120; z <= 124; z++)
+                for (int x = 120; x <= 124; x++) map[x, z] += 3f;
+            sim.GroundChanged(new VertexRect(120, 120, 124, 124));
+            sim.Advance(TickOf(sim));
+            var woken = sim.LastStats;
+            Check(settled.ActiveTiles == 0 && settled.SleepingTiles > 0 && fed.ActiveTiles > 0 && fed.SleepingTiles > 0
+                  && calm.ActiveTiles == 0 && woken.ActiveTiles > 0,
+                $"settled water sleeps ({settled.SleepingTiles} sleeping, {settled.ActiveTiles} active; fed {fed.ActiveTiles} active, " +
+                $"{fed.SleepingTiles} sleeping; {calm.ActiveTiles} active {waited} s after it stops; an edit wakes {woken.ActiveTiles})");
+            Check(Math.Abs(after - expected) < rate * 300 * 0.01,
+                $"no water lost across sleeping tiles ({before:0} + {rate * 300:0} = {expected:0} m³, got {after:0} m³)");
+            Check(sim.ClampHits == 0, $"outflow never clamped ({sim.ClampHits} cells)");
+        }
+
+        // 10. Pollution: a sewage stream into a walled basin keeps its mass (no decay) and drifts downhill; with a
+        //     half-life the mass levels off.
+        {
+            var map = Make(129, 4f, (x, z) => z * 0.02f + Pit(x, z, 256, 120, 110, 0f, 4f));
+            float Run(float halfLife, out float near, out float far)
+            {
+                using var sim = new WaterSim(map, threaded: false)
+                {
+                    Settings = new WaterSettings { OpenEdges = false, EvaporationMmPerMin = 0, PollutionHalfLifeMin = halfLife },
+                };
+                sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 256, 450, 10, 0, FlowRate: 5, Pollution: 2f)]);
+                sim.Advance(600);
+                near = sim.PollutionAt(256, 440);
+                far = sim.PollutionAt(256, 120);
+                return (float)sim.LastStats.Pollution;
+            }
+            float kept = Run(0, out float near, out float far), decayed = Run(2f, out _, out _);
+            // With a 2 min half-life, the steady state is rate / decay = 2 / (ln 2 / 120 s) ≈ 346 kg.
+            Check(MathF.Abs(kept - 1200f) < 12f && far > 0 && near > 0 && decayed < 400f && decayed > 250f,
+                $"pollutant rides the flow (1200 kg added, {kept:0.#} kg in the water; {near:0.0000} kg/m³ at the outlet, " +
+                $"{far:0.0000} kg/m³ in the basin; with a 2 min half-life {decayed:0} kg)");
+        }
+
+        // 11. Narrow channels: a 7 m and a 14 m wide channel (1.5 m deep) down a gentle slope, on 3.5 m cells and on
+        //     14 m cells (averaged like a 4× coarser water grid). Reports how much water leaves the channel.
+        foreach (float cell in new[] { 3.5f, 14f })
+            foreach (float width in new[] { 7f, 14f })
+            {
+                float Fine(float x, float z) => z * 0.01f + (MathF.Abs(x - 448f) < width * 0.5f ? -1.5f : 0f);
+                int verts = (int)(896f / cell) + 1;
+                var map = Make(verts, cell, (x, z) =>
+                {
+                    // The water grid averages the vertices around each cell; do the same from the fine shape.
+                    int k = (int)(cell / 3.5f) / 2;
+                    float sum = 0;
+                    for (int dz = -k; dz <= k; dz++)
+                        for (int dx = -k; dx <= k; dx++) sum += Fine(x + dx * 3.5f, z + dz * 3.5f);
+                    return sum / ((2 * k + 1) * (2 * k + 1));
+                });
+                using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { EvaporationMmPerMin = 0 } };
+                sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 448, 850, 5, 0, FlowRate: 3)]);
+                sim.Advance(900);
+                var d = sim.ReadDepth();
+                double inside = 0, outside = 0;
+                for (int i = 0; i < d.Length; i++)
+                {
+                    if (d[i] <= 0.01f) continue;
+                    float x = i % sim.Width * sim.CellSize;
+                    if (MathF.Abs(x - 448f) <= width * 0.5f + sim.CellSize) inside += d[i];
+                    else outside += d[i];
+                }
+                double share = outside / Math.Max(inside + outside, 1e-9);
+                log($"Demo water: narrow channel {width:0} m wide on {cell:0.#} m cells: {share:P1} of the water outside it, " +
+                    $"deepest {sim.LastStats.MaxDepth:0.00} m");
+            }
+
+        // 12. Cost of a substep with every cell wet (2 m of water on a gentle slope, walls), 1025² and 2049².
         foreach (int verts in new[] { 1025, 2049 })
         {
             var map = Make(verts, 3.5f, (x, z) => 0.001f * x);
@@ -138,7 +257,7 @@ public static class WaterDemo
             var sw = Stopwatch.StartNew();
             sim.Advance(20);
             var st = sim.LastStats;
-            log($"Demo water: {verts}² fully wet: {sim.StepMs:0.00} ms per substep ({st.Substeps} substeps for the last 5 s, {sw.ElapsedMilliseconds} ms for 20 s)");
+            log($"Demo water: {verts}² fully wet: {sim.StepMs:0.00} ms per substep ({st.Substeps} substeps per tick, {sw.ElapsedMilliseconds} ms for 20 s)");
         }
 
         log(ok ? "Demo water: all ok" : "Demo water: FAILED");
@@ -167,6 +286,19 @@ public static class WaterDemo
         var l = new float[map.Width * map.Depth];
         for (int i = 0; i < l.Length; i++) l[i] = map.Data[i] < below ? level : float.NaN;
         return l;
+    }
+
+    private static double TickOf(WaterSim sim) => WaterSim.TickSeconds;
+
+    private static ulong Hash(float[] values)
+    {
+        ulong h = 14695981039346656037;
+        foreach (float v in values)
+        {
+            h ^= BitConverter.SingleToUInt32Bits(v);
+            h *= 1099511628211;
+        }
+        return h;
     }
 
     private static double Volume(WaterSim sim)

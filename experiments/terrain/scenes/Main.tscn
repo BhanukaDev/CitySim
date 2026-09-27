@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://src/Terrain/Terrain.cs" id="1_terrain"]
 [ext_resource type="Script" path="res://src/Camera/CityCamera.cs" id="2_camera"]
@@ -6,7 +6,7 @@
 [ext_resource type="Script" path="res://src/Tools/TerrainToolController.cs" id="5_tools"]
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
 [ext_resource type="Shader" path="res://shaders/terrain_skirt.gdshader" id="9_skirt"]
-[ext_resource type="Shader" path="res://shaders/water.gdshader" id="10_water"]
+[ext_resource type="Material" path="res://materials/water.tres" id="10_water"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
 frequency = 0.008
@@ -49,10 +49,6 @@ adjustment_enabled = true
 adjustment_contrast = 1.05
 adjustment_saturation = 1.1
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_water"]
-render_priority = 1
-shader = ExtResource("10_water")
-
 [node name="Main" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -69,7 +65,7 @@ directional_shadow_max_distance = 1500.0
 [node name="Terrain" type="Node3D" parent="."]
 script = ExtResource("1_terrain")
 SkirtMaterial = SubResource("ShaderMaterial_skirt")
-WaterMaterial = SubResource("ShaderMaterial_water")
+WaterMaterial = ExtResource("10_water")
 
 [node name="CityCamera" type="Node3D" parent="." node_paths=PackedStringArray("Terrain")]
 script = ExtResource("2_camera")

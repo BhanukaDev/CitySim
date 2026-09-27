@@ -9,10 +9,13 @@ namespace CitySim.WaterSystem;
 
 /// <summary>
 /// Flowing water over a <see cref="HeightMap"/> (C++, <c>native/water/</c>). Owns the native state and, when threaded,
-/// a worker that steps it continuously: <see cref="WaterSettings.Speed"/> simulated seconds per real second, as far as
-/// the CPU keeps up. Changes from the main thread (ground edits, sources, settings, fills) are queued and applied between
-/// steps. The worker publishes a snapshot (surface, depth, velocity per water cell) about 30 times a second; queries and
-/// rendering read that. Engine-agnostic.
+/// a worker that steps it in fixed ticks of <see cref="TickSeconds"/> simulated seconds:
+/// <see cref="WaterSettings.Speed"/> simulated seconds per real second (×8 = 16 ticks a second), as far as the CPU
+/// keeps up (whole ticks are dropped when it can't; a tick is never shortened). The same state and the same changes at
+/// the same ticks give the same water, whatever the frame rate or thread count. Changes from the main thread (ground
+/// edits, sources, settings, fills) are queued and applied between ticks. After each tick the worker publishes a
+/// snapshot (surface, depth, velocity and pollutant per water cell); queries and rendering read that, and the renderer
+/// blends from one tick's snapshot to the next. Engine-agnostic.
 ///
 /// The water grid is the terrain's vertex grid, or every <see cref="Factor"/>th vertex on very large maps, so water
 /// cell (x, z) sits at local position (x, z) × <see cref="CellSize"/>, the same metres as the terrain.
@@ -23,7 +26,8 @@ public sealed class WaterSim : IDisposable
     public const int MaxCells = 2048;
     /// <summary>Snapshot pages (for rendering uploads), in water cells.</summary>
     public const int PageSize = 256;
-    private const int MaxSubstepsPerCall = 8;
+    /// <summary>Simulated seconds per tick.</summary>
+    public const double TickSeconds = 1.0;
 
     public HeightMap Ground { get; }
     public int Factor { get; }
@@ -45,8 +49,11 @@ public sealed class WaterSim : IDisposable
     private VertexRect _groundDirty = VertexRect.Empty;
     private bool _paramsDirty = true, _sourcesDirty = true;
 
-    // Snapshot: 4 floats per water cell (display surface, depth, velocity x, z; see cs_water_read), and dirty pages.
+    // Snapshot: 4 floats per water cell (display surface, depth, velocity x, z; see cs_water_read), the pollutant
+    // concentration per cell, and dirty pages.
     private readonly float[] _snapshot;
+    private readonly float[] _pollution;
+    private long _publishes;
     private readonly bool[] _pageDirty;
     private readonly byte[] _tileChanged;
     private readonly object _snapLock = new();
@@ -54,10 +61,12 @@ public sealed class WaterSim : IDisposable
     private WaterSettings _settings = new();
     private IReadOnlyList<WaterSource> _sources = [];
     private WaterStats _stats;
-    private double _simTime, _ratio, _stepMs;
+    private double _simTime, _ratio, _stepMs, _advanceDebt;
+    private long _ticks, _clampHits;
     private readonly object _statsLock = new();
 
-    public WaterSim(HeightMap ground, bool threaded = true)
+    /// <param name="threads">Native worker threads (0 = the default); results don't depend on it.</param>
+    public WaterSim(HeightMap ground, bool threaded = true, int threads = 0)
     {
         Ground = ground;
         int cells = Math.Max(ground.Width, ground.Depth) - 1;
@@ -73,9 +82,10 @@ public sealed class WaterSim : IDisposable
         PagesX = Math.Max(1, (Width - 1 + PageSize - 1) / PageSize);
         PagesZ = Math.Max(1, (Depth - 1 + PageSize - 1) / PageSize);
         _snapshot = new float[Width * Depth * 4];
+        _pollution = new float[Width * Depth];
         _pageDirty = new bool[PagesX * PagesZ];
         _tileChanged = new byte[TilesX * TilesZ];
-        _h = WaterNative.Create(Width, Depth, CellSize);
+        _h = WaterNative.Create(Width, Depth, CellSize, threads);
         WaterNative.SetGround(_h, ground.Data, ground.Width, ground.Depth, Factor, 0, 0, Width - 1, Depth - 1);
         _threaded = threaded;
         Publish(all: true);
@@ -151,18 +161,32 @@ public sealed class WaterSim : IDisposable
         Enqueue(() => WaterNative.SetDepth(_h, depth));
     }
 
+    /// <summary>Replaces the pollutant with saved masses (kg per cell; call after <see cref="LoadDepth"/>).</summary>
+    public void LoadPollution(float[] mass)
+    {
+        if (mass.Length != Width * Depth) throw new ArgumentException("Pollution grid has the wrong size.", nameof(mass));
+        Enqueue(() => WaterNative.SetPollution(_h, mass));
+    }
+
     /// <summary>The current depth per water cell (waits for the worker; for saving).</summary>
-    public float[] ReadDepth()
+    public float[] ReadDepth() => ReadGrid(WaterNative.GetDepth);
+
+    /// <summary>The current pollutant mass per water cell in kg (waits for the worker; for saving).</summary>
+    public float[] ReadPollution() => ReadGrid(WaterNative.GetPollution);
+
+    private delegate void GridReader(IntPtr h, Span<float> into);
+
+    private float[] ReadGrid(GridReader read)
     {
         var result = new float[Width * Depth];
         if (!_threaded)
         {
             ApplyQueued();
-            WaterNative.GetDepth(_h, result);
+            read(_h, result);
             return result;
         }
         using var done = new ManualResetEventSlim();
-        Enqueue(() => { WaterNative.GetDepth(_h, result); done.Set(); });
+        Enqueue(() => { read(_h, result); done.Set(); });
         if (!done.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The water simulation didn't answer.");
         return result;
     }
@@ -210,56 +234,60 @@ public sealed class WaterSim : IDisposable
         LevelRate = 2f,
         OpenEdges = s.OpenEdges ? 15 : 0,
         Manning = 0.03f,
+        PollutionDecay = s.PollutionHalfLifeMin > 0 ? MathF.Log(2f) / (s.PollutionHalfLifeMin * 60f) : 0f,
     };
 
     // --- Stepping ---
 
-    /// <summary>Simulates <paramref name="seconds"/> right now (only without the worker: demos and tests).</summary>
+    /// <summary>
+    /// Simulates <paramref name="seconds"/> right now, in whole ticks (a remainder carries over to the next call; only
+    /// without the worker: demos and tests).
+    /// </summary>
     public void Advance(double seconds)
     {
         if (_threaded) throw new InvalidOperationException("Advance is for unthreaded sims.");
         ApplyQueued();
-        while (seconds > 1e-4)
+        _advanceDebt += seconds;
+        while (_advanceDebt >= TickSeconds - 1e-9)
         {
-            var sw = Stopwatch.StartNew();
-            var st = WaterNative.Step(_h, (float)Math.Min(seconds, 5.0), 1_000_000);
-            seconds -= st.Simulated;
-            lock (_statsLock)
-            {
-                _stats = st;
-                _simTime += st.Simulated;
-                _stepMs = sw.Elapsed.TotalMilliseconds / Math.Max(st.Substeps, 1);
-            }
-            if (st.Simulated <= 0) break;
+            StepTick();
+            _advanceDebt -= TickSeconds;
         }
         Publish(all: false);
     }
 
     /// <summary>
-    /// Simulates <paramref name="seconds"/> as fast as possible on the worker (it does nothing else meanwhile), e.g. so a
-    /// screenshot shows settled water. Without the worker, runs right away.
+    /// Simulates <paramref name="seconds"/> (whole ticks) as fast as possible on the worker (it does nothing else
+    /// meanwhile), e.g. so a screenshot shows settled water. Without the worker, runs right away.
     /// </summary>
     public void RunFor(double seconds) => Enqueue(() =>
     {
         var clock = Stopwatch.StartNew();
         double publishAt = 0;
-        while (seconds > 1e-3)
+        for (long n = (long)Math.Round(seconds / TickSeconds); n > 0; n--)
         {
+            StepTick();
             if (clock.Elapsed.TotalSeconds >= publishAt)
             {
                 Publish(all: false);
                 publishAt = clock.Elapsed.TotalSeconds + 0.1;
             }
-            var st = WaterNative.Step(_h, (float)Math.Min(seconds, 5.0), 1_000_000);
-            seconds -= st.Simulated;
-            lock (_statsLock)
-            {
-                _stats = st;
-                _simTime += st.Simulated;
-            }
-            if (st.Simulated <= 0) break;
         }
     });
+
+    private void StepTick()
+    {
+        var sw = Stopwatch.StartNew();
+        var st = WaterNative.Step(_h, (float)TickSeconds, 1_000_000);
+        lock (_statsLock)
+        {
+            _stats = st;
+            _simTime += st.Simulated;
+            _ticks++;
+            _clampHits += st.ClampHits;
+            _stepMs = sw.Elapsed.TotalMilliseconds / Math.Max(st.Substeps, 1);
+        }
+    }
 
     private void Run()
     {
@@ -267,6 +295,7 @@ public sealed class WaterSim : IDisposable
         double last = 0, debt = 0, publishAt = 0, ratioWindow = 0, ratioSim = 0;
         while (!_stop)
         {
+            // Queued changes land between ticks.
             ApplyQueued();
             double now = clock.Elapsed.TotalSeconds, real = Math.Min(now - last, 0.25);
             last = now;
@@ -274,22 +303,22 @@ public sealed class WaterSim : IDisposable
             bool running = !s.Paused && !Suspended;
             if (running) debt += real * s.Speed;
             else debt = 0;
-            // When the CPU can't keep up, drop the backlog: the water slows down instead of stalling the snapshots.
-            debt = Math.Min(debt, Math.Max(s.Speed * 0.25, 0.1));
+            // When the CPU can't keep up, drop whole ticks of backlog: the water slows down instead of stalling.
+            debt = Math.Min(debt, Math.Max(s.Speed * 0.25, TickSeconds));
             bool stepped = false;
-            if (debt > 1e-3)
+            if (debt >= TickSeconds)
             {
-                var sw = Stopwatch.StartNew();
-                var st = WaterNative.Step(_h, (float)debt, MaxSubstepsPerCall);
-                debt -= st.Simulated;
-                ratioSim += st.Simulated;
-                lock (_statsLock)
-                {
-                    _stats = st;
-                    _simTime += st.Simulated;
-                    _stepMs = sw.Elapsed.TotalMilliseconds / Math.Max(st.Substeps, 1);
-                }
+                StepTick();
+                debt -= TickSeconds;
+                ratioSim += TickSeconds;
+                Publish(all: false);
                 stepped = true;
+            }
+            else if (now >= publishAt)
+            {
+                // Paused or between ticks: still show queued changes (edits, fills) now and then.
+                Publish(all: false);
+                publishAt = now + 1.0 / 30.0;
             }
             ratioWindow += real;
             if (ratioWindow >= 1.0)
@@ -297,12 +326,7 @@ public sealed class WaterSim : IDisposable
                 lock (_statsLock) _ratio = running ? ratioSim / ratioWindow : 0;
                 ratioWindow = ratioSim = 0;
             }
-            if (now >= publishAt)
-            {
-                Publish(all: false);
-                publishAt = now + 1.0 / 30.0;
-            }
-            if (!stepped || debt < 0.01) Thread.Sleep(stepped ? 1 : 5);
+            if (!stepped || debt < TickSeconds) Thread.Sleep(running ? 1 : 5);
         }
     }
 
@@ -310,7 +334,8 @@ public sealed class WaterSim : IDisposable
     {
         lock (_snapLock)
         {
-            if (WaterNative.Read(_h, _snapshot, _tileChanged, all) <= 0) return;
+            if (WaterNative.Read(_h, _snapshot, _pollution, _tileChanged, all) <= 0) return;
+            _publishes++;
             int tilesPerPage = PageSize / TileSize;
             for (int tz = 0; tz < TilesZ; tz++)
                 for (int tx = 0; tx < TilesX; tx++)
@@ -333,7 +358,8 @@ public sealed class WaterSim : IDisposable
     /// <paramref name="anyWater"/> tells whether anything in it should be drawn, <paramref name="tileWater"/> which of its
     /// (<see cref="PageSize"/> / <see cref="TileSize"/>)² tiles.
     /// </summary>
-    public bool CopyPage(int px, int pz, Span<float> rgba, Span<bool> tileWater, out bool anyWater, bool force = false)
+    public bool CopyPage(int px, int pz, Span<float> rgba, Span<float> pollution, Span<bool> tileWater, out bool anyWater,
+        bool force = false)
     {
         anyWater = false;
         tileWater.Clear();
@@ -352,6 +378,7 @@ public sealed class WaterSim : IDisposable
                     int sx = Math.Min(x0 + x, Width - 1);
                     var src = _snapshot.AsSpan((sz * Width + sx) * 4, 4);
                     src.CopyTo(rgba.Slice((z * n + x) * 4, 4));
+                    pollution[z * n + x] = _pollution[sz * Width + sx];
                     if (src[1] < 0f) continue;
                     anyWater = true;
                     // A cell on a tile border belongs to both tiles' meshes.
@@ -369,6 +396,13 @@ public sealed class WaterSim : IDisposable
 
     /// <summary>Water surface at a local position, or null when dry.</summary>
     public float? SurfaceAt(float x, float z) => DepthAt(x, z) > 0.01f ? Bilinear(x, z, 0, clampZero: false) : null;
+
+    /// <summary>Pollutant concentration (kg/m³) at a local position (nearest cell; 0 when dry).</summary>
+    public float PollutionAt(float x, float z)
+    {
+        int cx = Math.Clamp((int)MathF.Round(x / CellSize), 0, Width - 1), cz = Math.Clamp((int)MathF.Round(z / CellSize), 0, Depth - 1);
+        lock (_snapLock) return _snapshot[(cz * Width + cx) * 4 + 1] > 0.01f ? _pollution[cz * Width + cx] : 0f;
+    }
 
     /// <summary>Water velocity (m/s, x and z) at a local position.</summary>
     public (float X, float Z) VelocityAt(float x, float z) => (Bilinear(x, z, 2, false), Bilinear(x, z, 3, false));
@@ -395,6 +429,12 @@ public sealed class WaterSim : IDisposable
 
     public WaterStats LastStats { get { lock (_statsLock) return _stats; } }
     public double SimTime { get { lock (_statsLock) return _simTime; } }
+    /// <summary>Cells that would have sent out more water than they held, over all ticks (the pipes are scaled, so 0).</summary>
+    public long ClampHits { get { lock (_statsLock) return _clampHits; } }
+    /// <summary>Ticks simulated so far.</summary>
+    public long Ticks { get { lock (_statsLock) return _ticks; } }
+    /// <summary>Counts snapshots published; the renderer starts a new blend when it changes.</summary>
+    public long Publishes { get { lock (_snapLock) return _publishes; } }
     /// <summary>Simulated seconds per real second over the last second (below <see cref="WaterSettings.Speed"/> when the CPU can't keep up).</summary>
     public double SimRatio { get { lock (_statsLock) return _ratio; } }
     /// <summary>Time per substep in the last step, in milliseconds.</summary>

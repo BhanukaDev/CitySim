@@ -32,10 +32,10 @@ public partial class ConfigPanel : PanelContainer
     private readonly Control[] _rotationRow;
     private readonly Control[] _sizeRow, _strengthRow;
     // Water tools.
-    private readonly Label _waterRadius = NewValueLabel(), _flowRate = NewValueLabel(), _waterDepth = NewValueLabel(),
+    private readonly Label _waterRadius = NewValueLabel(), _flowRate = NewValueLabel(), _pollution = NewValueLabel(), _waterDepth = NewValueLabel(),
         _targetLevel = NewValueLabel(), _maxFlow = NewValueLabel(), _seaLevel = NewValueLabel();
     private readonly CheckButton _snap = new() { Flat = true, FocusMode = FocusModeEnum.None, TooltipText = "Rivers placed near the map border snap onto it" };
-    private readonly Control[] _waterRadiusRow, _flowRateRow, _waterDepthRow, _targetLevelRow, _maxFlowRow, _seaLevelRow, _snapRow;
+    private readonly Control[] _waterRadiusRow, _flowRateRow, _pollutionRow, _waterDepthRow, _targetLevelRow, _maxFlowRow, _seaLevelRow, _snapRow;
 
     public ConfigPanel()
     {
@@ -97,6 +97,9 @@ public partial class ConfigPanel : PanelContainer
         _flowRateRow = AddRow(grid, "Flow Rate", Stepper(_flowRate,
             () => Tools(t => t.Water.FlowRate /= 1.25f),
             () => Tools(t => t.Water.FlowRate *= 1.25f)));
+        _pollutionRow = AddRow(grid, "Pollution", Stepper(_pollution,
+            () => Tools(t => t.Water.StepPollution(-1)),
+            () => Tools(t => t.Water.StepPollution(+1))));
         _waterDepthRow = AddRow(grid, "Depth", Stepper(_waterDepth,
             () => Tools(t => t.Water.Depth -= t.Water.Depth > 10f ? 5f : 1f),
             () => Tools(t => t.Water.Depth += t.Water.Depth >= 10f ? 5f : 1f)));
@@ -136,6 +139,7 @@ public partial class ConfigPanel : PanelContainer
         foreach (var c in _strengthRow) c.Visible = water is null;
         foreach (var c in _waterRadiusRow) c.Visible = water is not null and not WaterSourceKind.Sea;
         foreach (var c in _flowRateRow) c.Visible = water == WaterSourceKind.Stream;
+        foreach (var c in _pollutionRow) c.Visible = water == WaterSourceKind.Stream;
         foreach (var c in _waterDepthRow) c.Visible = water is WaterSourceKind.River or WaterSourceKind.Lake;
         foreach (var c in _targetLevelRow) c.Visible = water is WaterSourceKind.River or WaterSourceKind.Lake;
         foreach (var c in _maxFlowRow) c.Visible = water == WaterSourceKind.Lake;
@@ -144,6 +148,7 @@ public partial class ConfigPanel : PanelContainer
         // Shown as diameter, like the brush; the tool works in radius.
         _waterRadius.Text = $"{w.Radius * 2f:0} m";
         _flowRate.Text = $"{w.FlowRate:0.#} m³/s";
+        _pollution.Text = w.Pollution > 0f ? $"{w.Pollution:0.##} kg/s" : "Clean";
         _waterDepth.Text = $"{w.Depth:0.#} m";
         _targetLevel.Text = w.SelectedSource is { Kind: WaterSourceKind.River or WaterSourceKind.Lake } src && src.Kind == water
             ? $"{src.Level:0.0} m" : w.PickedLevel is { } picked ? $"{picked:0.0} m" : "Auto";

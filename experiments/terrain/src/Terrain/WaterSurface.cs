@@ -1,38 +1,49 @@
+using System;
 using Godot;
 using CitySim.WaterSystem;
 
 namespace CitySim.TerrainSystem;
 
 /// <summary>
-/// Draws the <see cref="WaterSim"/>'s water. Each <see cref="WaterSim.PageSize"/>² page of water cells has a data texture
-/// (surface, depth, velocity per cell; see <c>cs_water_read</c>) and a material; each of its tiles
-/// (<see cref="WaterSim.TileSize"/>² cells) is a grid mesh lifted to the water surface in the vertex shader, drawn only
-/// while the tile holds water. Only pages the sim changed are uploaded, at most <see cref="UploadHz"/> times a second.
-/// Far tiles use coarser grids (every 2nd, 4th or 8th cell).
+/// Draws the <see cref="WaterSim"/>'s water. Each <see cref="WaterSim.PageSize"/>² page of water cells has a material
+/// and, once it first holds water, two data textures (surface, depth, velocity per cell; see <c>cs_water_read</c>): the
+/// latest sim tick and the one before, which the shader blends between so the water moves smoothly although the sim
+/// ticks only 2–64 times a second; plus a pollutant texture. Each of its tiles (<see cref="WaterSim.TileSize"/>² cells)
+/// is a grid mesh lifted to the water surface in the vertex shader, drawn only while the tile holds water. Only pages
+/// the sim changed are uploaded, once per published tick.
+/// Near tiles have two vertices per cell (the shader samples the water bilinearly, so the surface is smoother than the
+/// sim grid); far tiles use coarser grids (every 2nd, 4th or 8th cell).
 /// </summary>
 public partial class WaterSurface : Node3D
 {
-    private const double UploadHz = 20;
-    private static readonly int[] LodSteps = [1, 2, 4, 8];
+    /// <summary>Grid spacing per LOD, in water cells.</summary>
+    private static readonly float[] LodSteps = [0.5f, 1f, 2f, 4f, 8f];
     /// <summary>Distance (in tile widths) beyond which each coarser grid is used.</summary>
-    private static readonly float[] LodDistances = [3f, 7f, 14f];
+    private static readonly float[] LodDistances = [1.5f, 3f, 7f, 14f];
 
     private sealed class Page
     {
-        public required Image Image;
-        public required ImageTexture Texture;
+        public required ShaderMaterial Material;
         public required MeshInstance3D?[] Tiles;
         public required int[] Lods;
+        /// <summary>The two data textures (null until the page first holds water); Current is the latest tick.</summary>
+        public ImageTexture?[] Data = new ImageTexture?[2];
+        public int Current;
+        /// <summary>True while the previous-tick slot shows the same data as the current one.</summary>
+        public bool Settled = true;
+        public ImageTexture? Pollution;
     }
 
     private WaterSim? _sim;
     private Page[] _pages = [];
     private ArrayMesh[] _meshes = [];
-    private float[] _scratch = [];
-    private byte[] _bytes = [];
+    private float[] _scratch = [], _pollutionScratch = [];
+    private byte[] _bytes = [], _pollutionBytes = [];
+    private Image? _image, _pollutionImage;
     private bool[] _tileWater = [];
     private int _tilesPerPage;
-    private double _uploadTimer;
+    private long _published = -1;
+    private double _sinceTick;
 
     public void Init(WaterSim sim, Material? material, HeightMap ground)
     {
@@ -41,11 +52,15 @@ public partial class WaterSurface : Node3D
         _tilesPerPage = WaterSim.PageSize / sim.TileSize;
         _scratch = new float[n * n * 4];
         _bytes = new byte[_scratch.Length * sizeof(float)];
+        _pollutionScratch = new float[n * n];
+        _pollutionBytes = new byte[_pollutionScratch.Length * sizeof(float)];
+        _image = Image.CreateEmpty(n, n, false, Image.Format.Rgbaf);
+        _pollutionImage = Image.CreateEmpty(n, n, false, Image.Format.Rf);
         _tileWater = new bool[_tilesPerPage * _tilesPerPage];
         var baseMaterial = material as ShaderMaterial ?? new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/water.gdshader") };
         float pageMetres = WaterSim.PageSize * sim.CellSize, tileMetres = sim.TileSize * sim.CellSize;
         _meshes = new ArrayMesh[LodSteps.Length];
-        for (int i = 0; i < LodSteps.Length; i++) _meshes[i] = GridMesh(sim.TileSize / LodSteps[i], LodSteps[i] * sim.CellSize);
+        for (int i = 0; i < LodSteps.Length; i++) _meshes[i] = GridMesh((int)(sim.TileSize / LodSteps[i]), LodSteps[i] * sim.CellSize);
 
         // Heights come from the texture, so the mesh's own bounds (flat at 0) would cull it wrongly.
         var (min, max) = ground.GetRange();
@@ -54,10 +69,8 @@ public partial class WaterSurface : Node3D
         for (int pz = 0; pz < sim.PagesZ; pz++)
             for (int px = 0; px < sim.PagesX; px++)
             {
-                var image = Image.CreateEmpty(n, n, false, Image.Format.Rgbaf);
-                var texture = ImageTexture.CreateFromImage(image);
                 var mat = (ShaderMaterial)baseMaterial.Duplicate();
-                mat.SetShaderParameter("water_data", texture);
+                mat.SetShaderParameter("blend", 1f);
                 mat.SetShaderParameter("cell_size", sim.CellSize);
                 mat.SetShaderParameter("map_size", new Vector2(ground.SizeX, ground.SizeZ));
                 var tiles = new MeshInstance3D?[_tilesPerPage * _tilesPerPage];
@@ -81,7 +94,7 @@ public partial class WaterSurface : Node3D
                     }
                 var lods = new int[tiles.Length];
                 System.Array.Fill(lods, -1);
-                _pages[pz * sim.PagesX + px] = new Page { Image = image, Texture = texture, Tiles = tiles, Lods = lods };
+                _pages[pz * sim.PagesX + px] = new Page { Material = mat, Tiles = tiles, Lods = lods };
             }
         Upload(force: true);
     }
@@ -89,30 +102,79 @@ public partial class WaterSurface : Node3D
     public override void _Process(double delta)
     {
         if (_sim is null) return;
-        if ((_uploadTimer += delta) >= 1.0 / UploadHz)
+        long published = _sim.Publishes;
+        if (published != _published)
         {
-            _uploadTimer = 0;
+            _published = published;
+            _sinceTick = 0;
             Upload(force: false);
         }
+        else _sinceTick += delta;
+        // Blend over one tick's worth of real time (the latest snapshot is one tick behind the sim, at most).
+        var settings = _sim.Settings;
+        double tickReal = WaterSim.TickSeconds / Math.Max(settings.Speed, 0.001);
+        float blend = settings.Paused ? 1f : (float)Math.Clamp(_sinceTick / tickReal, 0, 1);
+        foreach (var page in _pages)
+            if (!page.Settled)
+            {
+                page.Material.SetShaderParameter("blend", blend);
+                if (blend >= 1f) Settle(page);
+            }
         UpdateLods();
     }
 
     private void Upload(bool force)
     {
-        if (_sim is null) return;
+        if (_sim is null || _image is null || _pollutionImage is null) return;
         int n = WaterSim.PageSize + 1;
         for (int pz = 0; pz < _sim.PagesZ; pz++)
             for (int px = 0; px < _sim.PagesX; px++)
             {
                 var page = _pages[pz * _sim.PagesX + px];
-                if (!_sim.CopyPage(px, pz, _scratch, _tileWater, out bool wet, force)) continue;
+                if (!_sim.CopyPage(px, pz, _scratch, _pollutionScratch, _tileWater, out bool wet, force))
+                {
+                    // Unchanged this tick: it has nothing left to blend toward.
+                    if (!page.Settled) Settle(page);
+                    continue;
+                }
                 for (int i = 0; i < page.Tiles.Length; i++)
                     if (page.Tiles[i] is { } tile) tile.Visible = _tileWater[i];
-                if (!wet) continue;
+                if (!wet && page.Data[0] is null) continue;
                 System.Buffer.BlockCopy(_scratch, 0, _bytes, 0, _bytes.Length);
-                page.Image.SetData(n, n, false, Image.Format.Rgbaf, _bytes);
-                page.Texture.Update(page.Image);
+                _image.SetData(n, n, false, Image.Format.Rgbaf, _bytes);
+                System.Buffer.BlockCopy(_pollutionScratch, 0, _pollutionBytes, 0, _pollutionBytes.Length);
+                _pollutionImage.SetData(n, n, false, Image.Format.Rf, _pollutionBytes);
+                if (page.Data[0] is null)
+                {
+                    // First water on this page: both slots start with it.
+                    page.Data[0] = ImageTexture.CreateFromImage(_image);
+                    page.Data[1] = ImageTexture.CreateFromImage(_image);
+                    page.Pollution = ImageTexture.CreateFromImage(_pollutionImage);
+                    page.Material.SetShaderParameter("pollution", page.Pollution);
+                    page.Current = 0;
+                    Settle(page);
+                    continue;
+                }
+                page.Pollution!.Update(_pollutionImage);
+                // The new tick goes into the slot that isn't showing as current; the old current becomes previous.
+                int next = 1 - page.Current;
+                page.Data[next]!.Update(_image);
+                page.Material.SetShaderParameter("water_prev", page.Data[page.Current]);
+                page.Material.SetShaderParameter("water_data", page.Data[next]);
+                page.Material.SetShaderParameter("blend", 0f);
+                page.Current = next;
+                page.Settled = false;
             }
+    }
+
+    /// <summary>Points both slots at the latest data (the blend is done).</summary>
+    private static void Settle(Page page)
+    {
+        var current = page.Data[page.Current];
+        page.Material.SetShaderParameter("water_data", current);
+        page.Material.SetShaderParameter("water_prev", current);
+        page.Material.SetShaderParameter("blend", 1f);
+        page.Settled = true;
     }
 
     private void UpdateLods()

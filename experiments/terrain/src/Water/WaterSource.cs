@@ -9,10 +9,11 @@ public enum WaterSourceKind { Stream, River, Lake, Sea }
 
 /// <summary>
 /// A placed water source, in local map metres. <see cref="Level"/> is the target surface height (River, Lake, Sea);
-/// <see cref="FlowRate"/> is m³/s (Stream); <see cref="MaxFlow"/> caps how fast a Lake fills (m³/s). Engine-agnostic.
+/// <see cref="FlowRate"/> is m³/s (Stream); <see cref="MaxFlow"/> caps how fast a Lake fills (m³/s);
+/// <see cref="Pollution"/> is kg/s of pollutant a Stream adds with its water (a sewage outlet). Engine-agnostic.
 /// </summary>
 public sealed record WaterSource(int Id, WaterSourceKind Kind, float X, float Z, float Radius, float Level,
-    float FlowRate = 0f, float MaxFlow = 0f)
+    float FlowRate = 0f, float MaxFlow = 0f, float Pollution = 0f)
 {
     public static string Label(WaterSourceKind kind) => kind switch
     {
@@ -32,6 +33,7 @@ public sealed record WaterSource(int Id, WaterSourceKind Kind, float X, float Z,
             _ => WaterNative.SourceType.Sea,
         }),
         X = X, Z = Z, Radius = Radius, Rate = FlowRate, Level = Level, MaxRate = MaxFlow,
+        Pollution = Kind == WaterSourceKind.Stream ? Pollution : 0f,
     };
 }
 
@@ -44,6 +46,8 @@ public sealed record WaterSettings
     public float EvaporationMmPerMin { get; init; } = 0.5f;
     /// <summary>Water runs off the map at its edges (otherwise the edges are walls).</summary>
     public bool OpenEdges { get; init; } = true;
+    /// <summary>Pollutant half-life in simulated minutes (it breaks down and settles out); 0 = never.</summary>
+    public float PollutionHalfLifeMin { get; init; } = 30f;
     public bool Paused { get; init; }
 
     public static readonly float[] Speeds = [1f, 2f, 4f, 8f, 16f, 32f];

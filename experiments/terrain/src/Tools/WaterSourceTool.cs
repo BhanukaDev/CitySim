@@ -25,7 +25,7 @@ public sealed class WaterSourceTool
     {
         [WaterSourceKind.River] = 4f, [WaterSourceKind.Lake] = 3f,
     };
-    private float _flowRate = 10f, _maxFlow = 100f, _seaLevel = float.NaN;
+    private float _flowRate = 10f, _pollution, _maxFlow = 100f, _seaLevel = float.NaN;
     private float? _pickedLevel;
     private bool _snap = true;
     // Dragging: the source's position when the press landed, and the cursor's offset from its centre.
@@ -82,6 +82,16 @@ public sealed class WaterSourceTool
         get => _flowRate;
         set { _flowRate = Mathf.Clamp(value, 0.1f, 5000f); Edit(s => s with { FlowRate = _flowRate }); }
     }
+
+    /// <summary>Stream: kg/s of pollutant it adds (a sewage outlet); 0 = clean.</summary>
+    public float Pollution
+    {
+        get => _pollution;
+        set { _pollution = value < 0.05f ? 0f : Mathf.Clamp(value, 0.1f, 1000f); Edit(s => s with { Pollution = _pollution }); }
+    }
+
+    /// <summary>Steps <see cref="Pollution"/> through 0, 0.1, 0.2, 0.4 … kg/s.</summary>
+    public void StepPollution(int dir) => Pollution = dir > 0 ? (_pollution <= 0f ? 0.1f : _pollution * 2f) : _pollution / 2f;
 
     /// <summary>Lake: most m³/s it fills with.</summary>
     public float MaxFlow
@@ -208,7 +218,8 @@ public sealed class WaterSourceTool
             _ => _pickedLevel ?? GroundAt(p.X, p.Y) + Depth,
         };
         var s = new WaterSource(sim.NextSourceId(), Kind, p.X, p.Y, Kind == WaterSourceKind.Sea ? 0f : Radius, level,
-            Kind == WaterSourceKind.Stream ? _flowRate : 0f, Kind == WaterSourceKind.Lake ? _maxFlow : 0f);
+            Kind == WaterSourceKind.Stream ? _flowRate : 0f, Kind == WaterSourceKind.Lake ? _maxFlow : 0f,
+            Kind == WaterSourceKind.Stream ? _pollution : 0f);
         Commit(sim.Sources.Append(s).ToArray());
         Selected = s.Id;
         _c.NotifyChanged();
@@ -240,7 +251,11 @@ public sealed class WaterSourceTool
         // Show its values in the settings, and switch to its tool.
         Kind = s.Kind;
         if (s.Kind != WaterSourceKind.Sea) _radius[s.Kind] = s.Radius;
-        if (s.Kind == WaterSourceKind.Stream) _flowRate = s.FlowRate;
+        if (s.Kind == WaterSourceKind.Stream)
+        {
+            _flowRate = s.FlowRate;
+            _pollution = s.Pollution;
+        }
         if (s.Kind == WaterSourceKind.Lake) _maxFlow = s.MaxFlow;
         if (s.Kind is WaterSourceKind.River or WaterSourceKind.Lake)
         {

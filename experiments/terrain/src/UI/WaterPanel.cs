@@ -141,7 +141,9 @@ public partial class WaterPanel : PanelContainer
             $"Water: {st.Volume / 1e6:0.###} million m³ over {st.WetCells * cellArea / 1e6:0.###} km²\n" +
             $"Deepest {st.MaxDepth:0.0} m · fastest {st.MaxSpeed:0.0} m/s\n" +
             $"Running at × {sim.SimRatio:0.#} (sim time {TimeSpan.FromSeconds(sim.SimTime):hh\\:mm\\:ss})\n" +
-            $"{sim.Width}² cells of {sim.CellSize:0.#} m · {st.ActiveTiles} active tiles · {sim.StepMs:0.00} ms per substep";
+            (st.Pollution > 0.001 ? $"Pollutant: {st.Pollution:0.#} kg\n" : "") +
+            $"{sim.Width}² cells of {sim.CellSize:0.#} m · {st.ActiveTiles} active, {st.SleepingTiles} sleeping tiles · " +
+            $"{sim.StepMs:0.00} ms per substep, {st.Substeps} per tick";
         _play.Text = sim.Settings.Paused ? "▶ Run" : "❚❚ Pause";
     }
 

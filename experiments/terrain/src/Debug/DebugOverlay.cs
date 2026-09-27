@@ -20,7 +20,8 @@ namespace CitySim.Debug;
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
 /// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
-/// --show-water (Water panel), --hide-water (don't draw it), --water-speed=n, --water-run=seconds (simulate that long right away), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
+/// --show-water (Water panel), --hide-water (don't draw it), --water-speed=n, --water-run=seconds (simulate that long right away),
+/// --pollute=kg/s (the --demo-water stream carries pollutant), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
@@ -28,6 +29,7 @@ namespace CitySim.Debug;
 /// </summary>
 public partial class DebugOverlay : CanvasLayer
 {
+    private float _demoPollution;
     [Export] public CityCamera? CityCamera { get; set; }
     [Export] public Terrain? Terrain { get; set; }
     [Export] public TerrainToolController? Tools { get; set; }
@@ -90,6 +92,9 @@ public partial class DebugOverlay : CanvasLayer
             else if (arg.StartsWith("--water-speed=") && float.TryParse(arg["--water-speed=".Length..],
                          System.Globalization.CultureInfo.InvariantCulture, out float speed))
                 Callable.From(() => { if (Terrain?.Water is { } w) w.Settings = w.Settings with { Speed = speed }; }).CallDeferred();
+            else if (arg.StartsWith("--pollute=") && float.TryParse(arg["--pollute=".Length..],
+                         System.Globalization.CultureInfo.InvariantCulture, out float pollute))
+                _demoPollution = pollute;
             else if (arg.StartsWith("--water-run=") && double.TryParse(arg["--water-run=".Length..],
                          System.Globalization.CultureInfo.InvariantCulture, out double seconds))
                 Callable.From(() => Terrain?.Water?.RunFor(seconds)).CallDeferred();
@@ -177,7 +182,7 @@ public partial class DebugOverlay : CanvasLayer
 
         float cs = map.CellSize;
         water.SetSources([
-            new WaterSource(1, WaterSourceKind.Stream, high.X * cs, high.Z * cs, 20f, 0f, FlowRate: 40f),
+            new WaterSource(1, WaterSourceKind.Stream, high.X * cs, high.Z * cs, 20f, 0f, FlowRate: 40f, Pollution: _demoPollution),
             new WaterSource(2, WaterSourceKind.River, 0f, border.Z * cs, 60f, map[0, border.Z] + 4f),
             new WaterSource(3, WaterSourceKind.Lake, low.X * cs, low.Z * cs, 60f, map[low.X, low.Z] + 6f, MaxFlow: 200f),
         ]);

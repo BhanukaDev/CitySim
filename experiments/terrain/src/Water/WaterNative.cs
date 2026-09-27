@@ -15,6 +15,12 @@ public struct WaterStats
     public int WetCells;
     public int ActiveTiles, Substeps;
     public float Simulated;
+    /// <summary>Wet tiles not stepped because their water has settled.</summary>
+    public int SleepingTiles;
+    /// <summary>Cells whose outflow would have taken more water than they held (should stay 0).</summary>
+    public int ClampHits;
+    /// <summary>kg of pollutant in the water.</summary>
+    public double Pollution;
 }
 
 /// <summary>
@@ -29,7 +35,7 @@ internal static unsafe class WaterNative
     public struct Source
     {
         public int Type;
-        public float X, Z, Radius, Rate, Level, MaxRate;
+        public float X, Z, Radius, Rate, Level, MaxRate, Pollution;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -37,7 +43,7 @@ internal static unsafe class WaterNative
     {
         public float Gravity, Damping, Evaporation, MaxSpeed, LevelRate;
         public int OpenEdges;
-        public float Manning;
+        public float Manning, PollutionDecay;
     }
 
     private static readonly object Gate = new();
@@ -48,10 +54,12 @@ internal static unsafe class WaterNative
     private static delegate* unmanaged[Cdecl]<IntPtr, Params*, void> _setParams;
     private static delegate* unmanaged[Cdecl]<IntPtr, Source*, int, int> _setSources;
     private static delegate* unmanaged[Cdecl]<IntPtr, float, int, WaterStats*, int> _step;
-    private static delegate* unmanaged[Cdecl]<IntPtr, float*, byte*, int, int> _read;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float*, float*, byte*, int, int> _read;
     private static delegate* unmanaged[Cdecl]<int> _tileSize;
     private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _getDepth;
     private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _setDepth;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _getPollution;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _setPollution;
     private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _raiseTo;
     private static delegate* unmanaged[Cdecl]<IntPtr, void> _fillSources;
 
@@ -78,10 +86,12 @@ internal static unsafe class WaterNative
             _setParams = (delegate* unmanaged[Cdecl]<IntPtr, Params*, void>)F("cs_water_set_params");
             _setSources = (delegate* unmanaged[Cdecl]<IntPtr, Source*, int, int>)F("cs_water_set_sources");
             _step = (delegate* unmanaged[Cdecl]<IntPtr, float, int, WaterStats*, int>)F("cs_water_step");
-            _read = (delegate* unmanaged[Cdecl]<IntPtr, float*, byte*, int, int>)F("cs_water_read");
+            _read = (delegate* unmanaged[Cdecl]<IntPtr, float*, float*, byte*, int, int>)F("cs_water_read");
             _tileSize = (delegate* unmanaged[Cdecl]<int>)F("cs_water_tile_size");
             _getDepth = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_get_depth");
             _setDepth = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_set_depth");
+            _getPollution = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_get_pollution");
+            _setPollution = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_set_pollution");
             _raiseTo = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_raise_to");
             _fillSources = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("cs_water_fill_sources");
             _loaded = true;
@@ -125,15 +135,18 @@ internal static unsafe class WaterNative
         return s;
     }
 
-    public static int Read(IntPtr h, Span<float> rgba, Span<byte> tileChanged, bool all)
+    public static int Read(IntPtr h, Span<float> rgba, Span<float> pollution, Span<byte> tileChanged, bool all)
     {
         fixed (float* o = rgba)
+        fixed (float* e = pollution)
         fixed (byte* t = tileChanged)
-            return _read(h, o, t, all ? 1 : 0);
+            return _read(h, o, pollution.IsEmpty ? null : e, t, all ? 1 : 0);
     }
 
     public static void GetDepth(IntPtr h, Span<float> depth) { fixed (float* p = depth) _getDepth(h, p); }
     public static void SetDepth(IntPtr h, ReadOnlySpan<float> depth) { fixed (float* p = depth) _setDepth(h, depth.IsEmpty ? null : p); }
+    public static void GetPollution(IntPtr h, Span<float> mass) { fixed (float* p = mass) _getPollution(h, p); }
+    public static void SetPollution(IntPtr h, ReadOnlySpan<float> mass) { fixed (float* p = mass) _setPollution(h, mass.IsEmpty ? null : p); }
     public static void RaiseTo(IntPtr h, ReadOnlySpan<float> surface) { fixed (float* p = surface) _raiseTo(h, p); }
     public static void FillSources(IntPtr h) => _fillSources(h);
 }

@@ -75,6 +75,7 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once),
+#   --pollute=kg/s (the --demo-water stream carries pollutant),
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
 #   --size=cells (8192 = 28.7 km)
@@ -472,7 +473,7 @@ Authoring guide: `terrain_sdk/README.md`.
 - Not done / next (**M3.6**): loading themes from mod `.pck` files in `user://mods`, a modder template project, frozen lake
   water (lakes still use one water shader for every theme), a theme preview button that launches the game on the theme.
 
-### 🔶 M5: Water (M5.0/M5.1 lakes + masks, M5.2 simulation done; M5.3 next)
+### 🔶 M5: Water (M5.0/M5.1 lakes + masks, M5.2 simulation, M5.4 look + sim performance done; M5.3 next)
 - Sea level: a Sea source (M5.2). Buildable = above water: `Terrain.IsUnderwater`/`GetWaterDepth` (M5.2).
 
 ### 🔶 M5.2: Water simulation + Water tab (implemented, waiting for the user to test)
@@ -515,6 +516,54 @@ The static M5.0 lakes (flat quads over every hollow) are gone: water is simulate
 - Not done / next: LOD seams between tiles of different steps (small cracks possible), `ReplaceHeights` (generator,
   erosion apply) keeps the old water (use Clear + Fill Hollows), shore sand still follows the hollows not the simulated
   water, source edits of values push one undo step per click, Windows/Linux builds, SIMD for the step.
+
+### 🔶 M5.4: Stylized water, fixed ticks, sleeping tiles, pollution (implemented, waiting for the user to test)
+The user found the water too light, shiny and see-through: shallow eroded streams looked like the ground. The look is now
+stylized (Ghibli-like) and the sim got the performance items from the user's list.
+- **Look** (`shaders/water.gdshader`, material `materials/water.tres`, tuned in the Godot inspector):
+  - Colour from absorption, not alpha: the ground behind (screen texture, refracted by the ripples) fades into
+    `water_tint` (teal-green) then `deep_color` (1 − e^(−depth × absorption), absorption 2.5/m: 30 cm is half tinted, 1 m
+    92 %). `min_tint` 0.4 for any drawn water, soft toon `color_bands`. Depth = max(screen depth, sim depth), so a stream
+    over sand is tinted to its banks.
+  - Low sky reflection (`reflection` 0.22), toon-lit, crisp sun sparkles only on sparse spots (`glint_density`).
+  - Voronoi caustics on the bed (0.05–3 m deep, near the camera).
+  - Foam: a crisp shore band plus lines pulsing out, only on real water bodies (sim depth > ~0.3 m, not slope films);
+    rapids foam streaked along the flow; breakers rolling to the shore over calm shallows; sparse wind-aligned whitecaps
+    on deep water. Foam glows a little so it stays white.
+  - Pollution tints the water murky brown and hides the bed and caustics (`pollution_color`, `pollution_full` 0.05 kg/m³).
+- **Finer than the sim grid**: near tiles have 2 vertices per cell; the surface, depth and flow are sampled bilinearly
+  (ignoring hidden cells), and pixels are cut where the interpolated shoreline crosses, so shorelines are round, not stair-stepped.
+  Ripples are a scrolling `NoiseTexture2D` normal map dragged along the sim velocity (two-phase flow map).
+- **Fixed ticks** (`WaterSim.TickSeconds` = 1 s): the worker steps whole ticks (Speed × 1 tick/s: ×8 = 8 Hz) and drops whole
+  ticks when the CPU can't keep up. Within a tick the CFL substeps are split evenly. Queued edits land between ticks. After
+  each tick a snapshot is published; `WaterSurface` keeps the previous and latest tick per page (textures made lazily when
+  a page first gets water) and blends between them, so the water moves smoothly. 0.5 s ticks were tried: rounding up to
+  whole substeps cost ~50 % more substeps; 1 s costs ~14 %.
+- **Sleeping tiles** (`native/water/`): after 4 calm ticks (depth change < 0.5 mm per tick, no cell carrying more than
+  0.002 m²/s) a 64² tile sleeps: flows zeroed, not stepped. Stepped = awake + stream tiles + one ring; pipes from a stepped
+  tile into one that isn't are closed, so no water is lost. Wakes on ground edits, source changes, fills, or when it's in the
+  ring and changes. Evaporation and decay are caught up on waking (or every 60 s). The first criterion was speed < 2 cm/s,
+  but films trickling down slopes never got that slow; depth × speed lets them sleep while steady rivers stay awake.
+  The CFL limit only counts stepped tiles, so a deep sleeping lake no longer shortens a river's substeps.
+- **Determinism**: a run depends only on the state, the tick and queued changes: same hash twice and on 1 vs many threads
+  (`--demo-water`). `-ffp-contract=off` so FMA fusion can't differ between arm64 and x86_64 builds. Outflow was already
+  clamped (a cell's pipes are scaled to what it holds); `ClampHits` counts violations: 0 in every check.
+- **Pollution**: pollutant mass per cell, carried by the same pipe flows (each pipe at its cell's concentration), so mass is
+  conserved; `PollutionHalfLifeMin` (default 30) decays it; lost when a cell dries or leaves the map. Streams have a
+  Pollution rate (kg/s; Stream tool row "Pollution"). Skipped entirely while there's none. `Terrain.GetWaterPollution`.
+  Water panel shows pollutant kg and active/sleeping tiles.
+- **Map file**: water section v2 (the map file stays v4): half-life setting, pollution per source, pollutant grid (zlib'd f32
+  tiles). Section v1 still loads.
+- **Narrow water** (measured, `--demo-water`): a 7 m wide, 1.5 m deep channel keeps all its water on 3.5 m cells but loses
+  7.6 % over the banks on 14 m cells (the 28.7 km map); 14 m wide channels are fine on both. Mitigated in rendering only;
+  a finer grid is the follow-up below.
+- Measured: filled hollows on the default map sleep entirely (74 tiles, 0 stepped, 0 ms). Demo scene (40 m³/s mountain
+  stream, border river, lake source) ~94 stepped tiles, 1.7 ms/substep. 28.7 km map, same demo: 39 stepped tiles at
+  0.7 ms/substep on the 14 m grid. Fully wet worst case (nothing sleeps): ~8 % slower per substep than M5.2 (6.6 → 7.1 ms at
+  1025², standalone bench). Screenshot FPS at close lake/stream views: 38–39 → 32–34 (the new shader); overview 38 → 37.
+- Not done / next: a finer water grid for narrow streams on big maps (sparse 64² tiles allocated only where water goes,
+  so 7 m or 3.5 m fits in memory); per-theme water materials (winter: icy water); pollution diffusion and ground deposits;
+  the shader's cost at close range (FPS above) if it matters on target hardware.
 
 ### ⬜ M5.3: Water events and structures (next)
 - Waterfalls: curtain mesh + mist where flux crosses a big drop; foam already appears on steep/fast water.
@@ -676,6 +725,10 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
   map files store 16-bit heights, like CS2 and heightmap exports.
 - M5.1: ground texturing by water is **derived from the current heights** (flow routing + stream power), not recorded from the
   erosion run, so it follows sculpting, needs no file/undo changes and works on un-eroded maps. Stored in Terrain3D's colour map.
+- M5.4: water ticks at a **fixed 1 s of game time** (user's list: fixed timestep, interpolate for rendering, determinism);
+  Speed changes ticks per second, never the tick. Calm tiles **sleep** (discharge-based, not speed-based). Pollution rides the
+  pipe flows (mass-conserving) rather than being advected semi-Lagrangian. Narrow water: measure + mitigate in rendering
+  (user's choice); the finer grid is a later milestone. Water look lives in a Godot material (`materials/water.tres`).
 - M5.2: water is **simulated** (virtual pipes, C++ on the CPU, user's choice over a GPU compute shader: instant queries,
   easier dams/gameplay). The static lakes were replaced (user's choice); Fill Hollows seeds the sim from the Priority-Flood
   levels. Sources follow the CS2 Water Features mod (Stream, River, Lake, Sea). Core first (M5.2), events/structures in M5.3.

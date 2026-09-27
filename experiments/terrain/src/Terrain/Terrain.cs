@@ -306,7 +306,7 @@ public partial class Terrain : Node3D
 
     /// <summary>The water to save with the map, or null when there's no simulation.</summary>
     public WaterData? SaveWater() => Water is { } w
-        ? new WaterData(w.Settings, w.Sources, w.Width, w.Depth, w.ReadDepth())
+        ? new WaterData(w.Settings, w.Sources, w.Width, w.Depth, w.ReadDepth(), w.ReadPollution())
         : null;
 
     private void DisposeWater()
@@ -337,7 +337,11 @@ public partial class Terrain : Node3D
         {
             Water.Settings = saved.Settings;
             Water.SetSources(saved.Sources);
-            if (saved.DepthGrid is { } grid && saved.Width == Water.Width && saved.Depth == Water.Depth) Water.LoadDepth(grid);
+            if (saved.DepthGrid is { } grid && saved.Width == Water.Width && saved.Depth == Water.Depth)
+            {
+                Water.LoadDepth(grid);
+                if (saved.PollutionGrid is { } pollution) Water.LoadPollution(pollution);
+            }
             else _fillOnLakes = true;
         }
         else
@@ -513,6 +517,14 @@ public partial class Terrain : Node3D
         if (Water is null) return null;
         var o = GlobalPosition;
         return Water.SurfaceAt(worldX - o.X, worldZ - o.Z) + o.Y;
+    }
+
+    /// <summary>Pollutant concentration (kg/m³) in the water at a world position; zero on dry ground.</summary>
+    public float GetWaterPollution(float worldX, float worldZ)
+    {
+        if (Water is null) return 0f;
+        var o = GlobalPosition;
+        return Water.PollutionAt(worldX - o.X, worldZ - o.Z);
     }
 
     /// <summary>Water velocity (m/s) at a world position: direction and speed of the flow. Zero on dry ground.</summary>
