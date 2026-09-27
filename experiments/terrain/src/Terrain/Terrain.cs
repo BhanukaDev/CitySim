@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using Godot;
 using CitySim.App;
@@ -7,7 +6,7 @@ using CitySim.TerrainSystem.Generation;
 namespace CitySim.TerrainSystem;
 
 /// <summary>
-/// Owns the heightmap and the chunk meshes built from it, and answers terrain queries
+/// Owns the heightmap and its render copy in Terrain3D (<see cref="Terrain3DBridge"/>), and answers terrain queries
 /// (height, normal, slope, bounds) for other systems such as the camera, roads and buildings.
 /// </summary>
 [Tool]
@@ -20,7 +19,6 @@ public partial class Terrain : Node3D
     [Export(PropertyHint.Range, "16,4096,16")] public int CellsX { get; set; } = 1024;
     [Export(PropertyHint.Range, "16,4096,16")] public int CellsZ { get; set; } = 1024;
     [Export(PropertyHint.Range, "0.5,16,0.5,suffix:m")] public float CellSize { get; set; } = DefaultCellSize;
-    [Export(PropertyHint.Range, "8,256,8")] public int ChunkCells { get; set; } = 64;
 
     [ExportGroup("Generation")]
     [Export] public int Seed { get; set; } = 1337;
@@ -33,21 +31,22 @@ public partial class Terrain : Node3D
     [Export(PropertyHint.Range, "0,8")] public int SmoothPasses { get; set; } = 2;
 
     [ExportGroup("Rendering")]
+    /// <summary>
+    /// Holds the terrain shader (a Terrain3D shader override) and its tuned uniforms. Terrain3D draws with its own
+    /// material, so these are copied onto it; runtime changes (brush, grid, ...) go straight to Terrain3D.
+    /// </summary>
     [Export] public Material? Material { get; set; }
+    /// <summary>Fog-only material for the ring around the map; gets the terrain's edge fog settings.</summary>
+    [Export] public Material? SkirtMaterial { get; set; }
 
     [ExportToolButton("Regenerate")]
     public Callable RegenerateButton => Callable.From(Generate);
 
-    private readonly Dictionary<Vector2I, TerrainChunk> _chunks = new();
-    private readonly HashSet<Vector2I> _dirty = new();
+    private Terrain3DBridge? _render;
     private TerrainSkirt? _skirt;
     private bool _skirtDirty;
-
-    // Painted layer weights, uploaded to the shader as two RGBA8 textures (layers 0-3 and 4-7).
-    private byte[] _splatBytes0 = [], _splatBytes1 = [];
-    private Image? _splatImage0, _splatImage1;
-    private ImageTexture? _splatTex0, _splatTex1;
-    private VertexRect _splatDirty = VertexRect.Empty;
+    private VertexRect _heightDirty = VertexRect.Empty, _splatDirty = VertexRect.Empty;
+    private double _paramCopyTimer;
 
     public HeightMap? Map { get; private set; }
 
@@ -59,9 +58,9 @@ public partial class Terrain : Node3D
         ? new Rect2()
         : new Rect2(GlobalPosition.X, GlobalPosition.Z, Map.SizeX, Map.SizeZ);
 
-    /// <summary>Time spent rebuilding dirty chunks in the last frame that had edits.</summary>
-    public double LastRebuildMs { get; private set; }
-    public int LastRebuildChunks { get; private set; }
+    /// <summary>Time spent pushing edits to Terrain3D in the last frame that had edits.</summary>
+    public double LastPushMs { get; private set; }
+    public int LastPushRegions { get; private set; }
 
     public override void _Ready()
     {
@@ -126,17 +125,41 @@ public partial class Terrain : Node3D
 
     public override void _Process(double delta)
     {
-        UploadSplat();
+        if (_render is null) return;
+        _render.FollowCamera(GetViewport().GetCamera3D());
+        // In the editor, pick up uniforms tuned in the inspector.
+        if (Engine.IsEditorHint() && (_paramCopyTimer += delta) > 0.5)
+        {
+            _paramCopyTimer = 0;
+            CopyMaterialParams();
+        }
         if (_skirtDirty)
         {
             _skirtDirty = false;
             _skirt?.Rebuild();
         }
-        if (_dirty.Count == 0) return;
+        PushDirty();
+    }
+
+    /// <summary>Copies this frame's edits to Terrain3D.</summary>
+    public void PushDirty()
+    {
+        if (_render is null || Map is null || Splat is null || (_heightDirty.IsEmpty && _splatDirty.IsEmpty)) return;
         var sw = Stopwatch.StartNew();
-        LastRebuildChunks = _dirty.Count;
-        RebuildDirty();
-        LastRebuildMs = sw.Elapsed.TotalMilliseconds;
+        int regions = 0;
+        if (!_heightDirty.IsEmpty)
+        {
+            _render.PushHeights(Map, _heightDirty);
+            regions = _render.LastPushRegions;
+        }
+        if (!_splatDirty.IsEmpty)
+        {
+            _render.PushControl(Splat, _splatDirty);
+            regions = System.Math.Max(regions, _render.LastPushRegions);
+        }
+        _heightDirty = _splatDirty = VertexRect.Empty;
+        LastPushRegions = regions;
+        LastPushMs = sw.Elapsed.TotalMilliseconds;
     }
 
     /// <summary>Generates a new heightmap from the Size and Generation exports.</summary>
@@ -170,11 +193,13 @@ public partial class Terrain : Node3D
         Map.Invalidate();
         Settings = settings;
         MarkDirty(0, 0, Map.Width - 1, Map.Depth - 1);
+        PushDirty();
+        _render?.RecalcHeightRange();
         UpdateMaterialRange();
     }
 
     /// <summary>
-    /// Replaces the whole map (heights and, optionally, painted layers) and rebuilds every chunk.
+    /// Replaces the whole map (heights and, optionally, painted layers) and copies it into a new Terrain3D.
     /// Tools notice the new <see cref="Map"/> and drop their undo history.
     /// </summary>
     public void SetMap(HeightMap map, SplatMap? splat = null)
@@ -183,46 +208,39 @@ public partial class Terrain : Node3D
             throw new System.ArgumentException("Splat map size doesn't match the heightmap.", nameof(splat));
         var sw = Stopwatch.StartNew();
 
-        // Free every existing chunk, including ones left over from an editor script reload.
+        if (Material is not ShaderMaterial { Shader: { } shader })
+        {
+            GD.PushError("Terrain: Material must be a ShaderMaterial with the terrain shader.");
+            return;
+        }
+        if (!GlobalPosition.IsZeroApprox())
+            GD.PushWarning("Terrain: Terrain3D draws at the world origin; move the Terrain node to (0, 0, 0).");
+
+        // Free the old render copy and skirt, including ones left over from an editor script reload.
+        _render?.Free();
+        _render = null;
         foreach (var child in GetChildren())
-            if (child is TerrainChunk or TerrainSkirt)
+            if (child is TerrainSkirt)
                 child.Free();
-        _chunks.Clear();
-        _dirty.Clear();
+        _heightDirty = _splatDirty = VertexRect.Empty;
 
         Map = map;
         CellsX = map.Width - 1;
         CellsZ = map.Depth - 1;
         CellSize = map.CellSize;
         Splat = splat ?? new SplatMap(map.Width, map.Depth, map.CellSize);
-        CreateSplatTextures();
-        if (splat is not null) _splatDirty = Splat.All;
+        _render = Terrain3DBridge.Create(this, Map, Splat, shader);
+        CopyMaterialParams();
         UpdateMaterialRange();
 
-        int chunksX = (CellsX + ChunkCells - 1) / ChunkCells;
-        int chunksZ = (CellsZ + ChunkCells - 1) / ChunkCells;
-        for (int cz = 0; cz < chunksZ; cz++)
-        {
-            for (int cx = 0; cx < chunksX; cx++)
-            {
-                var coord = new Vector2I(cx, cz);
-                var chunk = new TerrainChunk();
-                chunk.Init(Map, coord, ChunkCells);
-                chunk.MaterialOverride = Material;
-                AddChild(chunk);
-                chunk.Rebuild();
-                _chunks[coord] = chunk;
-            }
-        }
-
         _skirt = new TerrainSkirt();
-        _skirt.Init(Map);
-        _skirt.MaterialOverride = Material;
+        _skirt.Init(Map, _render.RenderedX - 1, _render.RenderedZ - 1);
+        _skirt.MaterialOverride = SkirtMaterial;
         AddChild(_skirt);
         _skirt.Rebuild();
         _skirtDirty = false;
 
-        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, {_chunks.Count} chunks, built in {sw.ElapsedMilliseconds} ms");
+        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms");
     }
 
     // --- Queries (world space) ---
@@ -313,7 +331,7 @@ public partial class Terrain : Node3D
 
     // --- Editing hooks ---
 
-    /// <summary>Marks the chunks touching a vertex rectangle dirty. They're rebuilt at the end of the frame.</summary>
+    /// <summary>Marks heights in a vertex rectangle as edited. They're pushed to Terrain3D at the end of the frame.</summary>
     public void MarkDirty(VertexRect r)
     {
         if (!r.IsEmpty) MarkDirty(r.MinX, r.MinZ, r.MaxX, r.MaxZ);
@@ -328,112 +346,71 @@ public partial class Terrain : Node3D
     /// </summary>
     public void SetBrush(Vector3 worldPos, float radius, bool visible, Texture2D? mask = null, float angle = 0f, bool showAngle = false)
     {
-        if (Material is not ShaderMaterial sm) return;
-        sm.SetShaderParameter("brush_visible", visible);
-        sm.SetShaderParameter("brush_pos", worldPos);
-        sm.SetShaderParameter("brush_radius", radius);
-        sm.SetShaderParameter("brush_use_mask", mask is not null);
-        if (mask is not null) sm.SetShaderParameter("brush_mask", mask);
-        sm.SetShaderParameter("brush_angle", angle);
-        sm.SetShaderParameter("brush_show_angle", showAngle);
+        if (_render is not { } r) return;
+        r.SetParam("brush_visible", visible);
+        r.SetParam("brush_pos", worldPos);
+        r.SetParam("brush_radius", radius);
+        r.SetParam("brush_use_mask", mask is not null);
+        if (mask is not null) r.SetParam("brush_mask", mask);
+        r.SetParam("brush_angle", angle);
+        r.SetParam("brush_show_angle", showAngle);
     }
 
-    /// <summary>Marks painted splat weights in a vertex rectangle for upload at the end of the frame.</summary>
+    /// <summary>Marks painted layers in a vertex rectangle for upload at the end of the frame.</summary>
     public void MarkSplatDirty(VertexRect r) => _splatDirty = _splatDirty.Union(r);
 
     /// <summary>Toggles the placement grid overlay.</summary>
     public void SetGrid(bool visible)
     {
-        if (Material is ShaderMaterial sm) sm.SetShaderParameter("show_grid", visible);
+        _render?.SetParam("show_grid", visible);
     }
 
     /// <summary>Toggles height contour lines, <paramref name="interval"/> metres apart.</summary>
     public void SetContours(bool visible, float interval)
     {
-        if (Material is not ShaderMaterial sm) return;
-        sm.SetShaderParameter("show_contours", visible);
-        sm.SetShaderParameter("contour_interval", interval);
+        _render?.SetParam("show_contours", visible);
+        _render?.SetParam("contour_interval", interval);
     }
 
     /// <summary>Shows a marker at the slope tool's start point, with a guide line to the brush.</summary>
     public void SetAnchor(Vector3? worldPos)
     {
-        if (Material is not ShaderMaterial sm) return;
-        sm.SetShaderParameter("anchor_visible", worldPos.HasValue);
-        if (worldPos.HasValue) sm.SetShaderParameter("anchor_pos", worldPos.Value);
+        if (_render is not { } r) return;
+        r.SetParam("anchor_visible", worldPos.HasValue);
+        if (worldPos.HasValue) r.SetParam("anchor_pos", worldPos.Value);
     }
 
-    /// <summary>Marks every chunk touching the given inclusive vertex range as needing a rebuild.</summary>
+    /// <summary>Marks heights in the given inclusive vertex range as edited.</summary>
     public void MarkDirty(int minX, int minZ, int maxX, int maxZ)
     {
         // The skirt follows the border heights, so edits touching the border move it too.
-        if (Map is not null && (minX <= 0 || minZ <= 0 || maxX >= Map.Width - 1 || maxZ >= Map.Depth - 1))
+        if (_render is not null && (minX <= 0 || minZ <= 0 || maxX >= _render.RenderedX - 1 || maxZ >= _render.RenderedZ - 1))
             _skirtDirty = true;
-        // Normals use neighbouring heights, so widen by one vertex.
-        int cx0 = Mathf.Max(0, (minX - 1) / ChunkCells);
-        int cz0 = Mathf.Max(0, (minZ - 1) / ChunkCells);
-        int cx1 = (maxX + 1) / ChunkCells;
-        int cz1 = (maxZ + 1) / ChunkCells;
-        for (int cz = cz0; cz <= cz1; cz++)
-            for (int cx = cx0; cx <= cx1; cx++)
-            {
-                var coord = new Vector2I(cx, cz);
-                if (_chunks.ContainsKey(coord)) _dirty.Add(coord);
-                // A vertex on a chunk edge is shared with the previous chunk.
-                var prev = new Vector2I(cx - 1, cz);
-                if (cx > 0 && _chunks.ContainsKey(prev)) _dirty.Add(prev);
-                prev = new Vector2I(cx, cz - 1);
-                if (cz > 0 && _chunks.ContainsKey(prev)) _dirty.Add(prev);
-            }
+        _heightDirty = _heightDirty.Union(new VertexRect(minX, minZ, maxX, maxZ));
     }
 
-    public void RebuildDirty()
+    /// <summary>Copies the uniforms tuned on <see cref="Material"/> to Terrain3D's material and the skirt.</summary>
+    private void CopyMaterialParams()
     {
-        foreach (var coord in _dirty)
-            _chunks[coord].Rebuild();
-        _dirty.Clear();
-    }
-
-    private void CreateSplatTextures()
-    {
-        if (Splat is null) return;
-        int n = Splat.Width * Splat.Depth * 4;
-        _splatBytes0 = new byte[n];
-        _splatBytes1 = new byte[n];
-        _splatImage0 = Image.CreateFromData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes0);
-        _splatImage1 = Image.CreateFromData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes1);
-        _splatTex0 = ImageTexture.CreateFromImage(_splatImage0);
-        _splatTex1 = ImageTexture.CreateFromImage(_splatImage1);
-        _splatDirty = VertexRect.Empty;
-        // In the editor, leave the material alone so the scene file doesn't embed the (empty) textures.
-        if (Engine.IsEditorHint() || Material is not ShaderMaterial sm) return;
-        sm.SetShaderParameter("splat0", _splatTex0);
-        sm.SetShaderParameter("splat1", _splatTex1);
-        sm.SetShaderParameter("splat_size", new Vector2(Splat.Width, Splat.Depth));
-    }
-
-    /// <summary>
-    /// Re-uploads the splat textures if anything was painted this frame. Only the dirty rectangle is
-    /// converted to bytes, but the whole texture is uploaded (about 4 MB each at 1025²).
-    /// </summary>
-    private void UploadSplat()
-    {
-        if (_splatDirty.IsEmpty || Splat is null || _splatImage0 is null || _splatImage1 is null) return;
-        Splat.WriteRgba8(_splatDirty, _splatBytes0, _splatBytes1);
-        _splatDirty = VertexRect.Empty;
-        _splatImage0.SetData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes0);
-        _splatImage1.SetData(Splat.Width, Splat.Depth, false, Image.Format.Rgba8, _splatBytes1);
-        _splatTex0!.Update(_splatImage0);
-        _splatTex1!.Update(_splatImage1);
+        if (Material is not ShaderMaterial sm) return;
+        _render?.CopyParams(sm);
+        if (SkirtMaterial is not ShaderMaterial skirt || skirt.Shader is null) return;
+        foreach (var u in skirt.Shader.GetShaderUniformList())
+        {
+            string name = u.AsGodotDictionary()["name"].AsString();
+            var value = sm.GetShaderParameter(name);
+            if (value.VariantType != Variant.Type.Nil) skirt.SetShaderParameter(name, value);
+        }
     }
 
     private void UpdateMaterialRange()
     {
-        if (Map is null || Material is not ShaderMaterial sm) return;
+        if (Map is null || _render is null) return;
         var (min, max) = Map.GetRange();
-        sm.SetShaderParameter("height_min", min);
-        sm.SetShaderParameter("height_max", max);
-        sm.SetShaderParameter("terrain_origin", new Vector2(GlobalPosition.X, GlobalPosition.Z));
-        sm.SetShaderParameter("terrain_size", new Vector2(Map.SizeX, Map.SizeZ));
+        _render.SetParam("height_min", min);
+        _render.SetParam("height_max", max);
+        // Edge fog follows the drawn area (the last heightmap row and column aren't drawn).
+        _render.SetParam("terrain_origin", new Vector2(GlobalPosition.X, GlobalPosition.Z));
+        _render.SetParam("terrain_size", new Vector2((_render.RenderedX - 1) * Map.CellSize, (_render.RenderedZ - 1) * Map.CellSize));
     }
 }

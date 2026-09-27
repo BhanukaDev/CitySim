@@ -171,28 +171,4 @@ public sealed class SplatMap
         float cov = Math.Min(wa + wb, 1f);
         return Encode(a, b < 0 ? a : b, (int)MathF.Round(wb / (wa + wb) * 255f), (int)MathF.Round(cov * 255f));
     }
-
-    /// <summary>
-    /// Writes the layer weights of a rectangle as bytes into two RGBA8 images of the full map size
-    /// (layers 0–3 into <paramref name="rgba0"/>, 4–7 into <paramref name="rgba1"/>), for upload to the GPU.
-    /// </summary>
-    public void WriteRgba8(VertexRect r, byte[] rgba0, byte[] rgba1)
-    {
-        Span<float> w = stackalloc float[Layers];
-        for (int z = r.MinZ; z <= r.MaxZ; z++)
-        {
-            for (int x = r.MinX; x <= r.MaxX; x++)
-            {
-                Decode(Get(x, z), w);
-                int dst = (z * Width + x) * 4;
-                for (int c = 0; c < 4; c++)
-                {
-                    rgba0[dst + c] = ToByte(w[c]);
-                    rgba1[dst + c] = ToByte(w[4 + c]);
-                }
-            }
-        }
-    }
-
-    private static byte ToByte(float w) => (byte)Math.Clamp((int)(w * 255f + 0.5f), 0, 255);
 }

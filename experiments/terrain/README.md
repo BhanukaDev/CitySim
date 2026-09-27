@@ -1,7 +1,7 @@
 # Terrain Experiment
 
 Standalone Godot project for prototyping the CitySim terrain system
-(heightmap, chunked mesh, sculpting tools, texturing, placement queries).
+(heightmap, Terrain3D rendering, sculpting tools, texturing, placement queries).
 Once stable, it gets merged into the main game.
 
 ## Run
@@ -26,11 +26,13 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
 
 - `src/Terrain/HeightMap.cs`: engine-agnostic height grid, with sampling, normal and slope queries
 - `src/Terrain/Generation/`: engine-agnostic generator (noise with flat buildable lowlands, placed heightmap images, island/coast/archipelago shapes, presets)
-- `src/Terrain/TerrainChunk.cs`: one mesh tile built from the heightmap
-- `src/Terrain/Terrain.cs`: owns the map and chunks, world-space queries, dirty-chunk rebuild hooks
+- `src/Terrain/Terrain.cs`: owns the map, world-space queries, edit hooks (pushed to the renderer once per frame)
+- `src/Terrain/Terrain3DBridge.cs`: the render copy in the Terrain3D addon (`addons/terrain_3d/`, MIT); the only file
+  that calls Terrain3D
+- `src/Terrain/TerrainSkirt.cs`, `shaders/terrain_skirt.gdshader`: fog ring hiding the map edge
 - `src/Camera/CityCamera.cs`: city-builder orbit camera
 - `src/Terrain/TerrainLayers.cs`, `SplatMap.cs`: ground layer list and engine-agnostic painted layers (sparse Terrain3D-style control values)
 - `src/Terrain/Sculpt/PaintOps.cs`: paint/erase brush ops on the splat map
 - `src/Debug/TextureBaker.cs`: packs the layer textures into the strips Godot imports as texture arrays
-- `shaders/terrain.gdshader`: stylized texture splatting (automatic + painted layers, height blend,
-  triplanar rock), soft lighting, grid and contour overlays
+- `shaders/terrain.gdshader`: Terrain3D shader override: stylized texture splatting (automatic + painted layers, height
+  blend, triplanar rock), soft lighting, grid, contour, brush and edge-fog overlays

@@ -70,19 +70,15 @@ public sealed record ImagePlacement
 }
 
 /// <summary>A map size offered in the menus: <paramref name="Cells"/> per side at <see cref="GenSettings.DefaultCellSize"/>.</summary>
-/// <param name="NeedsTerrain3D">Too big for the chunk renderer; hidden in the menus until the Terrain3D renderer lands (M6 phase 2).</param>
-public sealed record MapSize(string Label, int Cells, bool NeedsTerrain3D = false)
+public sealed record MapSize(string Label, int Cells)
 {
     /// <summary>
     /// Powers of two, so the build area fills whole Terrain3D regions. 28 km is the M6 build area (8192 × 3.5 m, CS2-sized).
     /// </summary>
     public static readonly MapSize[] All =
     [
-        new("1.8 km", 512), new("3.6 km", 1024), new("7.2 km", 2048), new("28.7 km", 8192, NeedsTerrain3D: true),
+        new("1.8 km", 512), new("3.6 km", 1024), new("7.2 km", 2048), new("28.7 km", 8192),
     ];
-
-    /// <summary>The sizes the menus offer now.</summary>
-    public static MapSize[] Offered => System.Array.FindAll(All, z => !z.NeedsTerrain3D);
 }
 
 /// <summary>

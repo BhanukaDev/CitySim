@@ -1,5 +1,33 @@
+// CitySim terrain: a Terrain3D shader override (Terrain3DBridge sets it on the Terrain3D material).
+// Vertex stage, region lookups and normals follow addons/terrain_3d/extras/shaders/minimum.gdshader (MIT);
+// the ground look, overlays and lighting are ours.
 shader_type spatial;
-render_mode blend_mix, cull_back;
+render_mode blend_mix, depth_draw_opaque, cull_back, skip_vertex_transform;
+
+#define SKIP_PASS 0
+#define VERTEX_PASS 1
+#define FRAGMENT_PASS 2
+
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	#define fma(a, b, c) ((a) * (b) + (c))
+	#define dFdxCoarse(a) dFdx(a)
+	#define dFdyCoarse(a) dFdy(a)
+#endif
+
+// Private uniforms, set by Terrain3D.
+uniform vec3 _camera_pos = vec3(0.f);
+uniform float _mesh_size = 48.f;
+uniform uint _background_mode = 1u; // NONE = 0, FLAT = 1, NOISE = 2
+uniform uint _mouse_layer = 0x80000000u; // Layer 32
+uniform float _vertex_spacing = 1.0;
+uniform float _vertex_density = 1.0; // = 1/_vertex_spacing
+uniform float _region_size = 1024.0;
+uniform float _region_texel_size = 0.0009765625; // = 1/1024
+uniform int _region_map_size = 32;
+uniform int _region_map[1024];
+uniform highp sampler2DArray _height_maps : repeat_disable;
+// One uint per vertex (as float bits), laid out like SplatMap.cs.
+uniform highp sampler2DArray _control_maps : repeat_disable;
 
 // Ground layers, in texture-array order. Must match TerrainLayers.cs.
 // 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow
@@ -19,10 +47,6 @@ group_uniforms Textures;
 // RGB = colour normalised to NEUTRAL_GREY, A = height. Baked by TextureBaker, imported as BC7 arrays.
 uniform sampler2DArray albedo_height_array : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2DArray normal_array : filter_linear_mipmap_anisotropic, repeat_enable;
-// Painted weights for layers 0-3 and 4-7, one texel per heightmap vertex (Terrain.cs).
-uniform sampler2D splat0 : hint_default_black, filter_linear, repeat_disable;
-uniform sampler2D splat1 : hint_default_black, filter_linear, repeat_disable;
-uniform vec2 splat_size = vec2(1025.0);
 // Seamless low-frequency noise for large-scale variation.
 uniform sampler2D macro_noise : hint_default_white, filter_linear_mipmap, repeat_enable;
 
@@ -89,6 +113,9 @@ uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 group_uniforms AutoLayers;
 // Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°).
 uniform float sand_height = 9.0;
+// The snow line sits snow_line of the way up the map's height range, but never below snow_height, so tall maps
+// keep snow to their peaks and low or flat maps stay green.
+uniform float snow_line : hint_range(0.0, 1.0) = 0.5;
 uniform float snow_height = 125.0;
 uniform float snow_blend = 10.0;
 uniform float snow_max_slope : hint_range(0.0, 1.0) = 0.4;
@@ -138,12 +165,115 @@ uniform bool anchor_visible = false;
 uniform vec3 anchor_pos = vec3(0.0);
 uniform vec3 brush_color : source_color = vec3(0.35, 0.85, 1.0);
 
-varying vec3 world_pos;
-varying vec3 world_normal;
+// World position of the vertex (Terrain3D's editor tools expect these names).
+varying vec3 v_vertex;
+varying float v_vertex_xz_dist;
+
+// World XZ (in vertices) -> ivec3(texel in region, region layer), layer -1 outside every region.
+ivec3 get_index_coord(const vec2 uv, const int search) {
+	vec2 r_uv = round(uv);
+	vec2 o_uv = mod(r_uv,_region_size);
+	ivec2 pos;
+	int bounds, layer_index = -1;
+	for (int i = -1; i < clamp(search, SKIP_PASS, FRAGMENT_PASS); i++) {
+		if ((layer_index == -1 && _background_mode == 0u ) || i < 0) {
+			r_uv -= i == -1 ? vec2(0.0) : vec2(float(o_uv.x <= o_uv.y), float(o_uv.y <= o_uv.x));
+			pos = ivec2(floor((r_uv) * _region_texel_size)) + (_region_map_size / 2);
+			bounds = int(uint(pos.x | pos.y) < uint(_region_map_size));
+			layer_index = (_region_map[ pos.y * _region_map_size + pos.x ] * bounds - 1);
+		}
+	}
+	return ivec3(ivec2(mod(r_uv,_region_size)), layer_index);
+}
 
 void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	// Flat clipmap vertex in world space.
+	v_vertex = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_vertex_xz_dist = length(v_vertex.xz - _camera_pos.xz);
+
+	// Geomorph between LODs.
+	float scale = MODEL_MATRIX[0][0];
+	float vertex_lerp = smoothstep(0.55, 0.95, (v_vertex_xz_dist / scale - _mesh_size - 4.0) / (_mesh_size - 2.0));
+	vec2 v_fract = fract(VERTEX.xz * 0.5) * 2.0;
+	vec2 shift = (scale < _vertex_spacing + 1e-6) ?
+		mix(v_fract, vec2(v_fract.x, -v_fract.y),
+			round(fract(round(mod(v_vertex.z * _vertex_density, 4.0)) *
+			round(mod(v_vertex.x * _vertex_density, 4.0)) * 0.25))
+			) :
+		v_fract * round((fract(v_vertex.xz * 0.25 / scale) - 0.5) * 4.0);
+	vec2 start_pos = v_vertex.xz * _vertex_density;
+	vec2 end_pos = (v_vertex.xz - shift * scale) * _vertex_density;
+	v_vertex.xz -= shift * scale * vertex_lerp;
+
+	// UV = world position in vertices; UV2 = region space.
+	UV = v_vertex.xz * _vertex_density;
+	UV2 = fma(UV, vec2(_region_texel_size), vec2(0.5 * _region_texel_size));
+
+	// Holes (padding past the map) and everything outside the regions are dropped (NaN vertex).
+	ivec3 v_region = get_index_coord(start_pos, VERTEX_PASS);
+	uint control = floatBitsToUint(texelFetch(_control_maps, v_region, 0)).r;
+	bool hole = bool(control >>2u & 0x1u);
+	if ( !(CAMERA_VISIBLE_LAYERS == _mouse_layer) &&
+			(hole || (_background_mode == 0u && v_region.z < 0))) {
+		v_vertex.x = 0. / 0.;
+	} else {
+		ivec3 uv_a = get_index_coord(start_pos, VERTEX_PASS);
+		ivec3 uv_b = get_index_coord(end_pos, VERTEX_PASS);
+		v_vertex.y = mix(texelFetch(_height_maps, uv_a, 0).r, texelFetch(_height_maps, uv_b, 0).r, vertex_lerp);
+	}
+
+	VERTEX = (VIEW_MATRIX * vec4(v_vertex, 1.0)).xyz;
+	NORMAL = normalize((MODELVIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	BINORMAL = normalize((MODELVIEW_MATRIX * vec4(BINORMAL, 0.0)).xyz);
+	TANGENT = normalize((MODELVIEW_MATRIX * vec4(TANGENT, 0.0)).xyz);
+}
+
+// Adds one vertex's painted layers (SplatMap.cs bits: 27-31 base, 22-26 overlay, 14-21 blend, 6-13 coverage),
+// scaled by its bilinear weight k.
+void add_paint(inout float p[LAYERS], ivec3 at, float k) {
+	if (at.z < 0) return;
+	uint c = floatBitsToUint(texelFetch(_control_maps, at, 0).r);
+	float cov = float(c >> 6u & 0xFFu) / 255.0 * k;
+	if (cov <= 0.0) return;
+	float blend = float(c >> 14u & 0xFFu) / 255.0;
+	p[min(int(c >> 27u & 0x1Fu), LAYERS - 1)] += cov * (1.0 - blend);
+	p[min(int(c >> 22u & 0x1Fu), LAYERS - 1)] += cov * blend;
+}
+
+// World normal from the heightmap, bilinear between the four surrounding vertices up close.
+// Also returns the four vertex coords and their weights, for the painted layers.
+vec3 terrain_normal(vec2 uv, out ivec3 index[4], out vec4 weights) {
+	const vec3 offsets = vec3(0, 1, 2);
+	vec2 index_id = floor(uv);
+	vec2 weight = fract(uv);
+	vec2 invert = 1.0 - weight;
+	weights = vec4(invert.x * weight.y, weight.x * weight.y, weight.x * invert.y, invert.x * invert.y);
+
+	vec3 base_ddx = dFdxCoarse(v_vertex);
+	vec3 base_ddy = dFdyCoarse(v_vertex);
+	float region_mip = log2(max(length(base_ddx.xz), length(base_ddy.xz)) * _vertex_density);
+
+	index[0] = get_index_coord(index_id + offsets.xy, FRAGMENT_PASS);
+	index[1] = get_index_coord(index_id + offsets.yy, FRAGMENT_PASS);
+	index[2] = get_index_coord(index_id + offsets.yx, FRAGMENT_PASS);
+	index[3] = get_index_coord(index_id + offsets.xx, FRAGMENT_PASS);
+
+	float h0 = texelFetch(_height_maps, index[0], 0).r;
+	float h2 = texelFetch(_height_maps, index[2], 0).r;
+	float h3 = texelFetch(_height_maps, index[3], 0).r;
+	vec3 n3 = normalize(vec3(h3 - h2, _vertex_spacing, h3 - h0));
+	// Far away a pixel covers several vertices: one lookup is enough.
+	if (region_mip >= 0.0) return n3;
+
+	float h1 = texelFetch(_height_maps, index[1], 0).r;
+	float h4 = texelFetch(_height_maps, get_index_coord(index_id + offsets.yz, FRAGMENT_PASS), 0).r;
+	float h5 = texelFetch(_height_maps, get_index_coord(index_id + offsets.zy, FRAGMENT_PASS), 0).r;
+	float h6 = texelFetch(_height_maps, get_index_coord(index_id + offsets.zx, FRAGMENT_PASS), 0).r;
+	float h7 = texelFetch(_height_maps, get_index_coord(index_id + offsets.xz, FRAGMENT_PASS), 0).r;
+	vec3 n0 = normalize(vec3(h0 - h1, _vertex_spacing, h0 - h7));
+	vec3 n1 = normalize(vec3(h1 - h5, _vertex_spacing, h1 - h4));
+	vec3 n2 = normalize(vec3(h2 - h6, _vertex_spacing, h2 - h1));
+	return normalize(n0 * weights[0] + n1 * weights[1] + n2 * weights[2] + n3 * weights[3]);
 }
 
 // Distance (metres) inside the terrain border, with rounded corners; negative outside.
@@ -245,7 +375,10 @@ vec3 stylize(vec3 tex, int layer, float h01, float up) {
 }
 
 void fragment() {
-	vec3 n = normalize(world_normal);
+	vec3 world_pos = v_vertex;
+	ivec3 corner[4];
+	vec4 corner_w;
+	vec3 n = terrain_normal(UV, corner, corner_w);
 	float slope = 1.0 - n.y;
 	float y = world_pos.y;
 	float h01 = clamp((y - height_min) / max(height_max - height_min, 0.001), 0.0, 1.0);
@@ -274,17 +407,18 @@ void fragment() {
 	// grass tufts and stones poke through the thin edge instead of a separate "snowy grass" texture.
 	float snow_ok = 1.0 - smoothstep(snow_max_slope - 0.08, snow_max_slope + 0.08, slope_n);
 	float y_snow = y_n + (noise_a - 0.5) * snow_blend * 1.5 + edge * snow_blend;
-	lay(w, 7, smoothstep(snow_height - snow_blend, snow_height + snow_blend * 0.5, y_snow) * snow_ok);
+	float snow_at = max(snow_height, mix(height_min, height_max, snow_line));
+	lay(w, 7, smoothstep(snow_at - snow_blend, snow_at + snow_blend * 0.5, y_snow) * snow_ok);
 
 	// --- Painted layers override the automatic ones by their coverage ---
-	// Vertex UVs run 0..1 across vertex centres; shift them onto texel centres.
-	vec2 suv = (UV * (splat_size - 1.0) + 0.5) / splat_size;
-	vec4 p0 = texture(splat0, suv);
-	vec4 p1 = texture(splat1, suv);
-	float cover = min(dot(p0, vec4(1.0)) + dot(p1, vec4(1.0)), 1.0);
-	for (int i = 0; i < LAYERS; i++) w[i] *= 1.0 - cover;
-	w[0] += p0.r; w[1] += p0.g; w[2] += p0.b; w[3] += p0.a;
-	w[4] += p1.r; w[5] += p1.g; w[6] += p1.b; w[7] += p1.a;
+	// Bilinear between the four surrounding vertices' control values.
+	float paint[LAYERS];
+	for (int i = 0; i < LAYERS; i++) paint[i] = 0.0;
+	for (int k = 0; k < 4; k++) add_paint(paint, corner[k], corner_w[k]);
+	float cover = 0.0;
+	for (int i = 0; i < LAYERS; i++) cover += paint[i];
+	cover = min(cover, 1.0);
+	for (int i = 0; i < LAYERS; i++) w[i] = w[i] * (1.0 - cover) + paint[i];
 
 	// --- Keep the four strongest layers; only those get sampled ---
 	int top_i[4];

@@ -16,8 +16,7 @@ namespace CitySim.UI;
 /// heightmap maps open the Map Editor with the generator panel showing, where the details are set with a live preview.
 /// Deliberately plain; the experiment is a tool, not the game. Any command-line flag skips it: --flat[=height] starts an
 /// empty map, --preset=name (e.g. island, coast) and --seed=n pick generator settings, --show-generator opens the panel,
-/// --size=cells sets the size (8192 = 28.7 km), --coarse=n shows an n² copy of the map (for sizes the chunk renderer
-/// can't draw), --load=path opens a file, --heightmap=path[,min,max] imports a 16-bit PNG/RAW (range defaults to the one stored in
+/// --size=cells sets the size (8192 = 28.7 km), --load=path opens a file, --heightmap=path[,min,max] imports a 16-bit PNG/RAW (range defaults to the one stored in
 /// the PNG, else 0–250 m; combines with --preset for a shape), --game starts in game mode, anything else
 /// (--screenshot, --demo-*) the generated default map.
 /// </summary>
@@ -66,7 +65,6 @@ public partial class MainMenu : Control
     private static void ApplyFlags()
     {
         GenSettings? gen = null;
-        int coarse = 0;
         foreach (string arg in OS.GetCmdlineUserArgs())
         {
             if (arg == "--game")
@@ -87,8 +85,6 @@ public partial class MainMenu : Control
                 gen ??= new GenSettings();
             else if (arg.StartsWith("--size=") && int.TryParse(arg["--size=".Length..], out int cells))
                 gen = (gen ?? new GenSettings()) with { Cells = cells };
-            else if (arg.StartsWith("--coarse=") && int.TryParse(arg["--coarse=".Length..], out int verts))
-                coarse = verts;
             else if (arg.StartsWith("--load=") && MapFiles.QueueLoad(arg["--load=".Length..]) is { } error)
                 GD.PushError(error);
             else if (arg.StartsWith("--heightmap="))
@@ -110,8 +106,7 @@ public partial class MainMenu : Control
                 Source = imported.Source, Image = imported.Image, ImageName = imported.ImageName, Placement = imported.Placement,
             };
             bool show = OS.GetCmdlineUserArgs().Contains("--show-generator");
-            // --coarse=n: an n² copy of the map over the same area, for looking at maps too big for the chunk renderer.
-            MapSession.Pending = new GeneratedMapRequest(gen, show, coarse > 1 ? TerrainGen.Preview(gen, coarse) : null);
+            MapSession.Pending = new GeneratedMapRequest(gen, show);
             MapSession.CurrentPath = null;
         }
     }
@@ -125,7 +120,7 @@ public partial class MainMenu : Control
         column.AddChild(grid);
 
         var size = new OptionButton();
-        foreach (var z in MapSize.Offered) size.AddItem(z.Label);
+        foreach (var z in MapSize.All) size.AddItem(z.Label);
         size.Selected = 1;
         Row(grid, "Size", size);
 
@@ -187,7 +182,7 @@ public partial class MainMenu : Control
 
         AddButton(column, "Create", () =>
         {
-            int cells = MapSize.Offered[size.Selected].Cells;
+            int cells = MapSize.All[size.Selected].Cells;
             var settings = new GenSettings { Cells = cells, CellSize = Terrain.DefaultCellSize };
             switch (type.Selected)
             {

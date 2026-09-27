@@ -253,7 +253,7 @@ public partial class DebugOverlay : CanvasLayer
             text += $"\nTool {Tools.Tool}";
             if (Tools.Cursor is { } c)
                 text += $"  ·  cursor height {c.Y:0.0} m, slope {Terrain.GetSlopeDegrees(c.X, c.Z):0.0}°";
-            text += $"\nLast rebuild {Terrain.LastRebuildChunks} chunks in {Terrain.LastRebuildMs:0.0} ms";
+            text += $"\nLast push {Terrain.LastPushRegions} regions in {Terrain.LastPushMs:0.0} ms";
         }
         text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
                 "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool / menu · G grid · C contours";

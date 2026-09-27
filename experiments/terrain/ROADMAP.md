@@ -20,9 +20,9 @@ Cities: Skylines-style city builder. When it's stable, it's merged into the main
   call from C# goes through `Call("method")` strings.
 - **.NET 9**: `TargetFramework net9.0`, because no .NET 8 runtime is installed.
 - **`HeightMap` stays engine-agnostic** (plain C#, `System.Numerics`). Godot-specific code lives in
-  `Terrain` and `TerrainChunk`. The generator (`src/Terrain/Generation/`) is engine-agnostic too (vendored C# FastNoiseLite).
-- **Chunked mesh**: 64×64-cell tiles, and only dirty chunks are rebuilt. Normals come from the global
-  heightmap, so chunk borders have no seams.
+  `Terrain`, `Terrain3DBridge` and `TerrainSkirt`. The generator (`src/Terrain/Generation/`) is engine-agnostic too (vendored C# FastNoiseLite).
+- **Rendering via Terrain3D** (since M6 phase 2; M1–M5 used our own 64²-cell chunk meshes): `HeightMap`/`SplatMap` are the
+  source of truth, Terrain3D holds a render copy, and edits push only the dirty rectangle once per frame.
 - Namespaces: `CitySim.TerrainSystem`, `CitySim.CameraSystem`, `CitySim.Debug`. Don't name a class the
   same as its namespace.
 
@@ -63,7 +63,7 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
-#   --size=cells (8192 = 28.7 km), --coarse=n (show an n² copy of the map, for sizes the chunk renderer can't draw)
+#   --size=cells (8192 = 28.7 km)
 # any flag skips the start menu (scenes/Menu.tscn)
 tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
 tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
@@ -309,7 +309,7 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
 - Later: rivers/lakes (flow simulation or painted water sources); buildable = above water
 - Water queries in `Terrain`: `IsUnderwater(x, z)`, water depth
 
-### 🔶 M6: Performance & scale (phases 0–1 done; phase 1 waiting for the user to test)
+### 🔶 M6: Performance & scale (phases 0–2 done; next: phase 3)
 Target (user): a 70 × 70 km map on an 8 GB M1. Tiered like CS2: a **28,672 m build area** (8192 cells × 3.5 m, an "8k"
 heightmap) sculptable and buildable, centred in a coarse 70 km background (4096 cells ≈ 17 m, scenery only).
 Rendering moves to the **Terrain3D** addon (v1.0.2, `addons/terrain_3d/`, MIT; GPU clipmap, 1024² regions). `HeightMap`
@@ -319,8 +319,7 @@ Phases (tick off as they land):
 - [x] **0. Terrain3D spike**: go/no-go on 4.7.2 + 8 GB. Passed, numbers below.
 - [x] **1. Data at build-area scale** (engine-agnostic, `src/Terrain/`; implemented, waiting for the user to test)
   - Sizes: `MapSize.All` in `GenSettings.cs` (1.8 / 3.6 / 7.2 / 28.7 km = 512–8192 cells, powers of two), all at
-    `GenSettings.DefaultCellSize` = 3.5 m. 28.7 km is `NeedsTerrain3D` and hidden in the menus until phase 2 (the chunk renderer
-    can't draw 16k chunks); `--size=8192 --coarse=2049` shows a downsampled copy, `--demo-scale` tests the data.
+    `GenSettings.DefaultCellSize` = 3.5 m. `--demo-scale` tests the data. (28.7 km was hidden until phase 2.)
   - New Map generates on a worker in the menu with a % readout, then opens the scene (`GeneratedMapRequest.Map`); the generator
     panel shows % too. `TerrainGen.Fill` writes rows straight into the map; `HeightMap.Smooth` is separable and parallel (rows,
     then 256-wide column strips with one row buffer each): ~90 ms at 8193².
@@ -338,7 +337,7 @@ Phases (tick off as they land):
     auto 0) plus our **coverage** in bits 6–13 (Terrain3D's UV angle/scale, unused by us): painted share over the automatic
     ground, so soft brush edges still fade into the auto layers. Sparse 256² tiles, allocated on first paint. At most two
     painted layers per vertex; painting a third replaces the lighter one. `PaintOps` rounds to 8 bits with hashed dither so
-    slow edges neither stall nor creep. The current shader still gets 8 weights (`WriteRgba8` decodes).
+    slow edges neither stall nor creep. The shader reads these values straight from Terrain3D's control map (phase 2).
   - `HeightMap.GetRange`: min/max cached per 64² block; the indexer, `PasteRegion`/`SwapRegion` and `Invalidate(rect)` mark
     blocks stale. Bulk writers through `Data`/`Row` call `Invalidate()`. 0.4 ms after a stroke at 8193² (was a full scan).
   - `MapFile` v2: u16 heights over min/max, row-delta coded, zlib per 256² tile (parallel), painted control tiles only, an
@@ -350,15 +349,40 @@ Phases (tick off as they land):
     60 ticks 8 ms, undo/redo ok, save 0.36 s, load 0.19 s, 104 MB file, peak footprint 1.4 GB with two maps alive (spike: 3.6 GB).
   - Known: `--demo-camera`'s three "first person" zoom checks fail headless (stuck at 16.5 m). Same on the previous commit, so
     not caused by this work.
-- [ ] **2. Terrain3D renderer**
-  - New `Terrain3DBridge.cs`: the only file with Terrain3D `Call("...")` strings (create node, `change_region_size` *after*
-    `AddChild`, `vertex_spacing`, collision `DISABLED`, import, push dirty rect, `update_maps`, material params).
-  - `Terrain.cs`: remove `TerrainChunk` + per-chunk rebuild. `MarkDirty` collects a rect; `_Process` pushes it once per frame
-    (`set_height` loop or region image) + `update_maps`. Paint the same way via the control map. Delete splat `ImageTexture` upload.
-  - Port the look (tints, auto layers, height blend, triplanar rock, custom `light()`, brush ring, anchor, contours, grid, edge fog)
-    into a Terrain3D shader override. Decode our coverage bits (see `SplatMap`). The snow line is an absolute 125 m: at 28 km
-    (ranges up to ~1,100 m) nearly everything is snow, so make it a per-map setting (or relative to the height range). This is the biggest risk. Compare screenshots with `--cam=1300,700,120,25,30`.
-  - Queries/raycast stay on `HeightMap`; maybe a coarser first march step for long rays.
+- [x] **2. Terrain3D renderer** (user tested at 28.7 km: no noticeable delay when editing)
+  - `Terrain3DBridge.cs` is the only file with Terrain3D `Call`/`Get`/`Set` strings. It adds a `Terrain3D` child (not owned,
+    never saved; collision off, `vertex_spacing` = cell size, `change_region_size` after `AddChild`) and builds each region
+    directly (`Terrain3DRegion` + `add_region`, one region-sized image at a time; no 256 MB `import_images` copy).
+    `TerrainChunk` is gone, and so are the splat `ImageTexture`s: the shader reads `SplatMap`'s u32s from Terrain3D's control map.
+  - **Region size**: an edit re-uploads each touched region's whole map in `update_maps`, and that upload is most of the push
+    cost (1024² regions: 3–10 ms for one brush). Terrain3D's region locations run -16..15, so regions are as small as 16 per
+    side allows: 256² up to 4k maps, 512² at 28.7 km. The map sits at location (0, 0), so the `Terrain` node must stay at the origin.
+  - Push (`Terrain._Process`, priority 100): `MarkDirty`/`MarkSplatDirty` union into one rect each. Per touched region a
+    sub-rect `Rf` image is `BlitRect`ed into the region's own Image (edited in place), `update_heights` widens its height
+    range, then one `update_maps` per map type and `set_edited(false)`. `ReplaceHeights` pushes everything and then
+    `calc_height_range(true)`. The overlay shows "Last push N regions in X ms".
+  - Only `cells`² vertices are drawn (decided in phase 1): the last heightmap row and column aren't drawn. Queries, raycasts and `Bounds` still
+    use the full map; the skirt's inner loop and the edge fog use the drawn area. Pixels past the map (sizes that aren't a
+    region multiple) get the hole bit.
+  - Shader: `terrain.gdshader` is now a Terrain3D shader override. Its vertex stage, region lookup and bilinear normals come from
+    `addons/terrain_3d/extras/shaders/minimum.gdshader`, and the rest of the look is unchanged. Painted layers come from the 4 surrounding control
+    values, decoded and bilinear-weighted. Terrain3D's debug views append code to the override (they expect a `uv`
+    local and overwrite ALBEDO). It turns `show_checkered` on when it has no textures of its own, so the bridge turns it off.
+  - Uniforms: `Main.tscn`'s `ShaderMaterial` still holds the shader and the tuned values. The bridge copies them onto Terrain3D's
+    material when a map is set (and every 0.5 s in the editor). Runtime overlays (brush, anchor, grid, contours, height range)
+    go straight to Terrain3D's material.
+  - Snow line (decided): `snow_line` (default 0.5) of the way up the height range, never below `snow_height` (125 m). The default
+    map is unchanged. On the 28.7 km Mountains map (5–1130 m) only peaks above ~570 m get snow.
+  - Skirt: can't use the Terrain3D shader, so it has its own fog-only `terrain_skirt.gdshader` (`SkirtMaterial` export; Terrain
+    copies the `edge_fog_*` values into it).
+  - 28.7 km is in the menus and generator panel (`MapSize.NeedsTerrain3D`/`Offered` and `--coarse` removed).
+  - Measured (M1 8 GB, debug build, 1600×900): default 3.6 km map looks the same as the chunk renderer, whole-map view 19 → 55 FPS,
+    close-up 52 → 57. Copy to Terrain3D: 3.6 km ~100 ms, 28.7 km ~2.0 s (plus 2.4 s generate). Push: 216×189 sculpt
+    batch 1–4 ms at 3.6 km; 4 regions at a 28.7 km region corner 9.9 ms. 28.7 km Mountains: 46–48 FPS at 700–1,800 m,
+    max RSS 1.76 GB, peak footprint 3.96 GB (unified memory, includes GPU).
+  - Not done: 60 FPS at 28.7 km (46–48 now); stroke push at 28.7 km region corners (~10 ms for 4 × 1 MB uploads; could
+    split a push across frames); load/generate > 2 s at 28.7 km (copy could overlap generation); camera still capped at
+    1,800 m (phase 3). Snow and rock look blotchy at 28.7 km (noise sizes were tuned for 2 km); a tuning pass later.
 - [ ] **3. 70 km background**
   - `BackgroundMap`: 4097² `HeightMap` over 70 km from the same `TerrainGen` settings (world coords), build area downsampled into the centre.
   - Own coarse ring mesh (17 → 70 → 280 m cells) with a hole for the build area, welded to its border; replaces `TerrainSkirt`.
@@ -367,7 +391,7 @@ Phases (tick off as they land):
 - [ ] **4. Measure + document**: extend `--demo-scale` (phase 1: data timings) with Terrain3D push timings and peak RAM. Targets on the M1:
   60 FPS at every zoom, generate < 3 s, load < 2 s, stroke < 4 ms/frame, RAM < 2.5 GB. All `--demo-*` flags still pass at 2 km and 28 km.
 
-Open question: commit the addon (51 MB, every platform) as-is, trim it to macOS, or fetch it with a script like the textures.
+The addon was committed as-is (every platform) in c5cf543.
 
 Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; run
 `$G --path . res://scenes/Spike.tscn -- --spike-size=8192 --spike-out=dir`). M1 8 GB, Terrain3D **debug** library:
@@ -425,6 +449,8 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6: 70 km map = 28 km build area at 3.5 m (8192²) + coarse 70 km background, like CS2. Uniform 2 m over 70 km would be
   1.2B heights (4.9 GB) plus 39 GB of paint weights. Rendering via the Terrain3D addon (user's choice over our own clipmap).
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.
+- M6 phase 2: snow line is relative to the map's height range (`snow_line`), with `snow_height` as the floor. Terrain3D regions
+  are 256²/512² (smallest that fits 16 per side), not 1024², because each edit re-uploads whole regions.
 - M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
   Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
   map files store 16-bit heights, like CS2 and heightmap exports.

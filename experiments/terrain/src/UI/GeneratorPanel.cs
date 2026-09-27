@@ -138,8 +138,8 @@ public partial class GeneratorPanel : PanelContainer
             _status.Text = GenPresets.All[i].Description;
         }, "Fills the hills and shape settings (keeps size, seed and heightmap)");
         Choice(grid, "Source", ["Noise", "Heightmap image", "Flat"], () => (int)_s.Source, i => _s = _s with { Source = (TerrainSource)i });
-        Choice(grid, "Size", Array.ConvertAll(MapSize.Offered, z => z.Label), () => Array.FindIndex(MapSize.Offered, z => z.Cells == _s.Cells),
-            i => _s = _s with { Cells = MapSize.Offered[i].Cells, CellSize = GenSettings.DefaultCellSize }, "A new size starts a new map: undo history and painted ground are cleared");
+        Choice(grid, "Size", Array.ConvertAll(MapSize.All, z => z.Label), () => Array.FindIndex(MapSize.All, z => z.Cells == _s.Cells),
+            i => _s = _s with { Cells = MapSize.All[i].Cells, CellSize = GenSettings.DefaultCellSize }, "A new size starts a new map: undo history and painted ground are cleared");
 
         Section(grid, "Hills", _noiseRows);
         var seed = new SpinBox { MinValue = 0, MaxValue = int.MaxValue, Rounded = true, SizeFlagsHorizontal = SizeFlags.ExpandFill };

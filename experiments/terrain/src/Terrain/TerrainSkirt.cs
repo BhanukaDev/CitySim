@@ -5,9 +5,9 @@ namespace CitySim.TerrainSystem;
 
 /// <summary>
 /// A ring of fake ground around the terrain that hides its hard edges. Its inner loop follows the
-/// terrain's border vertices exactly (so there is no gap or cliff), then it sinks and spreads outward to
-/// the horizon. It uses the terrain material, whose edge fog paints everything outside the bounds in the
-/// fog colour, so the skirt reads as a fog bank the map dissolves into.
+/// terrain's drawn border vertices exactly (so there is no gap or cliff), then it sinks and spreads outward to
+/// the horizon. It's drawn in the edge fog colour (terrain_skirt.gdshader), so it reads as a fog bank the map
+/// dissolves into.
 /// </summary>
 public partial class TerrainSkirt : MeshInstance3D
 {
@@ -20,10 +20,14 @@ public partial class TerrainSkirt : MeshInstance3D
     private const float SinkDistance = 600f;
 
     private HeightMap? _map;
+    private int _lastX, _lastZ;
 
-    public void Init(HeightMap map)
+    /// <summary>The inner loop runs along vertices 0..<paramref name="lastX"/> × 0..<paramref name="lastZ"/> (the drawn area).</summary>
+    public void Init(HeightMap map, int lastX, int lastZ)
     {
         _map = map;
+        _lastX = lastX;
+        _lastZ = lastZ;
         Name = "Skirt";
         CastShadow = ShadowCastingSetting.Off;
     }
@@ -37,7 +41,7 @@ public partial class TerrainSkirt : MeshInstance3D
         // Walk the border counter-clockwise seen from above: (0,0) -> (W,0) -> (W,D) -> (0,D).
         // Each entry is a border position, its height and the outward direction its rings extend along.
         var border = new List<(Vector2 Pos, float Height, Vector2 Dir)>();
-        int w = map.Width - 1, d = map.Depth - 1;
+        int w = _lastX, d = _lastZ;
         (int X, int Z)[] corners = [(0, 0), (w, 0), (w, d), (0, d)];
         Vector2[] outward = [new(0, -1), new(1, 0), new(0, 1), new(-1, 0)];
         for (int side = 0; side < 4; side++)
@@ -77,7 +81,7 @@ public partial class TerrainSkirt : MeshInstance3D
             }
         }
 
-        // Quads between ring r (inner) and r + 1 (outer), clockwise seen from above like TerrainChunk.
+        // Quads between ring r (inner) and r + 1 (outer), clockwise seen from above.
         var indices = new int[n * (rings - 1) * 6];
         int t = 0;
         for (int r = 0; r < rings - 1; r++)
