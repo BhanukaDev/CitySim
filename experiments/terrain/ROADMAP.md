@@ -74,7 +74,9 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
 #   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
-#   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once),
+#   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
+#   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: flow foam without arrows),
+#   --preview-at=x,z,level (the Lake placement preview there),
 #   --pollute=kg/s (the --demo-water stream carries pollutant),
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
@@ -473,7 +475,7 @@ Authoring guide: `terrain_sdk/README.md`.
 - Not done / next (**M3.6**): loading themes from mod `.pck` files in `user://mods`, a modder template project, frozen lake
   water (lakes still use one water shader for every theme), a theme preview button that launches the game on the theme.
 
-### 🔶 M5: Water (M5.0/M5.1 lakes + masks, M5.2 simulation, M5.4 look + sim performance done; M5.3 next)
+### 🔶 M5: Water (M5.0/M5.1 lakes + masks, M5.2 simulation, M5.4 look + sim performance, M5.5 sources-only water done; M5.3 next)
 - Sea level: a Sea source (M5.2). Buildable = above water: `Terrain.IsUnderwater`/`GetWaterDepth` (M5.2).
 
 ### 🔶 M5.2: Water simulation + Water tab (implemented, waiting for the user to test)
@@ -492,7 +494,7 @@ The static M5.0 lakes (flat quads over every hollow) are gone: water is simulate
   can't keep up, paused with the tree), queues main-thread changes (ground rects from `Terrain.MarkDirty`, sources,
   settings, fill/clear) and publishes a snapshot ~30×/s (display surface, depth, velocity per cell; dirty 256² pages).
   Queries: `Terrain.GetWaterDepth/IsUnderwater/GetWaterSurface/GetWaterVelocity` (bilinear on the snapshot).
-- **Fill Hollows**: raises the water to the Priority-Flood lake levels (`LakeMap.Level`, Erosion panel Min Depth/Area) and
+- *(Replaced in M5.5 by Add Lake Sources)* **Fill Hollows**: raised the water to the Priority-Flood lake levels (`LakeMap.Level`, Erosion panel Min Depth/Area) and
   floods the sea from the border. Rivers/lakes aren't flood-filled (tried: a high river drowned the whole map). New maps
   and pre-v4 files fill once when the hollow search finishes, so they look as before.
 - **Drawing** (`WaterSurface`, `shaders/water.gdshader`): per 256² page an RGBA32F texture (uploaded ≤ 20 Hz, dirty pages
@@ -565,12 +567,54 @@ stylized (Ghibli-like) and the sim got the performance items from the user's lis
   so 7 m or 3.5 m fits in memory); per-theme water materials (winter: icy water); pollution diffusion and ground deposits;
   the shader's cost at close range (FPS above) if it matters on target hardware.
 
+### 🔶 M5.5: Water from sources only, wet ground, flow arrows, flow foam (implemented, waiting for the user to test)
+Fill Hollows put water in every hollow that belonged to nothing, so the user couldn't remove or tune a lake. Now every drop
+comes from a source the user owns.
+- **Lake sources instead of filled hollows** (`src/Water/LakeSources.cs`, engine-agnostic): each Priority-Flood lake
+  (`LakeMap`, Erosion panel Min Depth/Area) gets a Lake source at its most open water (chamfer distance to the shore, deepest
+  on a tie), radius ½ that distance (1.5 water cells … 150 m), level = spill height, Max Flow = max(volume / 600 s, 3 × area ×
+  evaporation, 1 m³/s). Hollows that already hold a Lake/River source are skipped, so running it again adds only what's missing.
+  The planned lakes are filled at once (`WaterSim.RaiseTo`, only their cells) and the sea as before. New maps, pre-v4 files and
+  water sections without depths do this once the hollow search finishes; the Water panel's **Add Lake Sources** does it as one
+  undo step (`TerrainToolController.AddLakeSources`; undo removes the sources and drains their lakes).
+- **Deleting a Lake source drains its lake** (`cs_water_drain`): from the source's cells, every 4-connected wet cell below its
+  level whose surface is within 0.3 m of the source's; rivers running out of it sit lower and are kept (they dry up). Undo puts
+  the source back and raises the water to the drained surface. River/Stream/Sea removal is unchanged.
+- **Wet ground paint** (`native/water/`): per water cell 0..1, rising over `PaintMinutes` (default 20 sim-min) under water
+  deeper than 5 cm (half rate on dry cells next to it, so it reaches the waterline), fading over `PaintFadeHours` (default 24,
+  0 = never). Sleeping tiles paint in one go every 60 s. `cs_water_read_ground` packs it with the **distance to water deeper
+  than 25 cm** (chamfer; +4 m per metre above the nearest surface, like M5.1) as RG8; read ≤ 1×/s on the worker, uploaded by
+  `Terrain.PushWaterGround` as `water_ground`. The shader's `t.shore` is now min(river beds from the M5.1 mask, that distance)
+  and `t.wet` is new; `cs_find_water`'s shore channel no longer seeds from lakes or the sea (a hollow with no lake source stays
+  dry ground). The 25 cm cut keeps beaches off thin sheets and mountain streams (tried 5 cm: a 60 m sand band down the demo stream).
+- **Theme slot "Wet ground"** (`ErosionSlotKind.Wet`, `SLOT_WET`, appended last so saved themes don't shift; shader arrays 8 → 9):
+  default theme sand, winter gravel; defaults edge 0.5, fade 0.4, patchy noise 0.25, max slope 42°. `ground_debug` 5 / `--view=slot:8`.
+  Water panel: Wet Paint (min) and Paint Fades (h) sliders. Map file water section v3 stores the paint (zlib'd bytes per 256² tile)
+  and both settings; v1/v2 still load.
+- **Flow arrows** (`src/Terrain/WaterFlowArrows.cs`): a MultiMesh of flat arrows on a grid around where the camera looks,
+  spacing = camera distance / 20 (2 water cells … 200 m, ≤ 3600), refreshed 5×/s from the snapshot; length and colour (blue →
+  yellow → red) by speed up to 3 m/s. On while a Water tool is out, or always with the Water panel's **Flow arrows** checkbox.
+- **Flow foam** (`shaders/water.gdshader`, group Flow_foam): foam lanes along the flow (two-phase flow map, stretched ×6, in
+  drifting patches) and broken crests across it moving at the water speed, from 0.1 m/s (full at 0.8) on water deeper than
+  ~0.2 m. Rapids foam above 2 m/s is unchanged.
+- **Hover previews** (user asked mid-work): with a Lake/River/Sea tool, the area the source would flood is tinted
+  (`WaterFlood` on a worker: Priority-Flood from the map edge, cached per height edit; the hollow under the source's lowest
+  cell fills to min(level, spill height); Sea floods from the border) with a label: area and volume, or orange with "spills over
+  at …" when the level is above the rim, or "no hollow here: the water runs downhill". Hovering a source shows a label with its
+  kind, level, depth, flow/max flow and pollution (`WaterSourceMarkers.ShowInfo`).
+- `--demo-water` new checks: lake sources (one per hollow, volume = Priority-Flood, kept after 30 min with evaporation, none added
+  on a second pass), drain on delete (only its lake; restore gives the volume back), wet paint + ground marks, flood preview
+  (below the rim fills to the level with the analytic volume; above it spills at the rim), map file keeps the paint. All ok.
+- Default map: 40 hollows → 39–40 lake sources in ~15 ms (after the 180 ms hollow search).
+- Not done / next: the flood preview is hidden under existing water when its level is lower; the demo's `RunFor` batches delay
+  new lakes' fill until they finish (demo only); a River's preview uses the lake rule (its water really runs on downhill).
+
 ### ⬜ M5.3: Water events and structures (next)
 - Waterfalls: curtain mesh + mist where flux crosses a big drop; foam already appears on steep/fast water.
 - Floods (hydrograph on a source, rain event), tsunami (travelling level pulse on the Sea), tides (sine on the sea),
   seasonal streams, detention/retention basins (Lake min/max), a water clean-up burst (evaporation × N).
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
-- Ground masks from the simulated water (sand along real rivers).
+- ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
 ### 🔶 M6: Performance & scale (phases 0–2 done; next: phase 3)
 Target (user): a 70 × 70 km map on an 8 GB M1. Tiered like CS2: a **28,672 m build area** (8192 cells × 3.5 m, an "8k"
@@ -730,8 +774,8 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
   pipe flows (mass-conserving) rather than being advected semi-Lagrangian. Narrow water: measure + mitigate in rendering
   (user's choice); the finer grid is a later milestone. Water look lives in a Godot material (`materials/water.tres`).
 - M5.2: water is **simulated** (virtual pipes, C++ on the CPU, user's choice over a GPU compute shader: instant queries,
-  easier dams/gameplay). The static lakes were replaced (user's choice); Fill Hollows seeds the sim from the Priority-Flood
-  levels. Sources follow the CS2 Water Features mod (Stream, River, Lake, Sea). Core first (M5.2), events/structures in M5.3.
+  easier dams/gameplay). The static lakes were replaced (user's choice); Fill Hollows seeded the sim from the Priority-Flood
+  levels (M5.5: replaced by Lake sources, so all water belongs to a source the user can delete). Sources follow the CS2 Water Features mod (Stream, River, Lake, Sea). Core first (M5.2), events/structures in M5.3.
 - M5.0: lakes are **computed, not generated**: every depression fills to its spill height (Priority-Flood), so water always
   follows the ground. The M4.2 noise channels/basins were removed (user's choice). Erosion is a separate, undoable step run
   from its own panel, not part of the generator. C++ as a plain C library via P/Invoke-style function pointers rather than a

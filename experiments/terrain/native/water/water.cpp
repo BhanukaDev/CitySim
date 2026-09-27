@@ -20,6 +20,11 @@
 // A pollutant is carried as mass per cell and moves with the same pipe flows as the water (each pipe carries its
 // cell's concentration), so its mass is conserved up to decay, open edges, and cells drying out.
 //
+// Wet paint: every cell remembers how long water has stood or run on it (0..1, reached after 1 / paint_rate seconds),
+// and forgets it slowly once dry. Dry cells next to water paint at half the rate, so the mark reaches the waterline.
+// Tiles that aren't stepped are painted in one go every kSleepFlush seconds (their water doesn't change meanwhile).
+// cs_water_read_ground turns it, with the distance to the water, into the bytes the terrain shader textures with.
+//
 // Determinism: flows are computed from the previous phase's arrays only, and every tile writes only its own cells,
 // so results don't depend on the thread count or scheduling; totals are summed in tile order.
 
@@ -51,6 +56,10 @@ constexpr int kCalmTicks = 4;
 constexpr float kWakeDepth = 0.0001f;
 /// Sleeping tiles catch up on evaporation and decay at least this often (simulated seconds), so they show it.
 constexpr float kSleepFlush = 60.0f;
+/// Water at least this deep paints the ground (thinner films on slopes don't).
+constexpr float kPaintDepth = 0.05f;
+/// Water at least this deep counts for the ground distance (shores): lakes, the sea and rivers, not thin streams.
+constexpr float kShoreDepth = 0.25f;
 
 struct SourceCell {
     int32_t i;
@@ -69,7 +78,7 @@ struct CsWater {
     int w = 0, d = 0;
     float cell = 1;
     int tiles_x = 0, tiles_z = 0;
-    std::vector<float> ground, depth, fl, fr, ft, fb, vx, vz, pol, conc;
+    std::vector<float> ground, depth, fl, fr, ft, fb, vx, vz, pol, conc, paint;
     // Per tile: awake (wants stepping), stepped this tick, calm tick count, changed since the last read, holds water,
     // holds a stream source (always awake).
     std::vector<uint8_t> awake, stepped, calm, changed, wet, stream_tile;
@@ -77,11 +86,15 @@ struct CsWater {
     std::vector<uint8_t> source_cell;
     std::vector<int> list;
     std::vector<double> tile_volume, tile_pol;
-    std::vector<float> tile_max_depth, tile_max_speed, tile_max_flow, tile_change, slept;
+    std::vector<float> tile_max_depth, tile_max_speed, tile_max_flow, tile_change, slept, paint_time;
+    // Per tile: holds any wet paint.
+    std::vector<uint8_t> painted;
+    // The water or the paint changed since the last cs_water_read_ground.
+    bool ground_dirty = true;
     std::vector<int> tile_wet_cells, tile_clamp;
     std::vector<Source> sources;
     std::vector<int> border;  // cells within two of the border, for the sea
-    CsWaterParams p{9.81f, 0.2f, 0.0f, 25.0f, 2.0f, 15, 0.03f, 0.0f};
+    CsWaterParams p{9.81f, 0.2f, 0.0f, 25.0f, 2.0f, 15, 0.03f, 0.0f, 0.0f, 0.0f};
     float max_depth = 0, max_speed = 0;
     /// False while there's no pollutant anywhere and no source adds any: the pollutant passes are skipped.
     bool carry = false;
@@ -150,6 +163,44 @@ struct CsWater {
             slept[t] = 0;
         }
         std::fill(changed.begin(), changed.end(), 1);
+        ground_dirty = true;
+    }
+
+    /// Paints (or fades) a tile's cells for `time` seconds of their current water.
+    void Paint(int t, float time) {
+        const float gain = p.paint_rate * time, fade = p.paint_fade * time;
+        bool any = false, moved = false;
+        ForTile(t, [&](int x, int z, int i) {
+            float v = paint[i], next = v;
+            if (depth[i] > kPaintDepth) next = std::min(1.f, v + gain);
+            else if ((x > 0 && depth[i - 1] > kPaintDepth) || (x < w - 1 && depth[i + 1] > kPaintDepth)
+                     || (z > 0 && depth[i - w] > kPaintDepth) || (z < d - 1 && depth[i + w] > kPaintDepth))
+                next = std::min(1.f, v + gain * 0.5f);
+            else if (v > 0) next = std::max(0.f, v - fade);
+            if (next != v) { paint[i] = next; moved = true; }
+            any |= next > 0;
+        });
+        painted[t] = any;
+        if (moved) ground_dirty = true;
+    }
+
+    /// After a tick: paints stepped tiles now, and the others (wet, painted, or next to water) every kSleepFlush.
+    void PaintTick(float dt) {
+        if (p.paint_rate <= 0 && p.paint_fade <= 0) return;
+        std::vector<std::pair<int, float>> todo;
+        for (int tz = 0; tz < tiles_z; tz++)
+            for (int tx = 0; tx < tiles_x; tx++) {
+                int t = tz * tiles_x + tx;
+                bool near = wet[t] || painted[t] || (tx > 0 && wet[t - 1]) || (tx < tiles_x - 1 && wet[t + 1])
+                         || (tz > 0 && wet[t - tiles_x]) || (tz < tiles_z - 1 && wet[t + tiles_x]);
+                if (!near) { paint_time[t] = 0; continue; }
+                paint_time[t] += dt;
+                if (stepped[t] || paint_time[t] >= kSleepFlush) {
+                    todo.push_back({t, paint_time[t]});
+                    paint_time[t] = 0;
+                }
+            }
+        pool->Run((int)todo.size(), [&](int j) { Paint(todo[j].first, todo[j].second); });
     }
 
     /// Catches a sleeping tile up on the evaporation and decay it skipped.
@@ -390,6 +441,7 @@ struct CsWater {
             max_speed = std::max(max_speed, tile_max_speed[t]);
             changed[t] = 1;
         }
+        ground_dirty = true;
     }
 
     /// Puts tiles that stayed calm to sleep and wakes ring tiles that changed; ages the sleeping ones.
@@ -425,13 +477,15 @@ CS_API CsWater* cs_water_create(int32_t width, int32_t depth, float cell_size, i
     w->tiles_x = (width + kTile - 1) / kTile;
     w->tiles_z = (depth + kTile - 1) / kTile;
     size_t n = (size_t)width * depth, tiles = (size_t)w->tiles_x * w->tiles_z;
-    for (auto* v : {&w->ground, &w->depth, &w->fl, &w->fr, &w->ft, &w->fb, &w->vx, &w->vz, &w->pol, &w->conc}) v->assign(n, 0.f);
+    for (auto* v : {&w->ground, &w->depth, &w->fl, &w->fr, &w->ft, &w->fb, &w->vx, &w->vz, &w->pol, &w->conc, &w->paint}) v->assign(n, 0.f);
     for (auto* v : {&w->awake, &w->stepped, &w->calm, &w->changed, &w->wet, &w->stream_tile}) v->assign(tiles, 0);
     w->source_cell.assign(n, 0);
     std::fill(w->changed.begin(), w->changed.end(), 1);
     w->tile_volume.assign(tiles, 0);
     w->tile_pol.assign(tiles, 0);
-    for (auto* v : {&w->tile_max_depth, &w->tile_max_speed, &w->tile_max_flow, &w->tile_change, &w->slept}) v->assign(tiles, 0.f);
+    for (auto* v : {&w->tile_max_depth, &w->tile_max_speed, &w->tile_max_flow, &w->tile_change, &w->slept, &w->paint_time})
+        v->assign(tiles, 0.f);
+    w->painted.assign(tiles, 0);
     w->tile_wet_cells.assign(tiles, 0);
     w->tile_clamp.assign(tiles, 0);
     for (int z = 0; z < depth; z++)
@@ -469,6 +523,7 @@ CS_API int32_t cs_water_set_ground(CsWater* w, const float* heights, int32_t tw,
         }
     });
     w->MarkRect(x0, z0, x1, z1);
+    w->ground_dirty = true;
     return 0;
 }
 
@@ -521,6 +576,7 @@ CS_API int32_t cs_water_step(CsWater* w, float dt, int32_t max_substeps, CsWater
         }
         for (int t : w->list) clamps += w->tile_clamp[t];
         w->EndTick(dt - std::max(remaining, 0.f));
+        w->PaintTick(dt - std::max(remaining, 0.f));
     }
     if (stats) {
         double vol = 0, mass = 0;
@@ -655,4 +711,110 @@ CS_API void cs_water_fill_sources(CsWater* w) {
         }
     }
     w->Reset();
+}
+
+CS_API int32_t cs_water_drain(CsWater* w, float x, float z, float radius, float level, float* removed_surface) {
+    if (!w) return -1;
+    const int W = w->w, D = w->d;
+    if (removed_surface) std::fill(removed_surface, removed_surface + w->depth.size(), std::numeric_limits<float>::quiet_NaN());
+    Source src;
+    src.s = CsWaterSource{CS_WATER_LAKE, x, z, radius, 0, level, 0, 0};
+    w->BuildSourceCells(src);
+    // The source's own surface: the highest wet cell under it, never above its level (a lake still filling is lower).
+    float top = -std::numeric_limits<float>::infinity();
+    for (auto c : src.cells)
+        if (w->depth[c.i] > kWet) top = std::max(top, w->ground[c.i] + w->depth[c.i]);
+    if (!std::isfinite(top)) return 0;
+    const float floor = std::min(top, level) - 0.3f;
+    std::vector<uint8_t> seen(w->depth.size());
+    std::vector<int> stack;
+    auto push = [&](int i) {
+        if (seen[i] || w->depth[i] <= 0 || w->ground[i] >= level || w->ground[i] + w->depth[i] < floor) return;
+        seen[i] = 1;
+        stack.push_back(i);
+    };
+    for (auto c : src.cells) push(c.i);
+    int n = 0;
+    while (!stack.empty()) {
+        int i = stack.back();
+        stack.pop_back();
+        if (removed_surface) removed_surface[i] = w->ground[i] + w->depth[i];
+        w->depth[i] = w->pol[i] = 0.f;
+        w->fl[i] = w->fr[i] = w->ft[i] = w->fb[i] = w->vx[i] = w->vz[i] = 0.f;
+        n++;
+        int cx = i % W, cz = i / W;
+        if (cx > 0) push(i - 1);
+        if (cx < W - 1) push(i + 1);
+        if (cz > 0) push(i - W);
+        if (cz < D - 1) push(i + W);
+    }
+    if (n == 0) return 0;
+    for (int t = 0; t < w->tiles_x * w->tiles_z; t++) {
+        bool hit = false;
+        w->ForTile(t, [&](int, int, int i) { hit |= seen[i] != 0; });
+        if (!hit) continue;
+        w->RecountTile(t);
+        w->Wake(t);
+    }
+    w->ground_dirty = true;
+    return n;
+}
+
+CS_API int32_t cs_water_read_ground(CsWater* w, uint8_t* out, int32_t force) {
+    if (!w || !out) return -1;
+    if (!force && !w->ground_dirty) return 0;
+    w->ground_dirty = false;
+    const int W = w->w, D = w->d;
+    const float c1 = w->cell, c2 = w->cell * std::sqrt(2.f), far = 1e9f;
+    // Two-pass chamfer distance to water, carrying the surface of the water each cell is closest to.
+    std::vector<float> dist(w->depth.size(), far), surf(w->depth.size(), 0.f);
+    for (size_t i = 0; i < dist.size(); i++)
+        if (w->depth[i] > kShoreDepth) { dist[i] = 0; surf[i] = w->ground[i] + w->depth[i]; }
+    auto relax = [&](int i, int n, float cost) {
+        if (dist[n] + cost < dist[i]) { dist[i] = dist[n] + cost; surf[i] = surf[n]; }
+    };
+    for (int z = 0; z < D; z++)
+        for (int x = 0; x < W; x++) {
+            int i = z * W + x;
+            if (x > 0) relax(i, i - 1, c1);
+            if (z > 0) {
+                relax(i, i - W, c1);
+                if (x > 0) relax(i, i - W - 1, c2);
+                if (x < W - 1) relax(i, i - W + 1, c2);
+            }
+        }
+    for (int z = D - 1; z >= 0; z--)
+        for (int x = W - 1; x >= 0; x--) {
+            int i = z * W + x;
+            if (x < W - 1) relax(i, i + 1, c1);
+            if (z < D - 1) {
+                relax(i, i + W, c1);
+                if (x < W - 1) relax(i, i + W + 1, c2);
+                if (x > 0) relax(i, i + W - 1, c2);
+            }
+        }
+    w->pool->Run(D, [&](int z) {
+        for (int x = 0; x < W; x++) {
+            size_t i = (size_t)z * W + x;
+            float m = dist[i] >= far ? 64.f : dist[i] + 4.f * std::max(0.f, w->ground[i] - surf[i]);
+            out[i * 2] = (uint8_t)std::min(255.f, std::round(m * 4.f));
+            out[i * 2 + 1] = (uint8_t)std::round(std::clamp(w->paint[i], 0.f, 1.f) * 255.f);
+        }
+    });
+    return 1;
+}
+
+CS_API void cs_water_get_paint(CsWater* w, float* paint) {
+    if (w && paint) std::copy(w->paint.begin(), w->paint.end(), paint);
+}
+
+CS_API void cs_water_set_paint(CsWater* w, const float* paint) {
+    if (!w) return;
+    for (size_t i = 0; i < w->paint.size(); i++) w->paint[i] = paint && std::isfinite(paint[i]) ? std::clamp(paint[i], 0.f, 1.f) : 0.f;
+    for (int t = 0; t < w->tiles_x * w->tiles_z; t++) {
+        bool any = false;
+        w->ForTile(t, [&](int, int, int i) { any |= w->paint[i] > 0; });
+        w->painted[t] = any;
+    }
+    w->ground_dirty = true;
 }

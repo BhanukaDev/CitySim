@@ -20,7 +20,8 @@ namespace CitySim.Debug;
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
 /// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
-/// --show-water (Water panel), --hide-water (don't draw it), --water-speed=n, --water-run=seconds (simulate that long right away),
+/// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
+/// --preview-at=x,z,level (the Lake placement preview there), --water-speed=n, --water-run=seconds (simulate that long right away),
 /// --pollute=kg/s (the --demo-water stream carries pollutant), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
@@ -30,6 +31,7 @@ namespace CitySim.Debug;
 public partial class DebugOverlay : CanvasLayer
 {
     private float _demoPollution;
+    private bool _demoNoTool;
     [Export] public CityCamera? CityCamera { get; set; }
     [Export] public Terrain? Terrain { get; set; }
     [Export] public TerrainToolController? Tools { get; set; }
@@ -83,6 +85,16 @@ public partial class DebugOverlay : CanvasLayer
                 Callable.From(RunWaterDemo).CallDeferred();
             else if (arg == "--hide-water" && Terrain is not null)
                 Terrain.ShowWater = false;
+            else if (arg.StartsWith("--preview-at="))
+            {
+                var v = arg["--preview-at=".Length..].Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                GetTree().CreateTimer(3.0).Timeout += () =>
+                    Terrain?.PreviewSource(new WaterSource(0, WaterSourceKind.Lake, v[0], v[1], 40f, v[2], MaxFlow: 100f));
+            }
+            else if (arg == "--no-tool")
+                _demoNoTool = true;
+            else if (arg == "--water-arrows")
+                Callable.From(() => { if (Terrain is not null) Terrain.FlowArrows = true; }).CallDeferred();
             else if (arg == "--show-water")
                 Callable.From(() =>
                 {
@@ -97,7 +109,8 @@ public partial class DebugOverlay : CanvasLayer
                 _demoPollution = pollute;
             else if (arg.StartsWith("--water-run=") && double.TryParse(arg["--water-run=".Length..],
                          System.Globalization.CultureInfo.InvariantCulture, out double seconds))
-                Callable.From(() => Terrain?.Water?.RunFor(seconds)).CallDeferred();
+                // After the hollow search has put lake sources in (a new map), so they're part of the run.
+                GetTree().CreateTimer(2.0).Timeout += () => Terrain?.Water?.RunFor(seconds);
             else if (arg == "--show-theme")
                 Callable.From(() =>
                 {
@@ -187,8 +200,23 @@ public partial class DebugOverlay : CanvasLayer
             new WaterSource(3, WaterSourceKind.Lake, low.X * cs, low.Z * cs, 60f, map[low.X, low.Z] + 6f, MaxFlow: 200f),
         ]);
         water.RunFor(900);
-        Tools.Tool = TerrainTool.WaterRiver;
+        Tools.Tool = _demoNoTool ? TerrainTool.None : TerrainTool.WaterRiver;
         GD.Print($"Demo water: stream at ({high.X * cs:0}, {high.Z * cs:0}), river at (0, {border.Z * cs:0}), lake at ({low.X * cs:0}, {low.Z * cs:0})");
+        // For close-ups of flow foam and arrows: the deepest water running at 0.5–2 m/s once things have settled.
+        GetTree().CreateTimer(20.0).Timeout += () =>
+        {
+            if (Terrain?.Water != water) return;
+            (float X, float Z, float Depth, float Speed) best = (0, 0, 0, 0);
+            for (float z = 0; z < map.SizeZ; z += water.CellSize * 2)
+                for (float x = 0; x < map.SizeX; x += water.CellSize * 2)
+                {
+                    float d = water.DepthAt(x, z);
+                    var (vx, vz) = water.VelocityAt(x, z);
+                    float v = Mathf.Sqrt(vx * vx + vz * vz);
+                    if (v is > 0.5f and < 2f && d > best.Depth) best = (x, z, d, v);
+                }
+            GD.Print($"Demo water: moderate flow at ({best.X:0}, {best.Z:0}), {best.Depth:0.00} m deep, {best.Speed:0.00} m/s");
+        };
     }
 
     /// <summary>

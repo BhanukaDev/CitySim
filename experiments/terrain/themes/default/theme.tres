@@ -177,6 +177,18 @@ LimitSlope = true
 MaxSlope = 50.0
 SlopeFade = 10.0
 
+[sub_resource type="Resource" id="slot_Wet"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_sand")
+Strength = 1.0
+Edge = 0.5
+Fade = 0.4
+Noise = 0.25
+NoiseSize = 1
+LimitSlope = true
+MaxSlope = 42.0
+SlopeFade = 8.0
+
 [resource]
 script = ExtResource("1_theme")
 Id = "default"
@@ -192,3 +204,4 @@ ShoreFringe = SubResource("slot_ShoreFringe")
 Shore = SubResource("slot_Shore")
 StreamBank = SubResource("slot_StreamBank")
 StreamBed = SubResource("slot_StreamBed")
+Wet = SubResource("slot_Wet")

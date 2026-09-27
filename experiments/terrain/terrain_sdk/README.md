@@ -70,7 +70,7 @@ At each point, layers go on in this order:
 2. `terrain_auto`
 3. the scour and deposit slots
 4. `terrain_auto_late`
-5. the shore and stream slots
+5. the shore, stream and wet ground slots
 6. painted materials
 
 The four strongest materials are then sampled and height-blended.
@@ -83,10 +83,11 @@ The four strongest materials are then sampled and height-blended.
 | `height` | Height, in metres |
 | `h01` | 0–1 within the map's height range |
 | `slope` | Degrees |
-| `shore` | Metres to lakes, the sea and rivers. Each metre above the water counts as 4; 64 m and beyond reads as 64 |
+| `shore` | Metres to the simulated water (lakes, the sea, rivers deeper than 25 cm) and to river beds. Each metre above the water counts as 4; 64 m and beyond reads as 64 |
 | `gully` | Metres to gully and stream beds; negative inside a bed |
 | `wear` | How hard water scours. On an eroded map about 10% of the ground is above 1.8 |
 | `deposit` | Sediment: fans and deltas. About 1% of the ground is above 1.2 |
+| `wet` | 0–1: how long the simulated water has stood or run here. Rises over the Water panel's Wet Paint minutes, fades over Paint Fades hours once dry |
 | `noise_large`, `noise_medium`, `noise_fine`, `noise_patchy` | 0–1 noise with patches of about 700 m, 150 m, 10 m and 35 m |
 
 **Helpers**:
@@ -109,7 +110,7 @@ uniforms can be tuned the same way:
 
 ## Erosion slots
 
-The lake and erosion search produces masks that a shader can't work out by itself. A slot lays one of your materials
+The lake and erosion search and the water simulation produce masks that a shader can't work out by itself. A slot lays one of your materials
 from one of those masks. An empty slot isn't drawn and costs nothing.
 
 | Slot | Mask | Covers | Default theme |
@@ -118,6 +119,7 @@ from one of those masks. An empty slot isn't drawn and costs nothing.
 | Scoured ground / Heavily scoured | wear | ground above `Edge` | dirt / gravel |
 | Shore fringe / Shore | shore distance | ground closer than `Edge` metres | worn grass / sand |
 | Stream banks / Stream beds | gully distance | ground closer than `Edge` metres | dirt / gravel |
+| Wet ground | wet paint | ground above `Edge` (0–1) | sand |
 
 A new theme's slots start with the default theme's tuned settings, so usually you only pick a material. Other
 settings:

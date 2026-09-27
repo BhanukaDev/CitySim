@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
@@ -96,7 +97,17 @@ public partial class Terrain : Node3D
     private string? _lastThemeWarning;
     private WaterSurface? _waterSurface;
     private WaterSourceMarkers? _markers;
-    private bool _fillOnLakes;
+    private WaterFlowArrows? _arrows;
+    private WaterPreview? _preview;
+    // Add lake sources when the hollow search finishes; the callback (if any) gets what was added, for undo.
+    private bool _lakeSourcesPending;
+    private System.Action<LakeSourcesAdded>? _lakeSourcesDone;
+    private CancellationTokenSource? _planJob;
+    // Ground marks from the water (distance to water, wet paint) for the terrain shader.
+    private Image? _groundImage;
+    private ImageTexture? _groundTexture;
+    private byte[]? _groundBytes;
+    private long _groundVersion = -1;
     private double _lakeTimer = -1;
     private CancellationTokenSource? _lakeJob;
     private bool _lakesFailed;
@@ -124,7 +135,7 @@ public partial class Terrain : Node3D
     /// <summary>
     /// Hollows filled to their spill height (Priority-Flood) on the current heights, or null until the first search
     /// finishes. Not the water itself (that's <see cref="Water"/>): it carries the ground masks (shores, gullies, wear,
-    /// deposits) the shader textures with, and the levels <see cref="FillHollows"/> fills to.
+    /// deposits) the shader textures with, and the hollows <see cref="AddLakeSources"/> puts Lake sources in.
     /// </summary>
     public LakeMap? Lakes { get; private set; }
     /// <summary>Time the last lake search took (find + ground masks + mesh arrays).</summary>
@@ -225,7 +236,30 @@ public partial class Terrain : Node3D
             _skirt?.Rebuild();
         }
         PushDirty();
+        PushWaterGround();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
+    }
+
+    /// <summary>Uploads the water's ground marks (distance to water, wet paint) when the sim published new ones.</summary>
+    private void PushWaterGround()
+    {
+        if (_render is null || Water is not { } sim || sim.GroundVersion == _groundVersion) return;
+        int n = sim.Width * sim.Depth * 2;
+        if (_groundBytes?.Length != n) _groundBytes = new byte[n];
+        _groundVersion = sim.CopyGroundMarks(_groundBytes);
+        if (_groundImage is null || _groundImage.GetWidth() != sim.Width || _groundImage.GetHeight() != sim.Depth)
+        {
+            _groundImage = Image.CreateFromData(sim.Width, sim.Depth, false, Image.Format.Rg8, _groundBytes);
+            _groundTexture = ImageTexture.CreateFromImage(_groundImage);
+        }
+        else
+        {
+            _groundImage.SetData(sim.Width, sim.Depth, false, Image.Format.Rg8, _groundBytes);
+            _groundTexture!.Update(_groundImage);
+        }
+        _render.SetParam("water_ground", _groundTexture);
+        _render.SetParam("water_ground_cell", sim.CellSize);
+        _render.SetParam("has_water_ground", true);
     }
 
     public override void _ExitTree()
@@ -269,10 +303,12 @@ public partial class Terrain : Node3D
                 GD.Print($"Terrain: {lakes.Count} lakes and ground masks in {ms:0} ms");
                 Lakes = lakes;
                 LastLakeMs = ms;
-                if (_fillOnLakes && Water is not null)
+                if (_lakeSourcesPending && Water is not null)
                 {
-                    _fillOnLakes = false;
-                    Water.FillHollows(lakes.Level);
+                    _lakeSourcesPending = false;
+                    var done = _lakeSourcesDone;
+                    _lakeSourcesDone = null;
+                    PlanLakeSources(done);
                 }
                 LakesChanged?.Invoke();
             }).CallDeferred();
@@ -290,39 +326,84 @@ public partial class Terrain : Node3D
     }
 
     /// <summary>
-    /// Fills every hollow to its spill height, and the sea up to sea level, instantly. Waits for the hollow search if
-    /// it's still running.
+    /// Puts a Lake source in every hollow that has no Lake or River source yet (<see cref="LakeSources"/>), sized for it,
+    /// and fills those hollows to their spill height at once; floods the sea up to sea level too. The water belongs to
+    /// the sources, so a lake the user doesn't want is deleted with its source. Waits for the hollow search if it's still
+    /// running. <paramref name="done"/> gets what was added (for undo), on the main thread.
     /// </summary>
-    public void FillHollows()
+    public void AddLakeSources(System.Action<LakeSourcesAdded>? done = null)
     {
         if (Water is null) return;
-        if (Lakes is { } lakes && lakes.Width == Map?.Width) Water.FillHollows(lakes.Level);
+        if (Lakes is { } lakes && lakes.Width == Map?.Width && !_lakeSourcesPending && _lakeTimer < 0) PlanLakeSources(done);
         else
         {
-            _fillOnLakes = true;
+            _lakeSourcesPending = true;
+            _lakeSourcesDone = done;
             RefreshLakes(0);
         }
     }
 
+    private void PlanLakeSources(System.Action<LakeSourcesAdded>? done)
+    {
+        if (Water is not { } sim || Lakes is not { } lakes || Map is not { } map) return;
+        _planJob?.Cancel();
+        var job = _planJob = new CancellationTokenSource();
+        int version = HeightVersion;
+        var existing = sim.Sources.ToArray();
+        int firstId = sim.NextSourceId();
+        float minRadius = sim.CellSize * 1.5f, evap = sim.Settings.EvaporationMmPerMin;
+        Task.Run(() =>
+        {
+            var sw = Stopwatch.StartNew();
+            var plan = LakeSources.Plan(lakes, map, existing, firstId, minRadius, evap, job.Token);
+            if (plan is null) return;
+            double ms = sw.Elapsed.TotalMilliseconds;
+            var levels = plan.Lakes.Count > 0 ? plan.Levels() : null;
+            Callable.From(() =>
+            {
+                if (!IsInstanceValid(this) || job.IsCancellationRequested || Water != sim || version != HeightVersion) return;
+                var before = sim.Sources.ToArray();
+                var added = plan.Lakes.Select(l => l.Source with { Id = 0 }).ToList();
+                // Ids again from the current list, in case sources changed while planning.
+                int id = sim.NextSourceId();
+                var sources = added.Select(s => s with { Id = id++ }).ToArray();
+                var after = before.Concat(sources).ToArray();
+                if (sources.Length > 0) sim.SetSources(after);
+                if (levels is not null) sim.RaiseTo(levels);
+                sim.FillHollows(null);
+                GD.Print($"Terrain: {sources.Length} lake sources added in {ms:0} ms");
+                done?.Invoke(new LakeSourcesAdded(before, after, sources, levels));
+            }).CallDeferred();
+        }, job.Token).ContinueWith(t =>
+        {
+            if (t.IsFaulted) Callable.From(() => GD.PushError($"Terrain: planning lake sources failed: {t.Exception!.GetBaseException().Message}")).CallDeferred();
+        });
+    }
+
     /// <summary>The water to save with the map, or null when there's no simulation.</summary>
     public WaterData? SaveWater() => Water is { } w
-        ? new WaterData(w.Settings, w.Sources, w.Width, w.Depth, w.ReadDepth(), w.ReadPollution())
+        ? new WaterData(w.Settings, w.Sources, w.Width, w.Depth, w.ReadDepth(), w.ReadPollution(), w.ReadPaint())
         : null;
 
     private void DisposeWater()
     {
+        _planJob?.Cancel();
+        _lakeSourcesPending = false;
+        _lakeSourcesDone = null;
         Water?.Dispose();
         Water = null;
+        _groundVersion = -1;
+        _render?.SetParam("has_water_ground", false);
     }
 
     /// <summary>
-    /// Starts the water for a new map: saved water as it was, else no water and the hollows filled once they're found
-    /// (a new or pre-water map looks like it did with static lakes). A generated map with a sea shape gets a sea source.
+    /// Starts the water for a new map: saved water as it was, else no water and a Lake source in each hollow once they're
+    /// found (a new or pre-water map looks like it did with static lakes). A generated map with a sea shape gets a sea
+    /// source.
     /// </summary>
     private void StartWater(HeightMap map, WaterData? saved)
     {
         DisposeWater();
-        _fillOnLakes = false;
         if (Engine.IsEditorHint()) return;
         try
         {
@@ -341,14 +422,15 @@ public partial class Terrain : Node3D
             {
                 Water.LoadDepth(grid);
                 if (saved.PollutionGrid is { } pollution) Water.LoadPollution(pollution);
+                if (saved.PaintGrid is { } paint) Water.LoadPaint(paint);
             }
-            else _fillOnLakes = true;
+            else _lakeSourcesPending = true;
         }
         else
         {
             if (SeaLevel is { } sea)
                 Water.SetSources([new WaterSource(1, WaterSourceKind.Sea, map.SizeX * 0.5f, 0f, 0f, sea)]);
-            _fillOnLakes = true;
+            _lakeSourcesPending = true;
         }
         _waterSurface = new WaterSurface { Name = "Water", Visible = _showWater };
         AddChild(_waterSurface);
@@ -356,6 +438,12 @@ public partial class Terrain : Node3D
         _markers = new WaterSourceMarkers { Name = "WaterSources", Visible = false };
         AddChild(_markers);
         _markers.Init(this, Water);
+        _arrows = new WaterFlowArrows { Name = "FlowArrows", Visible = false };
+        AddChild(_arrows);
+        _arrows.Init(this, Water);
+        _preview = new WaterPreview { Name = "WaterPreview", Visible = false };
+        AddChild(_preview);
+        _preview.Init(this, Water);
         WaterChanged?.Invoke();
     }
 
@@ -366,6 +454,36 @@ public partial class Terrain : Node3D
         _markers.Visible = visible;
         if (visible) _markers.SetHighlight(hovered, selected);
     }
+
+    /// <summary>The info label over the hovered source (null hides it).</summary>
+    public void ShowWaterSourceInfo(int? id) => _markers?.ShowInfo(id);
+
+    private bool _flowArrowsForced, _flowArrowsTool;
+    /// <summary>Flow arrows on at all times (Water panel checkbox), not just while a water tool is out.</summary>
+    public bool FlowArrows
+    {
+        get => _flowArrowsForced;
+        set { _flowArrowsForced = value; UpdateArrows(); }
+    }
+
+    /// <summary>A water tool is out: show the flow arrows.</summary>
+    public void ShowFlowArrowsForTool(bool on)
+    {
+        if (on == _flowArrowsTool) return;
+        _flowArrowsTool = on;
+        UpdateArrows();
+    }
+
+    private void UpdateArrows()
+    {
+        if (_arrows is not null) _arrows.Visible = _flowArrowsForced || _flowArrowsTool;
+    }
+
+    /// <summary>
+    /// Previews the water a Lake, River or Sea source placed here would hold (local metres; null hides it). Worked out
+    /// on a worker; the label shows the area and volume.
+    /// </summary>
+    public void PreviewSource(WaterSource? source) => _preview?.Show(source);
 
     /// <summary>Copies this frame's edits to Terrain3D.</summary>
     public void PushDirty()
@@ -450,10 +568,12 @@ public partial class Terrain : Node3D
         _render?.Free();
         _render = null;
         foreach (var child in GetChildren())
-            if (child is TerrainSkirt or WaterSurface or WaterSourceMarkers)
+            if (child is TerrainSkirt or WaterSurface or WaterSourceMarkers or WaterFlowArrows or WaterPreview)
                 child.Free();
         _waterSurface = null;
         _markers = null;
+        _arrows = null;
+        _preview = null;
         _heightDirty = _splatDirty = VertexRect.Empty;
         _lakeJob?.Cancel();
         Lakes = null;
@@ -756,6 +876,7 @@ public partial class Terrain : Node3D
     [
         "height_min", "height_max", "terrain_origin", "terrain_size", "albedo_height_array", "normal_array", "material_tint",
         "material_params", "slot_edge", "slot_slope", "terrain_debug", "slot_debug", "ground_debug", "show_grid", "show_contours",
+        "water_ground", "water_ground_cell", "has_water_ground",
     ];
 
     /// <summary>

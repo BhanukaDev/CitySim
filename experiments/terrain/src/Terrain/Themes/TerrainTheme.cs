@@ -42,6 +42,8 @@ public partial class TerrainTheme : Resource
     [Export] public ErosionSlot Shore { get; set; } = ErosionSlot.Default(ErosionSlotKind.Shore);
     [Export] public ErosionSlot StreamBank { get; set; } = ErosionSlot.Default(ErosionSlotKind.StreamBank);
     [Export] public ErosionSlot StreamBed { get; set; } = ErosionSlot.Default(ErosionSlotKind.StreamBed);
+    /// <summary>Painted slowly where the simulated water stands or runs (default theme: sand).</summary>
+    [Export] public ErosionSlot Wet { get; set; } = ErosionSlot.Default(ErosionSlotKind.Wet);
 
     public string Label => string.IsNullOrEmpty(DisplayName) ? Id : DisplayName;
 
@@ -53,7 +55,7 @@ public partial class TerrainTheme : Resource
     public string PreviewPath(TerrainMaterial m) => Dir + "/baked/preview_" + m.Id + ".png";
 
     /// <summary>The slots in shader order.</summary>
-    public ErosionSlot[] Slots => [Deposit, DepositHeavy, Scour, ScourHeavy, ShoreFringe, Shore, StreamBank, StreamBed];
+    public ErosionSlot[] Slots => [Deposit, DepositHeavy, Scour, ScourHeavy, ShoreFringe, Shore, StreamBank, StreamBed, Wet];
 
     /// <summary>Material ids in shader order: what a map's painted indices mean with this theme.</summary>
     public string[] MaterialIds()

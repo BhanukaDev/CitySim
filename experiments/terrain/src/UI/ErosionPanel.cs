@@ -12,8 +12,8 @@ namespace CitySim.UI;
 
 /// <summary>
 /// Map Editor panel (right side): runs rain erosion (C++, <see cref="ErosionSim"/>) on the current map as one undo
-/// step, and sets which hollows count as lakes: those drive the shore/stream ground textures and what the Water panel's
-/// Fill Hollows fills. The water itself is simulated (Water panel).
+/// step, and sets which hollows count as lakes: those decide where the Water panel's
+/// Add Lake Sources puts sources in. The water itself is simulated (Water panel).
 /// </summary>
 public partial class ErosionPanel : PanelContainer
 {
@@ -212,7 +212,7 @@ public partial class ErosionPanel : PanelContainer
     {
         if (Terrain?.Lakes is not { } lakes) { _lakeInfo.Text = "Finding lakes…"; return; }
         float km2 = lakes.WetVertices() * lakes.CellSize * lakes.CellSize / 1e6f;
-        _lakeInfo.Text = $"{lakes.Count} hollows would hold lakes, {km2:0.##} km² (Water panel → Fill Hollows)";
+        _lakeInfo.Text = $"{lakes.Count} hollows would hold lakes, {km2:0.##} km² (Water panel → Add Lake Sources)";
     }
 
     // --- Run ---

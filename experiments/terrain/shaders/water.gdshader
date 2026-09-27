@@ -109,6 +109,19 @@ uniform vec2 foam_speed = vec2(2.0, 5.5);
 uniform vec2 foam_slope = vec2(0.1, 0.4);
 /// Rapids foam is stretched this much along the flow.
 uniform float foam_streak = 3.0;
+group_uniforms Flow_foam;
+/// Foam lanes and crests that ride the current, showing which way and how fast the water flows.
+uniform float flow_foam_strength : hint_range(0.0, 1.0) = 0.7;
+/// Water speed (m/s) where flow foam starts and where it's full.
+uniform vec2 flow_foam_speed = vec2(0.1, 0.8);
+/// Metres per repeat of the flow foam pattern (across the flow).
+uniform float flow_foam_scale = 10.0;
+/// Lanes are stretched this much along the flow.
+uniform float flow_foam_stretch = 6.0;
+/// Strength of the crests across the flow (0 = lanes only).
+uniform float flow_foam_crests : hint_range(0.0, 1.0) = 0.5;
+/// Metres between crests.
+uniform float flow_foam_crest_spacing = 9.0;
 group_uniforms Waves;
 /// White breaker lines rolling toward the shore over shallow, calm water.
 uniform float breaker_strength : hint_range(0.0, 1.0) = 0.8;
@@ -288,6 +301,24 @@ void fragment() {
 		smoothstep(foam_slope.x, foam_slope.y, slope) * smoothstep(0.5, 2.0, speed));
 	rapid *= smoothstep(0.05, 0.3, sim_depth);
 	foam = max(foam, smoothstep(0.5, 0.56, streak + rapid * 0.75 - 0.35) * step(0.01, rapid));
+	// Flow foam at ordinary river speeds: thin lanes of foam along the flow and broken crests across it, both carried
+	// downstream by the flow map, so the current reads at a glance.
+	float flowing = smoothstep(flow_foam_speed.x, flow_foam_speed.y, speed) * smoothstep(0.1, 0.4, sim_depth)
+		* flow_foam_strength * fade;
+	if (flowing > 0.001) {
+		vec2 a0 = vec2(dot(q0, perp), dot(q0, dir) / flow_foam_stretch) / flow_foam_scale;
+		vec2 a1 = vec2(dot(q1, perp), dot(q1, dir) / flow_foam_stretch) / flow_foam_scale + vec2(0.31, 0.57);
+		float lane = mix(texture(foam_noise, a1).r, texture(foam_noise, a0).r, w0);
+		float lanes = smoothstep(0.6, 0.65, lane) * (1.0 - smoothstep(0.72, 0.78, lane));
+		// Foam gathers in drifting patches, not evenly over the whole river.
+		lanes *= smoothstep(0.4, 0.6, texture(foam_noise, (world_pos.xz - flow * TIME * 0.5) / (flow_foam_scale * 5.0)).r);
+		// Crests: bands across the flow at the water's speed, broken up by noise so they read as ripples, not stripes.
+		float along = dot(world_pos.xz, dir) - TIME * speed * flow_drag;
+		float n_crest = texture(foam_noise, vec2(dot(world_pos.xz, perp), along * 0.5) / (flow_foam_scale * 1.7)).r;
+		float crest = smoothstep(0.9, 0.97, sin(along / flow_foam_crest_spacing * 6.2831853 + n_crest * 5.0))
+			* smoothstep(0.45, 0.6, n_crest) * flow_foam_crests;
+		foam = max(foam, max(lanes * 0.85, crest) * flowing * smoothstep(0.25, 0.4, n_foam));
+	}
 	// Breakers: crest lines along depth contours (so parallel to the shore), rolling toward it over calm shallows.
 	float crest = sin(sim_depth * breaker_frequency * 6.2831853 + TIME * breaker_speed * 6.2831853 + n_foam * 3.0);
 	float n_wave = texture(foam_noise, world_pos.xz / (foam_scale * 4.0) - vec2(TIME * 0.01)).r;

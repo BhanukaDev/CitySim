@@ -188,13 +188,30 @@ public sealed class WaterSourceTool
         }
         Hovered = IsDragging ? Selected : cursor is { } h ? HitTest(Local(h))?.Id : null;
         terrain.ShowWaterSources(true, Hovered, Selected);
+        terrain.ShowWaterSourceInfo(Hovered);
+        terrain.ShowFlowArrowsForTool(true);
 
-        // Preview ring where a click would place a source (hidden over an existing one).
+        // Preview ring where a click would place a source (hidden over an existing one), and the water it would hold.
         bool preview = cursor is not null && Hovered is null && !IsDragging;
         var at = cursor is { } cur ? Local(cur) : Vector2.Zero;
         if (Kind == WaterSourceKind.River) at = Snapped(at, Radius);
         float r = Kind == WaterSourceKind.Sea ? WaterSourceMarkers.SeaMarkerRadius : Radius;
         terrain.SetBrush(new Vector3(at.X, terrain.GetHeight(at.X, at.Y), at.Y), r, preview);
+        terrain.PreviewSource(preview ? Candidate(at) : null);
+    }
+
+    /// <summary>The source a click at <paramref name="p"/> would place (see <see cref="Add"/>).</summary>
+    private WaterSource Candidate(Vector2 p)
+    {
+        float level = Kind switch
+        {
+            WaterSourceKind.Sea => SeaLevel,
+            WaterSourceKind.Stream => 0f,
+            _ => _pickedLevel ?? GroundAt(p.X, p.Y) + Depth,
+        };
+        return new WaterSource(0, Kind, p.X, p.Y, Kind == WaterSourceKind.Sea ? 0f : Radius, level,
+            Kind == WaterSourceKind.Stream ? _flowRate : 0f, Kind == WaterSourceKind.Lake ? _maxFlow : 0f,
+            Kind == WaterSourceKind.Stream ? _pollution : 0f);
     }
 
     /// <summary>The tool was put away: stop dragging and hide the markers.</summary>
@@ -203,6 +220,9 @@ public sealed class WaterSourceTool
         if (IsDragging) EndDrag();
         Hovered = null;
         Terrain?.ShowWaterSources(false);
+        Terrain?.ShowWaterSourceInfo(null);
+        Terrain?.ShowFlowArrowsForTool(false);
+        Terrain?.PreviewSource(null);
     }
 
     // --- Edits ---
@@ -211,25 +231,37 @@ public sealed class WaterSourceTool
     {
         if (Sim is not { } sim) return;
         if (Kind == WaterSourceKind.River) p = Snapped(p, Radius);
-        float level = Kind switch
-        {
-            WaterSourceKind.Sea => SeaLevel,
-            WaterSourceKind.Stream => 0f,
-            _ => _pickedLevel ?? GroundAt(p.X, p.Y) + Depth,
-        };
-        var s = new WaterSource(sim.NextSourceId(), Kind, p.X, p.Y, Kind == WaterSourceKind.Sea ? 0f : Radius, level,
-            Kind == WaterSourceKind.Stream ? _flowRate : 0f, Kind == WaterSourceKind.Lake ? _maxFlow : 0f,
-            Kind == WaterSourceKind.Stream ? _pollution : 0f);
+        var s = Candidate(p) with { Id = sim.NextSourceId() };
         Commit(sim.Sources.Append(s).ToArray());
         Selected = s.Id;
         _c.NotifyChanged();
     }
 
+    /// <summary>Removes a source; a Lake's water goes with it (undo puts both back).</summary>
     private void Remove(WaterSource s)
     {
         if (Sim is not { } sim) return;
         if (Selected == s.Id) Selected = null;
-        Commit(sim.Sources.Where(x => x.Id != s.Id).ToArray());
+        var before = sim.Sources.ToArray();
+        var after = before.Where(x => x.Id != s.Id).ToArray();
+        sim.SetSources(after);
+        float[]? drained = s.Kind == WaterSourceKind.Lake ? sim.DrainSource(s) : null;
+        _c.History.PushAction(
+            () =>
+            {
+                if (Sim != sim) return;
+                sim.SetSources(before);
+                if (drained is not null) sim.RestoreSurface(drained);
+                _c.NotifyChanged();
+            },
+            () =>
+            {
+                if (Sim != sim) return;
+                sim.SetSources(after);
+                if (drained is not null) sim.DrainSource(s);
+                _c.NotifyChanged();
+            });
+        _c.NotifyChanged();
     }
 
     private void Replace(WaterSource old, WaterSource now)

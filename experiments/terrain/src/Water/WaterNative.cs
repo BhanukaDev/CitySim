@@ -43,7 +43,7 @@ internal static unsafe class WaterNative
     {
         public float Gravity, Damping, Evaporation, MaxSpeed, LevelRate;
         public int OpenEdges;
-        public float Manning, PollutionDecay;
+        public float Manning, PollutionDecay, PaintRate, PaintFade;
     }
 
     private static readonly object Gate = new();
@@ -62,6 +62,10 @@ internal static unsafe class WaterNative
     private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _setPollution;
     private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _raiseTo;
     private static delegate* unmanaged[Cdecl]<IntPtr, void> _fillSources;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float, float, float, float, float*, int> _drain;
+    private static delegate* unmanaged[Cdecl]<IntPtr, byte*, int, int> _readGround;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _getPaint;
+    private static delegate* unmanaged[Cdecl]<IntPtr, float*, void> _setPaint;
 
     /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://native/water/bin</c>).</summary>
     public static string? Directory { get; set; }
@@ -94,6 +98,10 @@ internal static unsafe class WaterNative
             _setPollution = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_set_pollution");
             _raiseTo = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_raise_to");
             _fillSources = (delegate* unmanaged[Cdecl]<IntPtr, void>)F("cs_water_fill_sources");
+            _drain = (delegate* unmanaged[Cdecl]<IntPtr, float, float, float, float, float*, int>)F("cs_water_drain");
+            _readGround = (delegate* unmanaged[Cdecl]<IntPtr, byte*, int, int>)F("cs_water_read_ground");
+            _getPaint = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_get_paint");
+            _setPaint = (delegate* unmanaged[Cdecl]<IntPtr, float*, void>)F("cs_water_set_paint");
             _loaded = true;
         }
     }
@@ -149,4 +157,13 @@ internal static unsafe class WaterNative
     public static void SetPollution(IntPtr h, ReadOnlySpan<float> mass) { fixed (float* p = mass) _setPollution(h, mass.IsEmpty ? null : p); }
     public static void RaiseTo(IntPtr h, ReadOnlySpan<float> surface) { fixed (float* p = surface) _raiseTo(h, p); }
     public static void FillSources(IntPtr h) => _fillSources(h);
+
+    public static int Drain(IntPtr h, float x, float z, float radius, float level, Span<float> removedSurface)
+    {
+        fixed (float* p = removedSurface) return _drain(h, x, z, radius, level, removedSurface.IsEmpty ? null : p);
+    }
+
+    public static bool ReadGround(IntPtr h, Span<byte> into, bool force) { fixed (byte* p = into) return _readGround(h, p, force ? 1 : 0) > 0; }
+    public static void GetPaint(IntPtr h, Span<float> paint) { fixed (float* p = paint) _getPaint(h, p); }
+    public static void SetPaint(IntPtr h, ReadOnlySpan<float> paint) { fixed (float* p = paint) _setPaint(h, paint.IsEmpty ? null : p); }
 }

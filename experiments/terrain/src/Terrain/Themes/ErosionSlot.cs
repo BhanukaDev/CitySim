@@ -3,7 +3,7 @@ using Godot;
 namespace CitySim.TerrainSystem.Themes;
 
 /// <summary>The erosion and water features a theme can give a material. Same order as the shader's slots.</summary>
-public enum ErosionSlotKind { Deposit, DepositHeavy, Scour, ScourHeavy, ShoreFringe, Shore, StreamBank, StreamBed }
+public enum ErosionSlotKind { Deposit, DepositHeavy, Scour, ScourHeavy, ShoreFringe, Shore, StreamBank, StreamBed, Wet }
 
 /// <summary>Which of the shader's noise fields moves a slot's edge.</summary>
 public enum SlotNoise
@@ -39,6 +39,8 @@ public sealed record ErosionSlotInfo(ErosionSlotKind Kind, string Name, string D
             "A fringe along gully and stream beds."),
         new(ErosionSlotKind.StreamBed, "Stream beds", "SLOT_STREAM_BED", "gully", true,
             "The beds of gullies and streams."),
+        new(ErosionSlotKind.Wet, "Wet ground", "SLOT_WET", "wet", false,
+            "Ground the simulated water has stood or run on, painted in slowly (beach sand, silt, ice...)."),
     ];
 
     public static ErosionSlotInfo For(ErosionSlotKind kind) => All[(int)kind];
@@ -48,8 +50,8 @@ public sealed record ErosionSlotInfo(ErosionSlotKind Kind, string Name, string D
 /// One erosion or water feature of a <see cref="TerrainTheme"/>: which material it lays and where its edge is. The masks
 /// come from the lake and erosion search (M5.1), which a shader can't work out by itself. No material: the feature
 /// isn't drawn and costs nothing.
-/// <para>Shore and stream slots cover ground closer than <see cref="Edge"/> metres; scour and deposit slots cover ground
-/// whose mask is above <see cref="Edge"/>.</para>
+/// <para>Shore and stream slots cover ground closer than <see cref="Edge"/> metres; scour, deposit and wet slots cover
+/// ground whose mask is above <see cref="Edge"/> (wet: 0..1, how long water has been there).</para>
 /// </summary>
 [Tool, GlobalClass]
 public partial class ErosionSlot : Resource
@@ -80,6 +82,7 @@ public partial class ErosionSlot : Resource
         ErosionSlotKind.Shore => Make(1f, 5f, 18f, 14f, SlotNoise.Patchy, 42f, 8f),
         ErosionSlotKind.StreamBank => Make(0.4f, 2f, 6f, 3f, SlotNoise.Fine),
         ErosionSlotKind.StreamBed => Make(0.85f, -0.5f, 4f, 2f, SlotNoise.Fine, 50f, 10f),
+        ErosionSlotKind.Wet => Make(1f, 0.5f, 0.4f, 0.25f, SlotNoise.Patchy, 42f, 8f),
         _ => new ErosionSlot(),
     };
 

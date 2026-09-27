@@ -16,3 +16,4 @@
 #define SLOT_SHORE 5
 #define SLOT_STREAM_BANK 3
 #define SLOT_STREAM_BED 4
+#define SLOT_WET 5

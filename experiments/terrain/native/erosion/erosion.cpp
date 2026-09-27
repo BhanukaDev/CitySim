@@ -630,9 +630,9 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
     for (size_t i = (size_t)z * width, end = i + width; i < end; i++) {
         shore[i] = gully[i] = kInf;
         float a = area[i];
-        if (!std::isnan(water[i])) { shore[i] = 0; level[i] = water[i]; }
-        else if (sea(i)) { shore[i] = 0; level[i] = sea_level; }
-        else if (a >= p.river_min_area) {
+        // Only rivers: lakes and the sea are simulated water now, and the terrain shader takes their shores from the
+        // water sim (a hollow nobody put a lake source in stays dry ground).
+        if (a >= p.river_min_area && std::isnan(water[i]) && !sea(i)) {
             // Half width grows with the catchment; small rivers start a few metres out, so their banks are narrower
             // than a lake's beach.
             shore[i] = kRiverBank - std::clamp(3.0f * std::sqrt(a / 1e6f), 1.5f, 20.0f);

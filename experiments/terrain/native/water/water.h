@@ -39,6 +39,8 @@ struct CsWaterParams {
     int32_t open_edges;    // bits: 1 west (x = 0), 2 east, 4 north (z = 0), 8 south. Open edges let water leave the map.
     float manning;         // bed roughness (Manning's n, s/m^(1/3)): slows shallow fast water; 0 = frictionless
     float pollution_decay; // 1/s: pollutant lost per second (breaks down, settles); 0 = keeps forever
+    float paint_rate;      // 1/s: how fast ground under standing or running water gets painted wet (0..1)
+    float paint_fade;      // 1/s: how fast the paint fades where there's no water any more; 0 = never
 };
 
 struct CsWaterStats {
@@ -94,6 +96,22 @@ CS_API void cs_water_set_pollution(CsWater* w, const float* mass);
 
 // Raises the water to at least the given surface (NaN = leave), per cell. Used to fill hollows from lake levels.
 CS_API void cs_water_raise_to(CsWater* w, const float* surface);
+
+// Removes the water a lake or river source holds: from the cells within `radius` of (x, z), every 4-connected wet cell
+// whose ground is below `level` and whose surface is within 0.3 m of the source cells' surface (at most `level`). Water
+// that ran on downhill (a river out of the lake) sits lower and is kept. `removed_surface` (optional, width * depth)
+// gets the old surface of each drained cell and NaN elsewhere, for cs_water_raise_to to put it back. Returns the
+// number of cells drained.
+CS_API int32_t cs_water_drain(CsWater* w, float x, float z, float radius, float level, float* removed_surface);
+
+// Ground marks for the terrain shader, 2 bytes per cell: distance to water deeper than 25 cm (metres × 4, so 0..255 = 0..63.75 m; every
+// metre above the nearest water surface counts as 4 m, like the M5.1 shore mask), and wet paint (0..255: how long
+// water has stood or run there). Returns 0 without writing when nothing changed since the last read (force = 0).
+CS_API int32_t cs_water_read_ground(CsWater* w, uint8_t* out, int32_t force);
+
+// Wet paint per cell, 0..1 (width * depth floats): read for saving, write for loading (null = none).
+CS_API void cs_water_get_paint(CsWater* w, float* paint);
+CS_API void cs_water_set_paint(CsWater* w, const float* paint);
 
 // Instantly floods everything below sea level that connects to the border (sea sources). River and lake sources aren't
 // flood-filled: their water runs downhill, so a flat fill at their level would drown everything below them.

@@ -9,7 +9,7 @@ namespace CitySim.UI;
 
 /// <summary>
 /// Map Editor panel (right side) for the water simulation: play/pause, speed, evaporation, open or walled map edges,
-/// Fill Hollows (every hollow up to its spill height, and the sea up to sea level), Clear, and live
+/// wet-ground paint, flow arrows, Add Lake Sources (a Lake source in every hollow, filled at once), Clear, and live
 /// stats. Sources are placed with the Water tab's tools.
 /// </summary>
 public partial class WaterPanel : PanelContainer
@@ -21,11 +21,12 @@ public partial class WaterPanel : PanelContainer
 
     private Button _play = null!;
     private OptionButton _speed = null!;
-    private HSlider _evaporation = null!;
-    private Label _evaporationValue = null!, _stats = null!;
-    private CheckButton _openEdges = null!, _show = null!;
+    private HSlider _evaporation = null!, _paint = null!, _fade = null!;
+    private Label _evaporationValue = null!, _paintValue = null!, _fadeValue = null!, _stats = null!;
+    private CheckButton _openEdges = null!, _show = null!, _arrows = null!;
     private bool _syncing;
-    private double _refresh;
+    private double _refresh, _noteTime;
+    private string _note = "";
 
     private Terrain? Terrain => Tools?.Terrain;
     private WaterSim? Sim => Tools?.Terrain?.Water;
@@ -86,6 +87,11 @@ public partial class WaterPanel : PanelContainer
         evap.AddChild(_evaporationValue);
         Row(grid, "Evaporation", evap);
 
+        _paint = Slider(grid, "Wet Paint", 0, 120, 1, "Simulated minutes of water on the ground until the theme's Wet ground\nmaterial fully covers it (0 = off)",
+            out _paintValue, v => Edit(s => s with { PaintMinutes = (float)v }));
+        _fade = Slider(grid, "Paint Fades", 0, 168, 1, "Simulated hours until dry ground loses its wet paint (0 = never)",
+            out _fadeValue, v => Edit(s => s with { PaintFadeHours = (float)v }));
+
         _openEdges = new CheckButton { Text = "Open", FocusMode = FocusModeEnum.None, TooltipText = "Water runs off the map at its edges (off: the edges are walls)" };
         _openEdges.Toggled += on => Edit(s => s with { OpenEdges = on });
         Row(grid, "Map Edges", _openEdges);
@@ -94,11 +100,20 @@ public partial class WaterPanel : PanelContainer
         _show.Toggled += on => { if (Terrain is { } t) t.ShowWater = on; };
         Row(grid, "", _show);
 
+        _arrows = new CheckButton { Text = "Flow arrows", FocusMode = FocusModeEnum.None,
+            TooltipText = "Arrows along the water's flow (longer = faster). Always on while a Water tool is out." };
+        _arrows.Toggled += on => { if (Terrain is { } t) t.FlowArrows = on; };
+        Row(grid, "", _arrows);
+
         var buttons = new HBoxContainer();
         buttons.AddThemeConstantOverride("separation", 6);
-        var fill = new Button { Text = "Fill Hollows", FocusMode = FocusModeEnum.None, SizeFlagsHorizontal = SizeFlags.ExpandFill,
-            TooltipText = "Fill every hollow up to where it would spill over (Erosion panel: Min Depth/Area), and the sea up to\nsea level, right away. Rivers and lakes fill by flowing. The simulation carries on from there." };
-        fill.Pressed += () => Terrain?.FillHollows();
+        var fill = new Button { Text = "Add Lake Sources", FocusMode = FocusModeEnum.None, SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            TooltipText = "Put a Lake source in every hollow that has none (Erosion panel: Min Depth/Area), sized for it,\nand fill those lakes and the sea right away. Delete a source (right-click, Water tab) to remove its lake.\nOne undo step." };
+        fill.Pressed += () => Tools?.AddLakeSources(n =>
+        {
+            _note = n == 0 ? "Every hollow already has a source." : $"Added {n} lake source{(n == 1 ? "" : "s")}.";
+            _noteTime = 5;
+        });
         var clear = new Button { Text = "Clear Water", FocusMode = FocusModeEnum.None, SizeFlagsHorizontal = SizeFlags.ExpandFill,
             TooltipText = "Remove all water (sources keep running). Can't be undone." };
         clear.Pressed += () => Sim?.Clear();
@@ -126,6 +141,7 @@ public partial class WaterPanel : PanelContainer
 
     public override void _Process(double delta)
     {
+        _noteTime -= delta;
         if (!Visible || (_refresh -= delta) > 0) return;
         _refresh = 0.25;
         if (Sim is not { } sim)
@@ -136,7 +152,7 @@ public partial class WaterPanel : PanelContainer
         var st = sim.LastStats;
         float cellArea = sim.CellSize * sim.CellSize;
         var kinds = sim.Sources.GroupBy(s => s.Kind).Select(g => $"{g.Count()} {WaterSource.Label(g.Key).ToLowerInvariant()}");
-        _stats.Text =
+        _stats.Text = (_noteTime > 0 ? _note + "\n" : "") +
             $"Sources: {(sim.Sources.Count == 0 ? "none (use the Water tab)" : string.Join(", ", kinds))}\n" +
             $"Water: {st.Volume / 1e6:0.###} million m³ over {st.WetCells * cellArea / 1e6:0.###} km²\n" +
             $"Deepest {st.MaxDepth:0.0} m · fastest {st.MaxSpeed:0.0} m/s\n" +
@@ -157,6 +173,11 @@ public partial class WaterPanel : PanelContainer
         _speed.Selected = speed >= 0 ? speed : 3;
         _evaporation.Value = s.EvaporationMmPerMin;
         _evaporationValue.Text = $"{s.EvaporationMmPerMin:0.0} mm/min";
+        _paint.Value = s.PaintMinutes;
+        _paintValue.Text = s.PaintMinutes > 0 ? $"{s.PaintMinutes:0} min" : "off";
+        _fade.Value = s.PaintFadeHours;
+        _fadeValue.Text = s.PaintFadeHours > 0 ? $"{s.PaintFadeHours:0} h" : "never";
+        _arrows.SetPressedNoSignal(Terrain?.FlowArrows ?? false);
         _openEdges.SetPressedNoSignal(s.OpenEdges);
         _show.SetPressedNoSignal(Terrain?.ShowWater ?? true);
         _syncing = false;
@@ -167,6 +188,23 @@ public partial class WaterPanel : PanelContainer
         if (_syncing || Sim is not { } sim) return;
         sim.Settings = change(sim.Settings);
         Sync();
+    }
+
+    private HSlider Slider(GridContainer grid, string name, double min, double max, double step, string tip, out Label value,
+        Action<double> changed)
+    {
+        var box = new HBoxContainer();
+        var slider = new HSlider
+        {
+            MinValue = min, MaxValue = max, Step = step, SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkCenter, FocusMode = FocusModeEnum.None, TooltipText = tip,
+        };
+        value = new Label { CustomMinimumSize = new Vector2(90, 0), HorizontalAlignment = HorizontalAlignment.Right };
+        slider.ValueChanged += v => { if (!_syncing) changed(v); };
+        box.AddChild(slider);
+        box.AddChild(value);
+        Row(grid, name, box);
+        return slider;
     }
 
     private static void Row(GridContainer grid, string name, Control value)

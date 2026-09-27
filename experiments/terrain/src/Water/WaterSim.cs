@@ -58,6 +58,15 @@ public sealed class WaterSim : IDisposable
     private readonly byte[] _tileChanged;
     private readonly object _snapLock = new();
 
+    // Ground marks (distance to water, wet paint; 2 bytes per cell, see cs_water_read_ground), read at most once a
+    // second of real time: they change slowly and the distance pass costs a few ms.
+    private readonly byte[] _groundMarks;
+    private readonly byte[] _groundScratch;
+    private long _groundVersion;
+    private readonly Stopwatch _groundClock = Stopwatch.StartNew();
+    private double _groundReadAt = double.NegativeInfinity;
+    private readonly object _groundLock = new();
+
     private WaterSettings _settings = new();
     private IReadOnlyList<WaterSource> _sources = [];
     private WaterStats _stats;
@@ -85,6 +94,8 @@ public sealed class WaterSim : IDisposable
         _pollution = new float[Width * Depth];
         _pageDirty = new bool[PagesX * PagesZ];
         _tileChanged = new byte[TilesX * TilesZ];
+        _groundMarks = new byte[Width * Depth * 2];
+        _groundScratch = new byte[Width * Depth * 2];
         _h = WaterNative.Create(Width, Depth, CellSize, threads);
         WaterNative.SetGround(_h, ground.Data, ground.Width, ground.Depth, Factor, 0, 0, Width - 1, Depth - 1);
         _threaded = threaded;
@@ -151,6 +162,50 @@ public sealed class WaterSim : IDisposable
         });
     }
 
+    /// <summary>
+    /// Drains the water a Lake or River source holds (see <c>cs_water_drain</c>): its basin at its level, not what ran
+    /// on downhill. Returns the drained surface per water cell (NaN = untouched), for <see cref="RestoreSurface"/>.
+    /// Waits for the worker.
+    /// </summary>
+    public float[] DrainSource(WaterSource s)
+    {
+        var removed = new float[Width * Depth];
+        Sync(() => WaterNative.Drain(_h, s.X, s.Z, s.Radius, s.Level, removed));
+        return removed;
+    }
+
+    /// <summary>Raises the water back to a surface from <see cref="DrainSource"/> (NaN = leave).</summary>
+    public void RestoreSurface(float[] surface)
+    {
+        if (surface.Length != Width * Depth) throw new ArgumentException("Surface grid has the wrong size.", nameof(surface));
+        Enqueue(() => WaterNative.RaiseTo(_h, surface));
+    }
+
+    /// <summary>Raises the water to at least the given surface per terrain vertex (NaN = leave), like <see cref="FillHollows"/> without the sea.</summary>
+    public void RaiseTo(float[] terrainLevels)
+    {
+        if (terrainLevels.Length != Ground.Width * Ground.Depth) throw new ArgumentException("Level grid has the wrong size.", nameof(terrainLevels));
+        var surface = new float[Width * Depth];
+        for (int z = 0; z < Depth; z++)
+            for (int x = 0; x < Width; x++)
+                surface[z * Width + x] = terrainLevels[z * Factor * Ground.Width + x * Factor];
+        Enqueue(() => WaterNative.RaiseTo(_h, surface));
+    }
+
+    /// <summary>Runs <paramref name="a"/> on the worker and waits for it.</summary>
+    private void Sync(Action a)
+    {
+        if (!_threaded)
+        {
+            ApplyQueued();
+            a();
+            return;
+        }
+        using var done = new ManualResetEventSlim();
+        Enqueue(() => { a(); done.Set(); });
+        if (!done.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The water simulation didn't answer.");
+    }
+
     /// <summary>Removes all water.</summary>
     public void Clear() => Enqueue(() => WaterNative.SetDepth(_h, ReadOnlySpan<float>.Empty));
 
@@ -168,6 +223,16 @@ public sealed class WaterSim : IDisposable
         Enqueue(() => WaterNative.SetPollution(_h, mass));
     }
 
+    /// <summary>Replaces the wet paint with saved values (0..1 per water cell).</summary>
+    public void LoadPaint(float[] paint)
+    {
+        if (paint.Length != Width * Depth) throw new ArgumentException("Paint grid has the wrong size.", nameof(paint));
+        Enqueue(() => WaterNative.SetPaint(_h, paint));
+    }
+
+    /// <summary>The wet paint per water cell, 0..1 (waits for the worker; for saving).</summary>
+    public float[] ReadPaint() => ReadGrid(WaterNative.GetPaint);
+
     /// <summary>The current depth per water cell (waits for the worker; for saving).</summary>
     public float[] ReadDepth() => ReadGrid(WaterNative.GetDepth);
 
@@ -179,15 +244,7 @@ public sealed class WaterSim : IDisposable
     private float[] ReadGrid(GridReader read)
     {
         var result = new float[Width * Depth];
-        if (!_threaded)
-        {
-            ApplyQueued();
-            read(_h, result);
-            return result;
-        }
-        using var done = new ManualResetEventSlim();
-        Enqueue(() => { read(_h, result); done.Set(); });
-        if (!done.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The water simulation didn't answer.");
+        Sync(() => read(_h, result));
         return result;
     }
 
@@ -235,6 +292,8 @@ public sealed class WaterSim : IDisposable
         OpenEdges = s.OpenEdges ? 15 : 0,
         Manning = 0.03f,
         PollutionDecay = s.PollutionHalfLifeMin > 0 ? MathF.Log(2f) / (s.PollutionHalfLifeMin * 60f) : 0f,
+        PaintRate = s.PaintMinutes > 0 ? 1f / (s.PaintMinutes * 60f) : 0f,
+        PaintFade = s.PaintFadeHours > 0 ? 1f / (s.PaintFadeHours * 3600f) : 0f,
     };
 
     // --- Stepping ---
@@ -332,6 +391,7 @@ public sealed class WaterSim : IDisposable
 
     private void Publish(bool all)
     {
+        PublishGround(all);
         lock (_snapLock)
         {
             if (WaterNative.Read(_h, _snapshot, _pollution, _tileChanged, all) <= 0) return;
@@ -347,6 +407,48 @@ public sealed class WaterSim : IDisposable
                     for (int pz = pz0; pz <= pz1; pz++)
                         for (int px = px0; px <= px1; px++) _pageDirty[pz * PagesX + px] = true;
                 }
+        }
+    }
+
+    private void PublishGround(bool force)
+    {
+        double now = _groundClock.Elapsed.TotalSeconds;
+        if (!force && now < _groundReadAt + 1.0) return;
+        _groundReadAt = now;
+        if (!WaterNative.ReadGround(_h, _groundScratch, force)) return;
+        lock (_groundLock)
+        {
+            _groundScratch.CopyTo(_groundMarks, 0);
+            _groundVersion++;
+        }
+    }
+
+    /// <summary>Goes up when new ground marks are published (<see cref="CopyGroundMarks"/>).</summary>
+    public long GroundVersion { get { lock (_groundLock) return _groundVersion; } }
+
+    /// <summary>
+    /// Copies the ground marks: per water cell (row-major) the distance to water in quarter metres (255 = 63.75 m or
+    /// more, each metre above the water counting as 4) and the wet paint (0..255). Returns their version.
+    /// </summary>
+    public long CopyGroundMarks(Span<byte> into)
+    {
+        lock (_groundLock)
+        {
+            _groundMarks.CopyTo(into);
+            return _groundVersion;
+        }
+    }
+
+    /// <summary>
+    /// Publishes everything now, ground marks included (unthreaded sims, e.g. demos, after <see cref="Advance"/>).
+    /// </summary>
+    public void PublishNow()
+    {
+        if (_threaded) Sync(() => Publish(all: true));
+        else
+        {
+            ApplyQueued();
+            Publish(all: true);
         }
     }
 

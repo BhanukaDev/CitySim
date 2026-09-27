@@ -13,8 +13,9 @@ namespace CitySim.Debug;
 /// run is the same: volume is conserved, streams run downhill, level sources hold their level, unfed water evaporates,
 /// Fill Hollows matches the hollow search, a dam built across a stream backs the water up, the map file keeps the water,
 /// runs repeat exactly (also on another thread count), settled water sleeps and wakes without losing any, outflow is
-/// never clamped, pollutant rides the flow with its mass kept, how narrow channels fare on a coarse grid, and a step's
-/// cost at 1025² and 2049². Prints one line per check and "Demo water: all ok". Engine-agnostic.
+/// never clamped, pollutant rides the flow with its mass kept, how narrow channels fare on a coarse grid, lake sources
+/// placed in the hollows hold them (and deleting one drains it), water paints the ground, the placement preview's flood,
+/// and a step's cost at 1025² and 2049². Prints one line per check and "Demo water: all ok". Engine-agnostic.
 /// </summary>
 public static class WaterDemo
 {
@@ -118,7 +119,8 @@ public static class WaterDemo
             sim.FillHollows(Levels(map, 20f, 16f));
             var pollution = sim.ReadDepth().Select(d => d > 0 ? d * 0.01f : 0f).ToArray();
             sim.LoadPollution(pollution);
-            var data = new WaterData(sim.Settings, sim.Sources, sim.Width, sim.Depth, sim.ReadDepth(), sim.ReadPollution());
+            sim.LoadPaint(sim.ReadDepth().Select(d => MathF.Min(d / 5f, 1f)).ToArray());
+            var data = new WaterData(sim.Settings, sim.Sources, sim.Width, sim.Depth, sim.ReadDepth(), sim.ReadPollution(), sim.ReadPaint());
             string path = Path.Combine(Path.GetTempPath(), "citysim_water_demo.csmap");
             MapFile.Save(path, map, new SplatMap(map.Width, map.Depth, map.CellSize) { ThemeId = "default" }, data);
             var (_, _, loaded) = MapFile.LoadWithWater(path);
@@ -128,10 +130,14 @@ public static class WaterDemo
                 for (int i = 0; i < g.Length; i++) worst = MathF.Max(worst, MathF.Abs(g[i] - data.DepthGrid![i]));
             if (loaded?.PollutionGrid is { } pg)
                 for (int i = 0; i < pg.Length; i++) worstPollution = MathF.Max(worstPollution, MathF.Abs(pg[i] - data.PollutionGrid![i]));
+            float worstPaint = 0;
+            if (loaded?.PaintGrid is { } pp)
+                for (int i = 0; i < pp.Length; i++) worstPaint = MathF.Max(worstPaint, MathF.Abs(pp[i] - data.PaintGrid![i]));
             bool same = loaded is not null && loaded.Settings == data.Settings && loaded.Sources.SequenceEqual(data.Sources)
-                && loaded.DepthGrid is not null && loaded.PollutionGrid is not null && data.PollutionGrid!.Sum() > 1f;
-            Check(same && worst < 0.01f && worstPollution == 0f,
-                $"map file round trip (worst depth error {worst:0.0000} m, pollutant {worstPollution:0.######} kg)");
+                && loaded.DepthGrid is not null && loaded.PollutionGrid is not null && data.PollutionGrid!.Sum() > 1f
+                && loaded.PaintGrid is not null && data.PaintGrid!.Sum() > 1f;
+            Check(same && worst < 0.01f && worstPollution == 0f && worstPaint < 0.003f,
+                $"map file round trip (worst depth error {worst:0.0000} m, pollutant {worstPollution:0.######} kg, paint {worstPaint:0.000})");
         }
 
         // 8. The same run gives the same water: twice in a row, and on one thread instead of several.
@@ -244,6 +250,72 @@ public static class WaterDemo
                 log($"Demo water: narrow channel {width:0} m wide on {cell:0.#} m cells: {share:P1} of the water outside it, " +
                     $"deepest {sim.LastStats.MaxDepth:0.00} m");
             }
+
+        // 13. Lake sources: one per hollow, filled at once to the Priority-Flood volume, and they keep it (evaporation on);
+        //     planning again adds none. Deleting one drains its lake only; putting the drained surface back restores it.
+        {
+            var map = Make(129, 4f, (x, z) => Pit(x, z, 180, 200, 50, 20f, 6f) + Pit(x, z, 360, 330, 70, 0f, 4f) + 0.01f * x);
+            var lakes = Lakes.Find(map, new LakeSettings { MinArea = 0 }, null)!;
+            double expected = 0;
+            for (int i = 0; i < lakes.Level.Length; i++)
+                if (!float.IsNaN(lakes.Level[i])) expected += (lakes.Level[i] - map.Data[i]) * map.CellSize * map.CellSize;
+            using var sim = new WaterSim(map, threaded: false);
+            var plan = LakeSources.Plan(lakes, map, sim.Sources, 1, sim.CellSize * 1.5f, sim.Settings.EvaporationMmPerMin)!;
+            sim.SetSources(plan.Lakes.Select(l => l.Source));
+            sim.RaiseTo(plan.Levels());
+            double filled = Volume(sim);
+            sim.Advance(1800);
+            double kept = Volume(sim);
+            var again = LakeSources.Plan(lakes, map, sim.Sources, 10, sim.CellSize * 1.5f, sim.Settings.EvaporationMmPerMin)!;
+            bool inside = plan.Lakes.All(l => !float.IsNaN(lakes.LevelAt((int)(l.Source.X / map.CellSize), (int)(l.Source.Z / map.CellSize))));
+            Check(plan.Lakes.Count == lakes.Count && inside && again.Lakes.Count == 0 && Math.Abs(filled - expected) / expected < 0.01
+                && Math.Abs(kept - expected) / expected < 0.02,
+                $"lake sources ({plan.Lakes.Count} for {lakes.Count} hollows, in the water {inside}, {expected:0} m³ expected, " +
+                $"{filled:0} filled, {kept:0} after 30 min, {again.Lakes.Count} more on a second pass)");
+
+            var first = plan.Lakes[0];
+            var removed = sim.DrainSource(first.Source);
+            double drained = Volume(sim);
+            bool otherKept = Math.Abs(kept - drained - first.Volume) / first.Volume < 0.05;
+            sim.RestoreSurface(removed);
+            double restored = Volume(sim);
+            Check(otherKept && Math.Abs(restored - kept) / kept < 0.01,
+                $"drain on delete ({kept:0} → {drained:0} m³, its lake held {first.Volume:0}; restored {restored:0} m³)");
+        }
+
+        // 14. Wet paint: a stream paints its bed in PaintMinutes and leaves dry ground alone; the ground marks give
+        //     distance 0 on the water and the far end (255) on dry ground far from it.
+        {
+            var map = Make(129, 4f, (x, z) => z * 0.05f + 2f * MathF.Abs(x - 256) / 256f);
+            using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { PaintMinutes = 5f } };
+            sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 256, 400, 10, 0, FlowRate: 20)]);
+            sim.Advance(900);
+            var paint = sim.ReadPaint();
+            var depth = sim.ReadDepth();
+            int wetCell = Enumerable.Range(0, depth.Length).Where(i => depth[i] > 0.3f).DefaultIfEmpty(-1).First(); // shores count water over 25 cm
+            int dryCell = 5 * sim.Width + 5;
+            sim.PublishNow();
+            var marks = new byte[sim.Width * sim.Depth * 2];
+            sim.CopyGroundMarks(marks);
+            bool painted = wetCell >= 0 && paint[wetCell] > 0.99f && paint[dryCell] == 0f;
+            bool distance = wetCell >= 0 && marks[wetCell * 2] == 0 && marks[dryCell * 2] == 255 && marks[wetCell * 2 + 1] > 250;
+            Check(painted && distance, $"wet paint (bed {(wetCell >= 0 ? paint[wetCell] : -1):0.00}, dry ground {paint[dryCell]:0.00}; " +
+                $"marks bed {(wetCell >= 0 ? marks[wetCell * 2] : -1)}/{(wetCell >= 0 ? marks[wetCell * 2 + 1] : -1)}, far {marks[dryCell * 2]})");
+        }
+
+        // 15. Placement preview: a lake below the rim fills the pit to its level; above the rim it spills at the rim.
+        {
+            var map = Make(129, 4f, (x, z) => Pit(x, z, 256, 256, 80, 20f, 10f));
+            var ground = WaterFlood.Ground(map, 1, map.Width, map.Depth);
+            var filledGrid = WaterFlood.Filled(ground, map.Width, map.Depth)!;
+            var below = WaterFlood.Compute(ground, filledGrid, map.Width, map.Depth, 4f, new WaterSource(0, WaterSourceKind.Lake, 256, 256, 20, 15f));
+            var above = WaterFlood.Compute(ground, filledGrid, map.Width, map.Depth, 4f, new WaterSource(0, WaterSourceKind.Lake, 256, 256, 20, 30f));
+            // Bowl: depth 10 (1 - r²) under 20 m; filled to 15 m covers r < √0.5, volume = π R² · 10 · (0.5²/2) = 1.25 π R².
+            double expected = Math.PI * 80 * 80 * 1.25;
+            Check(below is { Spills: false } && MathF.Abs(below.Surface - 15f) < 0.01f && Math.Abs(below.Volume - expected) / expected < 0.05
+                && above is { Spills: true } && MathF.Abs(above.Surface - 20f) < 0.05f,
+                $"flood preview (below the rim: {below?.Surface:0.0} m, {below?.Volume:0} of {expected:0} m³; above: spills {above?.Spills} at {above?.Surface:0.0} m)");
+        }
 
         // 12. Cost of a substep with every cell wet (2 m of water on a gentle slope, walls), 1025² and 2049².
         foreach (int verts in new[] { 1025, 2049 })

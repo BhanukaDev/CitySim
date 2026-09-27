@@ -53,7 +53,7 @@ CS_API int32_t cs_find_lakes(const float* heights, int32_t width, int32_t depth,
                              float min_depth, int32_t min_cells, float* water_level, CsProgress* progress);
 
 // cs_find_lakes, plus ground masks for texturing, one packed value per cell (bytes, lowest first):
-//   0 shore: distance to lakes, the sea and rivers, in metres, 255 = -16 (inside a river) .. 0 = 64 or more. Ground above
+//   0 shore: distance to rivers (lakes and the sea come from the water sim), in metres, 255 = -16 (inside a river) .. 0 = 64 or more. Ground above
 //     the water adds 4 m per metre it stands above it.
 //   1 gully: distance to a gully or river bed, 255 = -8 (inside) .. 0 = 24 or more.
 //   2 wear: stream power (sqrt(catchment m²) x slope), 32 x log2(1 + v).

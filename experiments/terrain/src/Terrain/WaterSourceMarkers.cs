@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using CitySim.WaterSystem;
 
@@ -16,7 +17,8 @@ public partial class WaterSourceMarkers : Node3D
     private Terrain? _terrain;
     private WaterSim? _sim;
     private readonly Dictionary<int, (MeshInstance3D Node, StandardMaterial3D Material, WaterSourceKind Kind)> _markers = new();
-    private int? _hovered, _selected;
+    private int? _hovered, _selected, _info;
+    private Label3D? _label;
 
     public static Color KindColor(WaterSourceKind kind) => kind switch
     {
@@ -43,10 +45,58 @@ public partial class WaterSourceMarkers : Node3D
         foreach (var (id, m) in _markers) Colour(id, m.Material, m.Kind);
     }
 
+    /// <summary>Shows the info label (kind, level, depth, flow, pollution) over source <paramref name="id"/>; null hides it.</summary>
+    public void ShowInfo(int? id)
+    {
+        _info = id;
+        UpdateLabel();
+    }
+
+    private void UpdateLabel()
+    {
+        if (_label is null) AddChild(_label = new Label3D
+        {
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = true, FixedSize = true, PixelSize = 0.0009f,
+            FontSize = 30, OutlineSize = 10, RenderPriority = 30, OutlineRenderPriority = 29, Visible = false,
+        });
+        var s = _sim?.Sources.FirstOrDefault(x => x.Id == _info);
+        if (s is null || _terrain is null)
+        {
+            _label.Visible = false;
+            return;
+        }
+        float ground = _terrain.GetHeight(s.X, s.Z);
+        float top = s.Kind == WaterSourceKind.Stream ? ground : Mathf.Max(ground, s.Level);
+        var lines = new List<string> { WaterSource.Label(s.Kind) };
+        switch (s.Kind)
+        {
+            case WaterSourceKind.Stream:
+                lines.Add($"{s.FlowRate:0.#} m³/s · radius {s.Radius:0} m");
+                if (s.Pollution > 0) lines.Add($"Pollution {s.Pollution:0.##} kg/s");
+                break;
+            case WaterSourceKind.River:
+                lines.Add($"Level {s.Level:0.0} m ({s.Level - ground:0.0} m deep) · radius {s.Radius:0} m");
+                break;
+            case WaterSourceKind.Lake:
+                lines.Add($"Level {s.Level:0.0} m ({s.Level - ground:0.0} m deep) · radius {s.Radius:0} m");
+                lines.Add($"Max flow {s.MaxFlow:0.#} m³/s");
+                break;
+            default:
+                lines.Add($"Sea level {s.Level:0.0} m");
+                break;
+        }
+        float depth = _sim!.DepthAt(s.X, s.Z);
+        if (depth > 0.01f) lines.Add($"Water here: {depth:0.0} m deep");
+        _label.Text = string.Join("\n", lines);
+        _label.Position = new Vector3(s.X, top + 16f, s.Z);
+        _label.Visible = true;
+    }
+
     /// <summary>Rebuilds every marker (sources changed, or the ground under them may have).</summary>
     public void Rebuild()
     {
         if (_sim is null || _terrain is null) return;
+        UpdateLabel();
         foreach (var (_, m) in _markers) m.Node.QueueFree();
         _markers.Clear();
         foreach (var s in _sim.Sources)

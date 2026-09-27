@@ -48,6 +48,10 @@ public sealed record WaterSettings
     public bool OpenEdges { get; init; } = true;
     /// <summary>Pollutant half-life in simulated minutes (it breaks down and settles out); 0 = never.</summary>
     public float PollutionHalfLifeMin { get; init; } = 30f;
+    /// <summary>Simulated minutes of water on the ground until it's fully painted wet (the theme's Wet ground).</summary>
+    public float PaintMinutes { get; init; } = 20f;
+    /// <summary>Simulated hours a dry ground's wet paint takes to fade away; 0 = it stays.</summary>
+    public float PaintFadeHours { get; init; } = 24f;
     public bool Paused { get; init; }
 
     public static readonly float[] Speeds = [1f, 2f, 4f, 8f, 16f, 32f];

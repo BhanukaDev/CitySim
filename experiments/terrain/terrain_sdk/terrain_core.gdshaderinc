@@ -26,9 +26,9 @@ render_mode blend_mix, depth_draw_opaque, cull_back, skip_vertex_transform;
 const int MAX_MATERIALS = 16;
 #define MATERIAL_PACKS 4
 // Erosion slots (TerrainTheme.Slots, same order). Each lays one theme material from the erosion/water masks.
-const int SLOT_COUNT = 8;
+const int SLOT_COUNT = 9;
 const int SLOT_I_DEPOSIT = 0, SLOT_I_DEPOSIT_HEAVY = 1, SLOT_I_SCOUR = 2, SLOT_I_SCOUR_HEAVY = 3,
-		SLOT_I_SHORE_FRINGE = 4, SLOT_I_SHORE = 5, SLOT_I_STREAM_BANK = 6, SLOT_I_STREAM_BED = 7;
+		SLOT_I_SHORE_FRINGE = 4, SLOT_I_SHORE = 5, SLOT_I_STREAM_BANK = 6, SLOT_I_STREAM_BED = 7, SLOT_I_WET = 8;
 // Average brightness the baker normalises every material's colour to (ThemeBaker.NeutralGrey).
 const float NEUTRAL_GREY = 0.4;
 
@@ -65,15 +65,20 @@ uniform vec4 material_tint[16];
 // Per material: tile size near, tile size far (m), detail contrast factor, normal strength factor.
 uniform vec4 material_params[16];
 // Per slot (ErosionSlot): strength, edge, 1 / fade, edge noise amount.
-uniform vec4 slot_edge[8];
+uniform vec4 slot_edge[9];
 // Per slot: noise field (0 fine, 1 patchy, 2 medium, 3 large), max slope (degrees), 1 / slope fade, slope limit on (1/0).
-uniform vec4 slot_slope[8];
+uniform vec4 slot_slope[9];
 // Debug views: 1 strongest material, 2 textures blended per pixel (cost).
 uniform int terrain_debug = 0;
 // Shows one slot's coverage (slot index), -1 off.
 uniform int slot_debug = -1;
-// 1 shore, 2 gully, 3 wear, 4 deposit: shows one ground mask in greyscale instead of the ground.
-uniform int ground_debug : hint_range(0, 4) = 0;
+// 1 shore, 2 gully, 3 wear, 4 deposit, 5 wet paint: shows one ground mask in greyscale instead of the ground.
+uniform int ground_debug : hint_range(0, 5) = 0;
+// Ground marks from the water simulation (WaterSim, cs_water_read_ground in native/water/water.h), one texel per water
+// cell from the terrain origin: R distance to water (m × 4 / 255), G wet paint (how long water has stood there).
+uniform sampler2D water_ground : filter_linear, repeat_disable;
+uniform float water_ground_cell = 3.5;
+uniform bool has_water_ground = false;
 
 group_uniforms Textures;
 // Seamless low-frequency noise for large-scale variation.
@@ -169,10 +174,12 @@ struct TerrainInputs {
 	float height;       // height (m)
 	float h01;          // height within the map's lowest..highest point, 0-1
 	float slope;        // degrees
-	float shore;        // distance to lakes, sea and rivers (m; each metre above the water counts as 4; 64 and beyond = 64)
+	float shore;        // distance to water (simulated lakes, sea, streams) and to river beds (m; each metre above the
+	                    // water counts as 4; 64 and beyond = 64)
 	float gully;        // distance to gully and stream beds (m; negative inside the bed; 24 and beyond = 24)
 	float wear;         // how hard running water scours (log stream power; ~10% of an eroded map is above 1.8)
 	float deposit;      // sediment settling where water slows: fans and deltas (~1% of the ground is above 1.2)
+	float wet;          // 0-1: how long simulated water has stood or run here (fades slowly once dry)
 	float noise_large;  // 0-1, patches a few hundred metres across
 	float noise_medium; // 0-1, ~150 m
 	float noise_fine;   // 0-1, ~10 m

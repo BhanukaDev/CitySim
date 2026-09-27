@@ -551,6 +551,36 @@ public partial class TerrainToolController : Node
         return true;
     }
 
+    /// <summary>
+    /// Puts a Lake source in every hollow that lacks one (<see cref="Terrain.AddLakeSources"/>) as one undo step: undo
+    /// removes them and drains their lakes. <paramref name="done"/> gets how many were added.
+    /// </summary>
+    public void AddLakeSources(Action<int>? done = null)
+    {
+        if (Terrain is not { } terrain) return;
+        terrain.AddLakeSources(added =>
+        {
+            done?.Invoke(added.Added.Length);
+            if (added.Added.Length == 0 || terrain.Water is not { } sim) return;
+            History.PushAction(
+                () =>
+                {
+                    if (terrain.Water != sim) return;
+                    sim.SetSources(added.Before);
+                    foreach (var s in added.Added) sim.DrainSource(s);
+                    Changed();
+                },
+                () =>
+                {
+                    if (terrain.Water != sim) return;
+                    sim.SetSources(added.After);
+                    if (added.Levels is { } levels) sim.RaiseTo(levels);
+                    Changed();
+                });
+            Changed();
+        });
+    }
+
     private void ApplyHistory(Func<HeightMap, SplatMap, UndoChange> op)
     {
         CommitGenerated();

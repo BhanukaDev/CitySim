@@ -8,23 +8,23 @@ namespace CitySim.WaterSystem;
 
 /// <summary>
 /// A map's water as saved: settings, sources, the depth per water cell (null = no saved water) and the pollutant mass
-/// per water cell in kg (null = clean).
+/// per water cell in kg (null = clean) and the wet paint per water cell, 0..1 (null = none).
 /// </summary>
 public sealed record WaterData(WaterSettings Settings, IReadOnlyList<WaterSource> Sources, int Width, int Depth, float[]? DepthGrid,
-    float[]? PollutionGrid = null);
+    float[]? PollutionGrid = null, float[]? PaintGrid = null);
 
 /// <summary>
 /// The water section of a map file (<see cref="MapFile"/> v4), little-endian:
-/// i32 section version (2); f32 speed, f32 evaporation (mm/min), bool open edges, bool paused, f32 pollutant half-life
-/// (min, v2); i32 source count, then per source i32 id, i32 kind, f32 x, z, radius, level, flow rate, max flow,
+/// i32 section version (3); f32 speed, f32 evaporation (mm/min), bool open edges, bool paused, f32 pollutant half-life
+/// (min, v2), f32 paint minutes, f32 paint fade hours (v3); i32 source count, then per source i32 id, i32 kind, f32 x, z, radius, level, flow rate, max flow,
 /// pollution (kg/s, v2); i32 grid width, i32 grid depth (0 × 0 = no water saved), i32 tile size (256), i32 tile count,
 /// then per tile that has water: i32 tx, i32 tz, i32 length + a zlib stream of half-float depths; then (v2) the
-/// pollutant the same way (i32 tile count, tiles with any pollutant as zlib'd f32 kg). Section version 1 (no
-/// pollution) still loads. Engine-agnostic.
+/// pollutant the same way (i32 tile count, tiles with any pollutant as zlib'd f32 kg); then (v3) the wet paint the same
+/// way (bytes, 0..255). Section versions 1 (no pollution) and 2 (no paint) still load. Engine-agnostic.
 /// </summary>
 public static class WaterFile
 {
-    private const int SectionVersion = 2;
+    private const int SectionVersion = 3;
     private const int Tile = 256;
 
     public static void Write(BinaryWriter w, WaterData data)
@@ -35,6 +35,8 @@ public static class WaterFile
         w.Write(data.Settings.OpenEdges);
         w.Write(data.Settings.Paused);
         w.Write(data.Settings.PollutionHalfLifeMin);
+        w.Write(data.Settings.PaintMinutes);
+        w.Write(data.Settings.PaintFadeHours);
         w.Write(data.Sources.Count);
         foreach (var s in data.Sources)
         {
@@ -47,6 +49,7 @@ public static class WaterFile
         {
             w.Write(0); w.Write(0); w.Write(Tile); w.Write(0);
             w.Write(0);
+            w.Write(0);
             return;
         }
         w.Write(data.Width);
@@ -54,6 +57,9 @@ public static class WaterFile
         w.Write(Tile);
         WriteTiles(w, grid, data.Width, data.Depth, v => (Half)v);
         if (data.PollutionGrid is { } pollution && pollution.Length == grid.Length) WriteTiles(w, pollution, data.Width, data.Depth, v => v);
+        else w.Write(0);
+        if (data.PaintGrid is { } paint && paint.Length == grid.Length)
+            WriteTiles(w, paint, data.Width, data.Depth, v => (byte)Math.Clamp(MathF.Round(v * 255f), 0f, 255f));
         else w.Write(0);
     }
 
@@ -96,6 +102,7 @@ public static class WaterFile
             Speed = r.ReadSingle(), EvaporationMmPerMin = r.ReadSingle(), OpenEdges = r.ReadBoolean(), Paused = r.ReadBoolean(),
         };
         if (version >= 2) settings = settings with { PollutionHalfLifeMin = r.ReadSingle() };
+        if (version >= 3) settings = settings with { PaintMinutes = r.ReadSingle(), PaintFadeHours = r.ReadSingle() };
         int count = r.ReadInt32();
         if (count is < 0 or > 100_000) throw new InvalidDataException("Map file water section is corrupt.");
         var sources = new List<WaterSource>(count);
@@ -119,7 +126,13 @@ public static class WaterFile
             pollutionGrid = grid is null ? null : new float[grid.Length];
             if (!ReadTiles<float>(r, pollutionGrid, width, depth, v => v)) pollutionGrid = null;
         }
-        return new WaterData(settings, sources, width, depth, grid, pollutionGrid);
+        float[]? paintGrid = null;
+        if (version >= 3)
+        {
+            paintGrid = grid is null ? null : new float[grid.Length];
+            if (!ReadTiles<byte>(r, paintGrid, width, depth, v => v / 255f)) paintGrid = null;
+        }
+        return new WaterData(settings, sources, width, depth, grid, pollutionGrid, paintGrid);
     }
 
     /// <summary>Reads what <see cref="WriteTiles"/> wrote into <paramref name="grid"/>; false when there were no tiles.</summary>

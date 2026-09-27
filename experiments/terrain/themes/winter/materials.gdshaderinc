@@ -11,3 +11,4 @@
 #define SLOT_SCOUR_HEAVY 4
 #define SLOT_SHORE 4
 #define SLOT_STREAM_BED 6
+#define SLOT_WET 4

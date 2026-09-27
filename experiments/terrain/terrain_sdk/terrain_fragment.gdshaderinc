@@ -74,6 +74,11 @@ void apply_water_slots(TerrainInputs t, inout vec4 w[MATERIAL_PACKS], inout floa
 	if (slot_debug == SLOT_I_STREAM_BED) dbg = c;
 	lay(w, SLOT_STREAM_BED, c);
 #endif
+#ifdef SLOT_WET
+	c = slot_cover(SLOT_I_WET, t.wet, false, t);
+	if (slot_debug == SLOT_I_WET) dbg = c;
+	lay(w, SLOT_WET, c);
+#endif
 }
 
 // Tint the neutral-grey texture: the material's tint sets the colour, the texture adds detail.
@@ -114,6 +119,14 @@ void fragment() {
 	t.gully = 24.0 - gm.g * 32.0;
 	t.wear = gm.b * 255.0 / 32.0;
 	t.deposit = gm.a * 255.0 / 32.0;
+	t.wet = 0.0;
+	vec2 wg = vec2(1.0, 0.0);
+	if (has_water_ground) {
+		vec2 cells = (world_pos.xz - terrain_origin) / water_ground_cell + 0.5;
+		wg = texture(water_ground, cells / vec2(textureSize(water_ground, 0))).rg;
+		t.shore = min(t.shore, wg.r * 255.0 / 4.0);
+		t.wet = wg.g;
+	}
 	t.noise_large = noise_a;
 	t.noise_medium = noise_b;
 	t.noise_fine = edge_noise(world_pos.xz, edge_noise_scale) + 0.5;
@@ -213,7 +226,8 @@ void fragment() {
 	}
 	if (terrain_debug == 1) col_out = debug_material_color(top_i[0]) * (0.75 + 0.25 * n.y);
 	if (ground_debug > 0) {
-		float v = ground_debug == 1 ? gm.r : ground_debug == 2 ? gm.g : ground_debug == 3 ? gm.b : gm.a;
+		float v = ground_debug == 1 ? clamp(1.0 - t.shore / 64.0, 0.0, 1.0) : ground_debug == 2 ? gm.g
+				: ground_debug == 3 ? gm.b : ground_debug == 4 ? gm.a : t.wet;
 		col_out = vec3(v * v);
 	}
 
