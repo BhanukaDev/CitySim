@@ -25,6 +25,12 @@ internal static unsafe class Native
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct GroundParams
+    {
+        public float CellSize, RiverMinArea, GullyMinArea;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct Progress
     {
         public float Value;
@@ -35,6 +41,7 @@ internal static unsafe class Native
     private static bool _loaded;
     private static delegate* unmanaged[Cdecl]<float*, int, int, float, ErosionParams*, Progress*, int> _erode;
     private static delegate* unmanaged[Cdecl]<float*, int, int, float, float, int, float*, Progress*, int> _findLakes;
+    private static delegate* unmanaged[Cdecl]<float*, int, int, float, float, int, GroundParams*, float*, uint*, Progress*, int> _findWater;
 
     /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://native/erosion/bin</c>).</summary>
     public static string? Directory { get; set; }
@@ -54,6 +61,7 @@ internal static unsafe class Native
             var lib = NativeLibrary.Load(path);
             _erode = (delegate* unmanaged[Cdecl]<float*, int, int, float, ErosionParams*, Progress*, int>)NativeLibrary.GetExport(lib, "cs_erode");
             _findLakes = (delegate* unmanaged[Cdecl]<float*, int, int, float, float, int, float*, Progress*, int>)NativeLibrary.GetExport(lib, "cs_find_lakes");
+            _findWater = (delegate* unmanaged[Cdecl]<float*, int, int, float, float, int, GroundParams*, float*, uint*, Progress*, int>)NativeLibrary.GetExport(lib, "cs_find_water");
             _loaded = true;
         }
     }
@@ -75,5 +83,18 @@ internal static unsafe class Native
         fixed (float* h = heights)
         fixed (float* w = waterLevel)
             return _findLakes(h, width, depth, seaLevel, minDepth, minCells, w, progress);
+    }
+
+    public static int FindWater(ReadOnlySpan<float> heights, int width, int depth, float seaLevel, float minDepth, int minCells,
+        in GroundParams ground, Span<float> waterLevel, Span<uint> groundMasks, Progress* progress)
+    {
+        Load();
+        int n = width * depth;
+        if (heights.Length < n || waterLevel.Length < n || groundMasks.Length < n) throw new ArgumentException("Buffers too short.");
+        var g = ground;
+        fixed (float* h = heights)
+        fixed (float* w = waterLevel)
+        fixed (uint* m = groundMasks)
+            return _findWater(h, width, depth, seaLevel, minDepth, minCells, &g, w, m, progress);
     }
 }

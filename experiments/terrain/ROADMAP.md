@@ -169,7 +169,7 @@ Layers (`TerrainLayers.cs`, same indices in the shader):
 | 2 | grass_dirt | Ground037 | ✔ | medium slopes (`dirt_slope`) |
 | 3 | dirt | Ground103 | ✔ | – |
 | 4 | gravel | Ground062S | ✔ | scree just below rock, broken up by noise |
-| 5 | sand | Ground101 | ✔ | below `sand_height` (future shorelines) |
+| 5 | sand | Ground101 | ✔ | along lakes, rivers and the sea (ground masks, M5.1; was below `sand_height`) |
 | 6 | rock | Rock051 | ✔ | slope > `rock_slope`, triplanar |
 | 7 | snow | Snow010A | ✔ | above `snow_height` on gentle slopes; noisy, thinning edge over `snow_blend` |
 
@@ -372,6 +372,28 @@ sliders and preset values removed) by a simulation and by lakes computed from th
 - Not done / next: rivers (flow accumulation → water along channels), the sea plane (M5), saving lakes settings in the map
   file, a C# fallback or Windows/Linux builds of the library, erosion as a brush, partial re-search of lakes after small edits.
 
+### 🔶 M5.1: Ground masks: sand by water, dirt/gravel where water erodes (implemented, waiting for the user to test)
+Texturing from the water, worked out with the lakes (`cs_find_water` in `native/erosion/`, one Priority-Flood for both), so it
+follows every edit (strokes, undo, generate, erosion) and needs no saving or undo of its own. Works on un-eroded maps too.
+- Flow: multiple flow directions (share ∝ slope²; a single direction left parallel grid stripes), all to the steepest neighbour
+  once `GullyMinArea` has gathered; flats and lakes follow the flood tree over the spill point. Walked in reverse flood order.
+- Masks, packed RGBA8 per vertex (`LakeMap.Ground`), in Terrain3D's **colour map** (unused by us, already on the GPU):
+  R **shore** = distance to lakes/sea/rivers (+4 m per metre above the water; rivers from `RiverMinArea`, 1 km², banks widen
+  with catchment); G **gully** = distance to gully/stream beds; B **wear** = log stream power √area × slope;
+  A **deposit** = sediment settling where capacity (area × slope) drops: fans at slope feet, deltas at lakes.
+- Gully beds start at area × slope² ≥ `GullyMinArea` (10,000 m²) × 0.2², or `GullyMinArea` in a hollow (concave over 2 cells);
+  they follow the steepest path down and end on open gentle ground unless they're big. Area alone drew parallel "roads"
+  down every smooth plain; without carrying on downstream, flat beds made dashed lines.
+- Shader (`WaterAndErosion` group): sand within `shore_sand_width` (10 m) except on rock; gravel in gully beds; dirt from
+  `wear_dirt`, gravel from `wear_gravel`, rock at gentler slopes where scoured (`wear_rock`); dirt + gravel patches on
+  deposits. `ground_debug` 1–4 shows one mask. The old height rule (`sand_height`) is gone: it put sand on dry lowlands.
+- Bridge: every region gets a zeroed RGBA8 colour map (Terrain3D's default white would read as "all shore");
+  `PushGround` uploads only regions whose masks changed.
+- Cost (M1): 3.6 km lakes 90 → ~180 ms. 28.7 km Mountains: lakes 8 s → 16.5 s (flood 7.4, flow 5.6, chamfer 1.1, rest 1.3),
+  on the worker, so textures catch up ~16 s after an edit there. Extra transient memory ≈ 14 B/vertex (~0.9 GB at 8193²).
+- Not done: river water surfaces (the beds are dry sand/gravel), `RiverMinArea`/`GullyMinArea` in the Erosion panel,
+  partial re-search after small edits (would help the 28.7 km delay).
+
 ### ⬜ M5: Water
 - Sea level plane with a simple water shader (depth colour, shoreline foam)
 - Later: rivers/lakes (flow simulation or painted water sources); buildable = above water
@@ -521,6 +543,8 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
   Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
   map files store 16-bit heights, like CS2 and heightmap exports.
+- M5.1: ground texturing by water is **derived from the current heights** (flow routing + stream power), not recorded from the
+  erosion run, so it follows sculpting, needs no file/undo changes and works on un-eroded maps. Stored in Terrain3D's colour map.
 - M5.0: lakes are **computed, not generated**: every depression fills to its spill height (Priority-Flood), so water always
   follows the ground. The M4.2 noise channels/basins were removed (user's choice). Erosion is a separate, undoable step run
   from its own panel, not part of the generator. C++ as a plain C library via P/Invoke-style function pointers rather than a

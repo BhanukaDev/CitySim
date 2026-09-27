@@ -77,9 +77,12 @@ public partial class Terrain : Node3D
     /// <summary>Goes up with every height change, so work started on older heights can tell it's stale.</summary>
     public int HeightVersion { get; private set; }
 
-    /// <summary>Standing water found on the current heights, or null until the first search finishes.</summary>
+    /// <summary>
+    /// Standing water found on the current heights, or null until the first search finishes. Also carries the ground
+    /// masks (shores, gullies, wear, deposits) the shader textures with.
+    /// </summary>
     public LakeMap? Lakes { get; private set; }
-    /// <summary>Time the last lake search took (find + mesh arrays).</summary>
+    /// <summary>Time the last lake search took (find + ground masks + mesh arrays).</summary>
     public double LastLakeMs { get; private set; }
     /// <summary>Raised on the main thread when <see cref="Lakes"/> is replaced.</summary>
     public event System.Action? LakesChanged;
@@ -188,7 +191,10 @@ public partial class Terrain : Node3D
     /// <summary>Finds the lakes again after <paramref name="delay"/> seconds (restarted by every height edit).</summary>
     public void RefreshLakes(double delay = LakeDelay) => _lakeTimer = delay;
 
-    /// <summary>Finds lakes and builds their mesh arrays on a worker; the result is dropped if the heights changed meanwhile.</summary>
+    /// <summary>
+    /// Finds lakes and ground masks and builds the lake mesh arrays on a worker; the result is dropped if the heights
+    /// changed meanwhile.
+    /// </summary>
     private void StartLakeSearch()
     {
         _lakeTimer = -1;
@@ -201,13 +207,15 @@ public partial class Terrain : Node3D
         Task.Run(() =>
         {
             var sw = Stopwatch.StartNew();
-            var lakes = TerrainSystem.Erosion.Lakes.Find(map, settings, sea, job.Token);
+            var lakes = TerrainSystem.Erosion.Lakes.Find(map, settings, sea, job.Token, ground: true);
             if (lakes is null) return;
             var arrays = LakeWater.Build(lakes);
             double ms = sw.Elapsed.TotalMilliseconds;
             Callable.From(() =>
             {
                 if (!IsInstanceValid(this) || job.IsCancellationRequested || map != Map || version != HeightVersion) return;
+                if (lakes.Ground is { } ground) _render?.PushGround(ground, Lakes?.Ground, map.Width);
+                GD.Print($"Terrain: {lakes.Count} lakes and ground masks in {ms:0} ms");
                 Lakes = lakes;
                 LastLakeMs = ms;
                 EnsureWater().Apply(arrays);

@@ -67,4 +67,8 @@ public sealed record LakeSettings
     public float MinDepth { get; init; } = 1f;
     /// <summary>Smaller depressions stay dry, in square metres.</summary>
     public float MinArea { get; init; } = 5000f;
+    /// <summary>Catchment (square metres) above which running water counts as a river and gets sandy banks.</summary>
+    public float RiverMinArea { get; init; } = 1_000_000f;
+    /// <summary>Catchment (square metres) above which running water leaves a gravel gully bed.</summary>
+    public float GullyMinArea { get; init; } = 10_000f;
 }

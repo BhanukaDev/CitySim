@@ -28,6 +28,9 @@ uniform int _region_map[1024];
 uniform highp sampler2DArray _height_maps : repeat_disable;
 // One uint per vertex (as float bits), laid out like SplatMap.cs.
 uniform highp sampler2DArray _control_maps : repeat_disable;
+// Terrain3D's colour map, used for our ground masks (Terrain3DBridge.PushGround): R shore, G gully, B wear, A deposit.
+// Encodings: cs_find_water in native/erosion/erosion.h. Raw bytes, so no source_color.
+uniform highp sampler2DArray _color_maps : repeat_disable;
 
 // Ground layers, in texture-array order. Must match TerrainLayers.cs.
 // 0 grass, 1 grass_dry, 2 grass_dirt, 3 dirt, 4 gravel, 5 sand, 6 rock, 7 snow
@@ -111,8 +114,8 @@ uniform vec3 shadow_tint : source_color = vec3(0.62, 0.72, 1.0);
 uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 
 group_uniforms AutoLayers;
-// Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°).
-uniform float sand_height = 9.0;
+// Automatic layering by height (world metres) and slope (1 - normal.y; 0.3 is about 45°). Sand comes from the
+// ground masks (WaterAndErosion), along real water.
 // The snow line sits snow_line of the way up the map's height range, but never below snow_height, so tall maps
 // keep snow to their peaks and low or flat maps stay green.
 uniform float snow_line : hint_range(0.0, 1.0) = 0.5;
@@ -123,6 +126,27 @@ uniform float rock_slope : hint_range(0.0, 1.0) = 0.3;
 uniform float dirt_slope : hint_range(0.0, 1.0) = 0.17;
 uniform float dry_amount : hint_range(0.0, 1.0) = 0.5;
 uniform float gravel_amount : hint_range(0.0, 1.0) = 0.5;
+
+group_uniforms WaterAndErosion;
+// From the ground masks worked out with the lakes: sand along lakes, the sea and rivers; gravel in gully beds; bare dirt
+// and rock where running water scours; dirt and gravel where its sediment settles.
+// Sand reaches this far from the water (metres; each metre of height above the water counts as 4).
+uniform float shore_sand_width = 10.0;
+uniform float shore_sand_amount : hint_range(0.0, 1.0) = 1.0;
+// Gravel in beds of gullies and rivers.
+uniform float gully_gravel_amount : hint_range(0.0, 1.0) = 0.85;
+// Wear is log2(1 + stream power); dirt from wear_dirt, gravel from wear_gravel (both fade in over 1).
+// On an eroded 3.6 km map about 10% of the ground is above 1.8 and 1% above 2.9.
+uniform float wear_dirt = 2.0;
+uniform float wear_gravel = 3.0;
+// Scoured ground shows rock at gentler slopes, by up to this much (slope units, 0.1 is about 25 degrees less).
+uniform float wear_rock : hint_range(0.0, 0.3) = 0.08;
+uniform float wear_amount : hint_range(0.0, 1.0) = 0.8;
+// Deposits (log2 scale): dirt from deposit_start, some gravel where they're thickest. About 1% of the ground is above 1.2.
+uniform float deposit_start = 0.8;
+uniform float deposit_amount : hint_range(0.0, 1.0) = 0.7;
+// 1 shore, 2 gully, 3 wear, 4 deposit: shows one mask in greyscale instead of the ground.
+uniform int ground_debug : hint_range(0, 4) = 0;
 
 group_uniforms EdgeFog;
 // A fog bank that swallows the map border, so its hard edges and corners never show. Everything outside
@@ -391,18 +415,40 @@ void fragment() {
 	float slope_n = slope + (noise_b - 0.5) * 0.08 + edge * 0.05;
 	float y_n = y + (noise_b - 0.5) * 8.0 + edge;
 
+	// Ground masks, bilinear between the four surrounding vertices.
+	vec4 gm = vec4(0.0);
+	for (int k = 0; k < 4; k++)
+		if (corner[k].z >= 0) gm += texelFetch(_color_maps, corner[k], 0) * corner_w[k];
+	float shore_d = 64.0 - gm.r * 80.0;
+	float gully_d = 24.0 - gm.g * 32.0;
+	float wear = gm.b * 255.0 / 32.0;
+	float deposit = gm.a * 255.0 / 32.0;
+
 	// --- Automatic layers, laid bottom to top ---
 	float w[LAYERS];
 	for (int i = 0; i < LAYERS; i++) w[i] = 0.0;
 	w[0] = 1.0;
 	lay(w, 1, smoothstep(0.35, 0.95, noise_a + h01 * 0.35 + edge * 0.15) * dry_amount);
 	lay(w, 2, smoothstep(dirt_slope - 0.08, dirt_slope + 0.08, slope_n));
-	float rock = smoothstep(rock_slope - 0.05, rock_slope + 0.05, slope_n);
+	// Where sediment settles: dirt, with gravel patches where it's thickest.
+	float dep = smoothstep(deposit_start, deposit_start + 1.0, deposit + edge) * deposit_amount;
+	lay(w, 3, dep);
+	lay(w, 4, dep * smoothstep(deposit_start + 0.8, deposit_start + 2.0, deposit + (noise_b - 0.5) * 1.5));
+	// Scoured by running water: bare dirt, then gravel.
+	float wear_n = wear + edge;
+	lay(w, 3, smoothstep(wear_dirt, wear_dirt + 1.0, wear_n) * wear_amount);
+	lay(w, 4, smoothstep(wear_gravel, wear_gravel + 1.0, wear_n) * wear_amount);
+	float rock_at = rock_slope - wear_rock * smoothstep(wear_dirt, wear_gravel + 1.0, wear);
+	float rock = smoothstep(rock_at - 0.05, rock_at + 0.05, slope_n);
 	// Scree at the foot of cliffs, broken up by noise so it doesn't outline every rock patch.
-	float scree = smoothstep(rock_slope - 0.1, rock_slope - 0.02, slope_n) * smoothstep(0.35, 0.65, noise_b);
+	float scree = smoothstep(rock_at - 0.1, rock_at - 0.02, slope_n) * smoothstep(0.35, 0.65, noise_b);
 	lay(w, 4, scree * gravel_amount);
 	lay(w, ROCK, rock);
-	lay(w, 5, 1.0 - smoothstep(sand_height - 3.0, sand_height + 3.0, y_n));
+	// Beaches along lakes, the sea and rivers; steep banks stay rock.
+	float shore = 1.0 - smoothstep(shore_sand_width - 3.0, shore_sand_width + 1.0, shore_d + edge * 6.0);
+	lay(w, 5, shore * shore_sand_amount * (1.0 - rock));
+	// Gravel in the bed of gullies and rivers.
+	lay(w, 4, (1.0 - smoothstep(-1.0, 1.5, gully_d + edge * 2.0)) * gully_gravel_amount * (1.0 - rock * 0.5));
 	// Snow line: wanders with noise and thins out over snow_blend metres; height blending then lets
 	// grass tufts and stones poke through the thin edge instead of a separate "snowy grass" texture.
 	float snow_ok = 1.0 - smoothstep(snow_max_slope - 0.08, snow_max_slope + 0.08, slope_n);
@@ -475,6 +521,10 @@ void fragment() {
 	albedo *= 1.0 + breakup * breakup_strength * 2.0;
 
 	vec3 col_out = albedo;
+	if (ground_debug > 0) {
+		float v = ground_debug == 1 ? gm.r : ground_debug == 2 ? gm.g : ground_debug == 3 ? gm.b : gm.a;
+		col_out = vec3(v * v);
+	}
 
 	if (show_grid) {
 		vec2 g = world_pos.xz / grid_size;

@@ -10,7 +10,7 @@ namespace CitySim.TerrainSystem;
 /// have no C# bindings, so everything goes through <c>Call</c>/<c>Get</c>/<c>Set</c> strings.
 ///
 /// <see cref="HeightMap"/> and <see cref="SplatMap"/> stay the source of truth; this copies them in once and then pushes
-/// only edited rectangles. Terrain3D regions are square powers of two, so the copy covers the first <c>cells</c>²
+/// only edited rectangles. Terrain3D's colour map carries our ground masks (<see cref="Erosion.LakeMap.Ground"/>), not colours. Terrain3D regions are square powers of two, so the copy covers the first <c>cells</c>²
 /// vertices: the last row and column of the heightmap are not drawn. Pixels past the map (when the size isn't a
 /// multiple of the region size) are holes.
 /// </summary>
@@ -19,7 +19,7 @@ public sealed class Terrain3DBridge
     public const string NodeName = "Terrain3D";
 
     // Terrain3DRegion.MapType
-    private const int TypeHeight = 0, TypeControl = 1;
+    private const int TypeHeight = 0, TypeControl = 1, TypeColor = 2;
     private const uint HoleBit = 1u << 2;
     private const int MaxRegionsPerSide = 16, MinRegionSize = 256;
 
@@ -28,9 +28,9 @@ public sealed class Terrain3DBridge
     private readonly GodotObject _material;
     private readonly int _region;
     private readonly int _regionsX, _regionsZ;
-    // Per region (row-major): the Terrain3DRegion and its height/control Images, edited in place.
+    // Per region (row-major): the Terrain3DRegion and its height/control/colour Images, edited in place.
     private readonly GodotObject[] _regions;
-    private readonly Image[] _heightImages, _controlImages;
+    private readonly Image[] _heightImages, _controlImages, _colorImages;
     private readonly List<int> _edited = new();
     private Camera3D? _camera;
 
@@ -52,6 +52,7 @@ public sealed class Terrain3DBridge
         _regions = new GodotObject[_regionsX * _regionsZ];
         _heightImages = new Image[_regions.Length];
         _controlImages = new Image[_regions.Length];
+        _colorImages = new Image[_regions.Length];
         _data = node.Get("data").AsGodotObject();
         _material = node.Get("material").AsGodotObject();
     }
@@ -101,6 +102,8 @@ public sealed class Terrain3DBridge
         int r = _region;
         var heights = new float[r * r];
         var control = new uint[r * r];
+        // No ground masks until the first lake search (all zero = no shore, gullies, wear or deposits).
+        var blankColor = new byte[r * r * 4];
         for (int rz = 0; rz < _regionsZ; rz++)
         {
             for (int rx = 0; rx < _regionsX; rx++)
@@ -132,7 +135,8 @@ public sealed class Terrain3DBridge
                             control[z * r + x] = x < w && z < d ? splat.Get(x0 + x, z0 + z) : HoleBit;
                     region.Call("set_control_map", FloatImage(r, r, MemoryMarshal.AsBytes(control.AsSpan())));
                 }
-                region.Call("sanitize_maps"); // fills in blank control/colour maps
+                region.Call("set_color_map", Image.CreateFromData(r, r, false, Image.Format.Rgba8, blankColor));
+                region.Call("sanitize_maps"); // fills in a blank control map
                 region.Call("calc_height_range");
                 _data.Call("add_region", region, false);
 
@@ -140,6 +144,7 @@ public sealed class Terrain3DBridge
                 _regions[i] = region;
                 _heightImages[i] = (Image)region.Call("get_height_map").AsGodotObject();
                 _controlImages[i] = (Image)region.Call("get_control_map").AsGodotObject();
+                _colorImages[i] = (Image)region.Call("get_color_map").AsGodotObject();
             }
         }
         _data.Call("update_maps", 3, true, false); // TYPE_MAX: every map of every region
@@ -179,6 +184,41 @@ public sealed class Terrain3DBridge
         });
     }
 
+    /// <summary>
+    /// Copies ground masks (one packed RGBA8 value per heightmap vertex, see <see cref="Erosion.LakeMap.Ground"/>) to the
+    /// render copy. With <paramref name="previous"/> (the masks now on the GPU), only regions that differ are uploaded.
+    /// </summary>
+    public void PushGround(uint[] ground, uint[]? previous, int mapWidth)
+    {
+        int r = _region;
+        LastPushRegions = 0;
+        for (int rz = 0; rz < _regionsZ; rz++)
+            for (int rx = 0; rx < _regionsX; rx++)
+            {
+                int x0 = rx * r, z0 = rz * r;
+                int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
+                if (previous is not null && !Differs(x0, z0, w, d)) continue;
+                PushRegion(rx, rz, x0, z0, w, d, TypeColor, bytes =>
+                {
+                    var dst = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
+                    for (int z = 0; z < d; z++)
+                        ground.AsSpan((z0 + z) * mapWidth + x0, w).CopyTo(dst.Slice(z * w, w));
+                    return null;
+                });
+            }
+        FinishPush(TypeColor);
+
+        bool Differs(int x0, int z0, int w, int d)
+        {
+            for (int z = 0; z < d; z++)
+            {
+                int o = (z0 + z) * mapWidth + x0;
+                if (!ground.AsSpan(o, w).SequenceEqual(previous.AsSpan(o, w))) return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>Writes the part of a vertex rect in each region: fill builds its bytes and may return a height range.</summary>
     private void Push(VertexRect rect, int type, Func<int, int, int, int, byte[], Vector2?> fill)
     {
@@ -194,18 +234,30 @@ public sealed class Terrain3DBridge
                 int x0 = Math.Max(rect.MinX, rx * r), z0 = Math.Max(rect.MinZ, rz * r);
                 int w = Math.Min(rect.MaxX, rx * r + r - 1) - x0 + 1;
                 int d = Math.Min(rect.MaxZ, rz * r + r - 1) - z0 + 1;
-                var bytes = new byte[w * d * 4];
-                var range = fill(x0, z0, w, d, bytes);
-                var patch = Image.CreateFromData(w, d, false, Image.Format.Rf, bytes);
-                int i = rz * _regionsX + rx;
-                var target = type == TypeHeight ? _heightImages[i] : _controlImages[i];
-                target.BlitRect(patch, new Rect2I(0, 0, w, d), new Vector2I(x0 - rx * r, z0 - rz * r));
-                patch.Dispose();
-                if (range is { } h) _regions[i].Call("update_heights", h);
-                _regions[i].Call("set_edited", true);
-                _edited.Add(i);
+                PushRegion(rx, rz, x0, z0, w, d, type, bytes => fill(x0, z0, w, d, bytes));
             }
         }
+        FinishPush(type);
+    }
+
+    /// <summary>Blits a w×d patch at vertex (x0, z0) into region (rx, rz)'s map of the given type. 4 bytes per pixel.</summary>
+    private void PushRegion(int rx, int rz, int x0, int z0, int w, int d, int type, Func<byte[], Vector2?> fill)
+    {
+        var bytes = new byte[w * d * 4];
+        var range = fill(bytes);
+        var patch = Image.CreateFromData(w, d, false, type == TypeColor ? Image.Format.Rgba8 : Image.Format.Rf, bytes);
+        int i = rz * _regionsX + rx;
+        var target = type switch { TypeHeight => _heightImages[i], TypeControl => _controlImages[i], _ => _colorImages[i] };
+        target.BlitRect(patch, new Rect2I(0, 0, w, d), new Vector2I(x0 - rx * _region, z0 - rz * _region));
+        patch.Dispose();
+        if (range is { } h) _regions[i].Call("update_heights", h);
+        _regions[i].Call("set_edited", true);
+        _edited.Add(i);
+    }
+
+    private void FinishPush(int type)
+    {
+        if (_edited.Count == 0) return;
         LastPushRegions = _edited.Count;
         _data.Call("update_maps", type, false, false);
         foreach (int i in _edited) _regions[i].Call("set_edited", false);

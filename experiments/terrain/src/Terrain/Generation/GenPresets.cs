@@ -17,7 +17,7 @@ public sealed record GenPreset(string Name, string Description, NoiseSettings No
 
 public static class GenPresets
 {
-    // Sand shows below ~9 m (terrain shader's sand_height), so a sea level of 6 m gives beaches.
+    // Coastal maps sit low (base 8 m, sea level 6 m); the shader puts sand along the sea (ground masks).
     private static readonly NoiseSettings Coastal = new() { BaseHeight = 8f, HeightScale = 200f, Flatness = 0.5f };
 
     public static readonly GenPreset[] All =
