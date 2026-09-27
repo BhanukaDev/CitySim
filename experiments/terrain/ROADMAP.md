@@ -67,12 +67,13 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
 #   --demo-erosion (erosion per preset, repeatability, lakes obey the spill rule, one-step undo), --erode[=light|medium|heavy],
-#   --show-erosion (open the Erosion & Lakes panel), --show-materials (open the Materials panel),
-#   --rule-debug=<index>|layers|cost (material debug views), --demo-materials, --write-default-look,
+#   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
+#   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
+#   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
 #   --size=cells (8192 = 28.7 km)
 # any flag skips the start menu (scenes/Menu.tscn)
-tools/fetch_textures.sh      # first time (or after changing a texture): download, bake, import ground textures
+tools/fetch_textures.sh      # first time (or after changing a texture): download the ground textures, bake every theme, import
 tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
 ```
 
@@ -395,7 +396,7 @@ follows every edit (strokes, undo, generate, erosion) and needs no saving or und
 - Not done: river water surfaces (the beds are dry sand/gravel), `RiverMinArea`/`GullyMinArea` in the Erosion panel,
   partial re-search after small edits (would help the 28.7 km delay).
 
-### 🔶 M3.4: Material rule stack + Materials panel (implemented, waiting for the user to test)
+### 🔶 M3.4: Material rule stack + Materials panel (replaced by M3.5 themes; the rules live on as the default theme's shader + slots)
 The automatic ground is now data, not shader code, so it can be tuned in the Map Editor. Motivation: hard grass→sand and
 grass→gravel edges along lakes, rivers and gullies. The automatic snow line is gone (snow is paint-only).
 - **Rules** (`src/Terrain/Look/`): `TerrainLook` (resource, `materials/terrain_look.tres`, one shared file for every map) holds
@@ -428,6 +429,42 @@ grass→gravel edges along lakes, rivers and gullies. The automatic snow line is
 - Debug flags: `--show-materials`, `--rule-debug=<index>|layers|cost`, `--demo-materials` (live → baked switch, structural
   edit, save/load round trip), `--write-default-look` (writes `TerrainLook.CreateDefault()` to the shared file, then quits).
 - Not done: per-map looks and presets (the user chose one shared file), undo in the panel, rules keyed to painted layers.
+
+### 🔶 M3.5: Terrain themes made in Godot (implemented, waiting for the user to test)
+The Materials panel edited a fixed world (8 hard-coded layers, one texture array, one shared look), so a winter map was
+impossible and the in-game rule editor was clunky. Now a **theme** is made in the Godot editor (for us, gamedevs and later
+modders) and bundles its own shader, materials and erosion slots. Nothing about grass/sand/rock is built into the game.
+Authoring guide: `terrain_sdk/README.md`.
+- **Shader contract** (`terrain_sdk/`): `terrain_core.gdshaderinc` (Terrain3D vertex stage and lookups, uniforms, sampling,
+  `TerrainInputs`, helpers `lay`/`above`/`below`) and `terrain_fragment.gdshaderinc` (`fragment()`: base → `terrain_auto` →
+  scour/deposit slots → optional `terrain_auto_late` → shore/stream slots → paint → top-4 height blend → overlays, fog; default
+  `light()`). A theme shader only includes them and writes hooks, so the engine side can change without breaking themes.
+  Terrain3D copies the override's code into a pathless shader, so `Terrain` makes relative `#include`s absolute first.
+- **Data** (`src/Terrain/Themes/`): `TerrainTheme` (`themes/<id>/theme.tres`: id, name, `ShaderMaterial` with tuned uniforms,
+  up to 16 `TerrainMaterial`s, 8 `ErosionSlot`s), `TerrainMaterial` (source texture *paths*, so the game never loads the
+  2K sources; tint, tiling, triplanar, detail/normal factors, paintable), `ErosionSlot` (material or empty = off; strength,
+  edge, fade, noise, slope limit; defaults are the M5.1 tuned values), `ThemeLibrary` (scans `res://themes/*/theme.tres`),
+  `ThemeBaker` (the old TextureBaker's grey-normalise/height-stretch into `baked/albedo_height.png` + `normal.png` with BC7
+  texture-array `.import`s, a CPU-lit 128² preview per material, and `materials.gdshaderinc` with `MAT_<ID>`/`SLOT_<NAME>`).
+- **Slots** (erosion/water features a shader can't infer): Deposits, Thick deposits, Scoured, Heavily scoured (wear), Shore
+  fringe, Shore (shore distance), Stream banks, Stream beds (gully distance). Filled slots are `#define`d (empty ones cost
+  nothing); their numbers are uniforms, so they tune live.
+- **Per map**: `MapFile` v3 appends the theme id and a palette (material id per painted index). `SplatMap.Remap` moves paint
+  by id when the theme changes; ids the new theme lacks stay at the end of the palette (the shader skips indices past the
+  theme's count), so switching to winter and back loses nothing. v1/v2 files load as `default` with the old 8 layer ids.
+  New Map has a Theme dropdown (`MapSession.NewMapTheme`).
+- **UI**: Materials tab → small **Theme** panel (theme dropdown, material swatches, which slots are on, debug views, Reload).
+  Paint tab buttons come from the theme's paintable materials with their baked swatches.
+- **Godot tooling**: `addons/citysim_themes/` (enabled in project.godot): Bake theme + Validate buttons in a `TerrainTheme`'s
+  inspector. In the editor, setting `Terrain.DefaultTheme` shows that theme in the viewport, refreshed every 0.5 s.
+- Content: `themes/default` (the M3.4 look ported exactly: screenshots match the old shader to within 3/255 per channel),
+  `themes/winter` (demo: snow base, drifted snow, wind-scoured slopes with frozen grass/earth, snow on rock ledges, gravel
+  shores, ice stream beds, deposits/fringe/banks empty, cooler lighting). New CC0 sets: Snow004, Ice002.
+- Removed: `TerrainLook`/`MaterialRule`/`RuleCondition`/`RuleShaderGen`, `MaterialsPanel`, `TerrainLayers`,
+  `materials/terrain_look.tres`, `shaders/terrain.gdshader`, flags `--show-materials`, `--rule-debug`, `--demo-materials`,
+  `--write-default-look`, `--bake-terrain-textures`.
+- Not done / next (**M3.6**): loading themes from mod `.pck` files in `user://mods`, a modder template project, frozen lake
+  water (lakes still use one water shader for every theme), a theme preview button that launches the game on the theme.
 
 ### ⬜ M5: Water
 - Sea level plane with a simple water shader (depth colour, shoreline foam)
@@ -576,7 +613,12 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - M6 phase 2: Terrain3D regions are 256²/512² (smallest that fits 16 per side), not 1024², because each edit re-uploads whole
   regions. (The relative snow line decided here was removed in M3.4: snow is paint-only.)
 - M3.4: ground rules are a data-driven stack in one shared look file (not per map), edited in an in-app Materials panel;
-  the shader is specialised (baked) per look for speed. No automatic snow.
+  the shader is specialised (baked) per look for speed. No automatic snow. *Superseded by M3.5.*
+- M3.5: looks are **themes made in Godot**, not edited in-app (user's call: the Materials tab didn't look good, and mods/DLC
+  should be able to ship whole looks such as winter). A theme ships a *look-only* shader that includes our SDK core (not a
+  whole shader, so engine changes don't break themes). Material slots are free per theme; only erosion/water features are
+  fixed named slots, since a shader can't compute those masks. Theme is **per map**. Previews are baked in the editor, not
+  rendered at runtime. Mod loading comes next (M3.6).
 - M6 phase 1: new maps use 3.5 m cells (CS2's spacing), replacing the 2 m decision above; sizes are powers of two (1.8–28.7 km).
   Old 2 m maps still load at their own cell size. Paint is two layers per vertex plus coverage (Terrain3D's control format);
   map files store 16-bit heights, like CS2 and heightmap exports.

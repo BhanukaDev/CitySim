@@ -23,6 +23,10 @@ window/size/viewport_height=900
 
 project/assembly_name="TerrainExp"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/citysim_themes/plugin.cfg")
+
 [input]
 
 cam_forward={

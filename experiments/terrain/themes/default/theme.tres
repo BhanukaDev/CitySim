@@ -1,0 +1,194 @@
+[gd_resource type="Resource" script_class="TerrainTheme" format=3]
+
+[ext_resource type="Script" path="res://src/Terrain/Themes/TerrainTheme.cs" id="1_theme"]
+[ext_resource type="Script" path="res://src/Terrain/Themes/TerrainMaterial.cs" id="2_material"]
+[ext_resource type="Script" path="res://src/Terrain/Themes/ErosionSlot.cs" id="3_slot"]
+[ext_resource type="Shader" path="res://themes/default/terrain.gdshader" id="4_shader"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
+frequency = 0.008
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_macro"]
+width = 512
+height = 512
+seamless = true
+noise = SubResource("FastNoiseLite_macro")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_theme"]
+shader = ExtResource("4_shader")
+shader_parameter/macro_noise = SubResource("NoiseTexture2D_macro")
+
+[sub_resource type="Resource" id="mat_grass"]
+script = ExtResource("2_material")
+Id = "grass"
+DisplayName = "Grass"
+Albedo = "res://assets/textures/terrain/grass/Grass005_Color.jpg"
+Height = "res://assets/textures/terrain/grass/Grass005_Displacement.jpg"
+Normal = "res://assets/textures/terrain/grass/Grass005_NormalGL.jpg"
+Tint = Color(0.4, 0.62, 0.2, 1)
+
+[sub_resource type="Resource" id="mat_grass_dry"]
+script = ExtResource("2_material")
+Id = "grass_dry"
+DisplayName = "Dry Grass"
+Albedo = "res://assets/textures/terrain/grass_dry/Grass004_Color.jpg"
+Height = "res://assets/textures/terrain/grass_dry/Grass004_Displacement.jpg"
+Normal = "res://assets/textures/terrain/grass_dry/Grass004_NormalGL.jpg"
+Tint = Color(0.68, 0.66, 0.26, 1)
+
+[sub_resource type="Resource" id="mat_grass_dirt"]
+script = ExtResource("2_material")
+Id = "grass_dirt"
+DisplayName = "Grass & Dirt"
+Albedo = "res://assets/textures/terrain/grass_dirt/Ground037_Color.jpg"
+Height = "res://assets/textures/terrain/grass_dirt/Ground037_Displacement.jpg"
+Normal = "res://assets/textures/terrain/grass_dirt/Ground037_NormalGL.jpg"
+Tint = Color(0.5, 0.55, 0.24, 1)
+
+[sub_resource type="Resource" id="mat_dirt"]
+script = ExtResource("2_material")
+Id = "dirt"
+DisplayName = "Dirt"
+Albedo = "res://assets/textures/terrain/dirt/Ground103_Color.jpg"
+Height = "res://assets/textures/terrain/dirt/Ground103_Displacement.jpg"
+Normal = "res://assets/textures/terrain/dirt/Ground103_NormalGL.jpg"
+Tint = Color(0.6, 0.43, 0.28, 1)
+
+[sub_resource type="Resource" id="mat_gravel"]
+script = ExtResource("2_material")
+Id = "gravel"
+DisplayName = "Gravel"
+Albedo = "res://assets/textures/terrain/gravel/Ground062S_Color.jpg"
+Height = "res://assets/textures/terrain/gravel/Ground062S_Displacement.jpg"
+Normal = "res://assets/textures/terrain/gravel/Ground062S_NormalGL.jpg"
+Tint = Color(0.66, 0.58, 0.48, 1)
+
+[sub_resource type="Resource" id="mat_sand"]
+script = ExtResource("2_material")
+Id = "sand"
+DisplayName = "Sand"
+Albedo = "res://assets/textures/terrain/sand/Ground101_Color.jpg"
+Height = "res://assets/textures/terrain/sand/Ground101_Displacement.jpg"
+Normal = "res://assets/textures/terrain/sand/Ground101_NormalGL.jpg"
+Tint = Color(0.87, 0.75, 0.5, 1)
+
+[sub_resource type="Resource" id="mat_rock"]
+script = ExtResource("2_material")
+Id = "rock"
+DisplayName = "Rock"
+Albedo = "res://assets/textures/terrain/rock/Rock051_Color.jpg"
+Height = "res://assets/textures/terrain/rock/Rock051_Displacement.jpg"
+Normal = "res://assets/textures/terrain/rock/Rock051_NormalGL.jpg"
+Tint = Color(0.6, 0.56, 0.5, 1)
+TileSize = 19.0
+FarTileSize = 47.0
+Triplanar = true
+DetailContrast = 0.9
+NormalStrength = 0.55
+
+[sub_resource type="Resource" id="mat_snow"]
+script = ExtResource("2_material")
+Id = "snow"
+DisplayName = "Snow"
+Albedo = "res://assets/textures/terrain/snow/Snow010A_Color.jpg"
+Height = "res://assets/textures/terrain/snow/Snow010A_Displacement.jpg"
+Normal = "res://assets/textures/terrain/snow/Snow010A_NormalGL.jpg"
+Tint = Color(0.96, 0.96, 1.0, 1)
+
+[sub_resource type="Resource" id="slot_Deposit"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_dirt")
+Strength = 0.7
+Edge = 1.8
+Fade = 1.0
+Noise = 1.0
+NoiseSize = 0
+
+[sub_resource type="Resource" id="slot_DepositHeavy"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_gravel")
+Strength = 0.7
+Edge = 2.8
+Fade = 1.2
+Noise = 1.5
+NoiseSize = 2
+
+[sub_resource type="Resource" id="slot_Scour"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_dirt")
+Strength = 0.8
+Edge = 3.0
+Fade = 1.0
+Noise = 1.0
+NoiseSize = 0
+
+[sub_resource type="Resource" id="slot_ScourHeavy"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_gravel")
+Strength = 0.8
+Edge = 4.0
+Fade = 1.0
+Noise = 1.0
+NoiseSize = 0
+
+[sub_resource type="Resource" id="slot_ShoreFringe"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_grass_dirt")
+Strength = 0.6
+Edge = 16.0
+Fade = 26.0
+Noise = 16.0
+NoiseSize = 1
+LimitSlope = true
+MaxSlope = 42.0
+SlopeFade = 8.0
+
+[sub_resource type="Resource" id="slot_Shore"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_sand")
+Strength = 1.0
+Edge = 5.0
+Fade = 18.0
+Noise = 14.0
+NoiseSize = 1
+LimitSlope = true
+MaxSlope = 42.0
+SlopeFade = 8.0
+
+[sub_resource type="Resource" id="slot_StreamBank"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_dirt")
+Strength = 0.4
+Edge = 2.0
+Fade = 6.0
+Noise = 3.0
+NoiseSize = 0
+
+[sub_resource type="Resource" id="slot_StreamBed"]
+script = ExtResource("3_slot")
+Material = SubResource("mat_gravel")
+Strength = 0.85
+Edge = -0.5
+Fade = 4.0
+Noise = 2.0
+NoiseSize = 0
+LimitSlope = true
+MaxSlope = 50.0
+SlopeFade = 10.0
+
+[resource]
+script = ExtResource("1_theme")
+Id = "default"
+DisplayName = "Temperate"
+Description = "The default look: green hills, sandy shores, gravel stream beds and rocky cliffs."
+Material = SubResource("ShaderMaterial_theme")
+Materials = Array[ExtResource("2_material")]([SubResource("mat_grass"), SubResource("mat_grass_dry"), SubResource("mat_grass_dirt"), SubResource("mat_dirt"), SubResource("mat_gravel"), SubResource("mat_sand"), SubResource("mat_rock"), SubResource("mat_snow")])
+Deposit = SubResource("slot_Deposit")
+DepositHeavy = SubResource("slot_DepositHeavy")
+Scour = SubResource("slot_Scour")
+ScourHeavy = SubResource("slot_ScourHeavy")
+ShoreFringe = SubResource("slot_ShoreFringe")
+Shore = SubResource("slot_Shore")
+StreamBank = SubResource("slot_StreamBank")
+StreamBed = SubResource("slot_StreamBed")

@@ -43,7 +43,7 @@ public partial class TerrainToolController : Node
     private bool _showContours;
     private float _maxSlope = SculptOps.DefaultMaxSlopeDegrees;
     private int _contourIndex = 2;
-    private int _paintLayer = TerrainLayers.Dirt;
+    private int _paintLayer;
     private bool _showGrid;
     private int _brushIndex;
     private float _brushAngle;
@@ -135,11 +135,23 @@ public partial class TerrainToolController : Node
 
     public float ContourInterval => ContourIntervals[_contourIndex];
 
-    /// <summary>Layer the Paint tool paints (an index into <see cref="TerrainLayers.All"/>, paintable only).</summary>
+    /// <summary>Material the Paint tool paints: an index into the theme's materials.</summary>
     public int PaintLayer
     {
         get => _paintLayer;
-        set { _paintLayer = Math.Clamp(value, 0, TerrainLayers.PaintableCount - 1); Changed(); }
+        set { _paintLayer = Math.Clamp(value, 0, Math.Max((Terrain?.Theme?.Materials.Count ?? 1) - 1, 0)); Changed(); }
+    }
+
+    /// <summary>The theme material <see cref="PaintLayer"/> points at.</summary>
+    public CitySim.TerrainSystem.Themes.TerrainMaterial? PaintMaterial =>
+        Terrain?.Theme is { } t && _paintLayer < t.Materials.Count ? t.Materials[_paintLayer] : null;
+
+    // The theme's material with this id, else its material number `fallback` (wrapped): demos run on any theme.
+    private int DemoMaterial(string id, int fallback)
+    {
+        int count = Math.Max(Terrain?.Theme?.Materials.Count ?? 1, 1);
+        int i = Terrain?.Theme?.IndexOf(id) ?? -1;
+        return i >= 0 ? i : fallback % count;
     }
 
     /// <summary>Shows the placement grid on the terrain (any tool, or none).</summary>
@@ -584,22 +596,22 @@ public partial class TerrainToolController : Node
 
         BrushStrength = 0.8f;
         BrushRadius = 12f;
-        PaintLayer = TerrainLayers.Dirt;
+        PaintLayer = DemoMaterial("dirt", 3);
         DemoStroke(TerrainTool.Paint, c + new Vector2(-250, -120), c + new Vector2(250, 60), 240);
         BrushRadius = 60f;
-        PaintLayer = TerrainLayers.Sand;
+        PaintLayer = DemoMaterial("sand", 5);
         DemoStroke(TerrainTool.Paint, c + new Vector2(-120, 120), c + new Vector2(-60, 140), 90);
-        PaintLayer = TerrainLayers.Gravel;
+        PaintLayer = DemoMaterial("gravel", 4);
         DemoStroke(TerrainTool.Paint, c + new Vector2(150, 150), c + new Vector2(150, 150), 60);
         BrushRadius = 30f;
         DemoStroke(TerrainTool.Paint, c + new Vector2(150, 150), c + new Vector2(150, 150), 40, -1f, MouseButton.Right);
 
         // Textured brushes: a splatter of gravel, and sand streaks turned 30°.
         BrushRadius = 50f;
-        PaintLayer = TerrainLayers.Gravel;
+        PaintLayer = DemoMaterial("gravel", 4);
         BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "splatter");
         DemoStroke(TerrainTool.Paint, c + new Vector2(-40, 20), c + new Vector2(-40, 20), 40);
-        PaintLayer = TerrainLayers.Sand;
+        PaintLayer = DemoMaterial("sand", 5);
         BrushIndex = Array.FindIndex(BrushLibrary.All, e => e.Id == "streaks");
         BrushAngle = 30f;
         DemoStroke(TerrainTool.Paint, c + new Vector2(80, 30), c + new Vector2(80, 30), 40);
@@ -607,7 +619,7 @@ public partial class TerrainToolController : Node
         // Undo/redo self-check on an extra stroke.
         var splat = Terrain.Splat;
         var before = splat.Snapshot();
-        PaintLayer = TerrainLayers.Snow;
+        PaintLayer = DemoMaterial("snow", 7);
         DemoStroke(TerrainTool.Paint, c, c + new Vector2(80, 0), 30);
         var after = splat.Snapshot();
         Undo();
@@ -617,7 +629,7 @@ public partial class TerrainToolController : Node
         Undo();
         GD.Print($"Demo paint: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
 
-        PaintLayer = TerrainLayers.Dirt;
+        PaintLayer = DemoMaterial("dirt", 3);
         BrushRadius = 40f;
         BrushAngle = 60f;
         var cursor = c + new Vector2(0, -40);

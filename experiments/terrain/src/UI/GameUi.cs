@@ -20,8 +20,8 @@ public partial class GameUi : CanvasLayer
     private Button? _generatorButton;
     private ErosionPanel? _erosion;
     private Button? _erosionButton;
-    private MaterialsPanel? _materials;
-    private Button? _materialsButton;
+    private ThemePanel? _themePanel;
+    private Button? _themeButton;
     private Label _toast = null!;
     private int _toastId;
 
@@ -68,12 +68,12 @@ public partial class GameUi : CanvasLayer
                 if (_erosion.Visible) _erosion.Close(); else OpenErosion();
             });
 
-            _materials = new MaterialsPanel { Tools = Tools };
-            _materials.Closed += () => _materialsButton?.SetPressedNoSignal(false);
-            root.AddChild(_materials);
-            _materialsButton = _bar.AddToggle("Materials", "Ground materials: the rules that place each layer, tints and blending", () =>
+            _themePanel = new ThemePanel { Tools = Tools };
+            _themePanel.Closed += () => _themeButton?.SetPressedNoSignal(false);
+            root.AddChild(_themePanel);
+            _themeButton = _bar.AddToggle("Theme", "The map's terrain theme (made in Godot): pick one, see its materials", () =>
             {
-                if (_materials.Visible) _materials.Close(); else OpenMaterials();
+                if (_themePanel.Visible) _themePanel.Close(); else OpenTheme();
             });
         }
 
@@ -87,7 +87,7 @@ public partial class GameUi : CanvasLayer
         _toast.GrowHorizontal = Control.GrowDirection.Both;
         _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
 
-        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, Materials = _materials };
+        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, ThemePanel = _themePanel };
         pause.Notify += ShowToast;
         pause.GeneratorRequested += OpenGenerator;
         root.AddChild(pause);
@@ -97,6 +97,7 @@ public partial class GameUi : CanvasLayer
         {
             _config.Bind(Tools);
             Tools.StateChanged += OnToolsChanged;
+            if (Tools.Terrain is { } terrain) terrain.ThemeChanged += OnThemeChanged;
         }
         OnToolsChanged();
 
@@ -110,7 +111,7 @@ public partial class GameUi : CanvasLayer
         if (_generator is null) return;
         if (_open is not null) Close();
         _erosion?.Close();
-        _materials?.Close();
+        _themePanel?.Close();
         _generator.Open();
         _generatorButton?.SetPressedNoSignal(true);
     }
@@ -121,31 +122,40 @@ public partial class GameUi : CanvasLayer
         if (_erosion is null) return;
         if (_open is not null) Close();
         _generator?.Close();
-        _materials?.Close();
+        _themePanel?.Close();
         _erosion.Open();
         _erosionButton?.SetPressedNoSignal(true);
     }
 
-    /// <summary>Shows the materials panel (closes the tools and the other side panels).</summary>
-    public void OpenMaterials()
+    /// <summary>Shows the theme panel (closes the tools and the other side panels).</summary>
+    public void OpenTheme()
     {
-        if (_materials is null) return;
+        if (_themePanel is null) return;
         if (_open is not null) Close();
         _generator?.Close();
         _erosion?.Close();
-        _materials.Open();
-        _materialsButton?.SetPressedNoSignal(true);
+        _themePanel.Open();
+        _themeButton?.SetPressedNoSignal(true);
     }
+
+    /// <summary>The Paint tab lists the theme's materials, so it's rebuilt when the theme changes.</summary>
+    private void OnThemeChanged()
+    {
+        if (_open is { } cat) ShowCategory(cat);
+    }
+
+    private void ShowCategory(ToolCategory cat) =>
+        _toolPanel.ShowCategory(ToolCatalog.ForMap(cat, MapSession.Mode, Tools?.Terrain?.Theme));
 
     private void Open(ToolCategory cat)
     {
         _generator?.Close();
         _erosion?.Close();
-        _materials?.Close();
+        _themePanel?.Close();
         _open = cat;
         _bar.SetActive(cat);
         _toolPanel.SetSelectedTool(Tools?.Tool ?? TerrainTool.None, Tools?.PaintLayer ?? -1);
-        _toolPanel.ShowCategory(ToolCatalog.ForMode(cat, MapSession.Mode));
+        ShowCategory(cat);
         _toolPanel.Visible = true;
         OnToolsChanged();
     }

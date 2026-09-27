@@ -1,0 +1,29 @@
+[remap]
+
+importer="2d_array_texture"
+type="CompressedTexture2DArray"
+uid="uid://7prf1u4kah6k"
+path.bptc="res://.godot/imported/albedo_height.png-e4c495af7ab933f8b05cd48810cb09dd.bptc.ctexarray"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+
+[deps]
+
+source_file="res://themes/winter/baked/albedo_height.png"
+dest_files=["res://.godot/imported/albedo_height.png-e4c495af7ab933f8b05cd48810cb09dd.bptc.ctexarray"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=true
+compress/lossy_quality=0.7
+compress/uastc_level=0
+compress/rdo_quality_loss=0.0
+compress/hdr_compression=1
+compress/channel_pack=1
+mipmaps/generate=true
+mipmaps/limit=-1
+slices/horizontal=1
+slices/vertical=7

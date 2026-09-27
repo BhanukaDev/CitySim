@@ -30,6 +30,9 @@ public static class MapSession
     /// <summary>Set before switching to the map scene; <see cref="TakePending"/> consumes it.</summary>
     public static MapRequest? Pending { get; set; }
 
+    /// <summary>Terrain theme id for the next new map (New Map's choice); a loaded map uses the theme saved in it.</summary>
+    public static string? NewMapTheme { get; set; }
+
     /// <summary>File the open map belongs to, or null for a map that has never been saved.</summary>
     public static string? CurrentPath { get; set; }
 

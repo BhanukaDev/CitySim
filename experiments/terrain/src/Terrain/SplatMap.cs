@@ -6,7 +6,11 @@ namespace CitySim.TerrainSystem;
 /// Engine-agnostic painted ground layers: one 32-bit control value per heightmap vertex, laid out like Terrain3D's
 /// control map so it can be copied to the renderer as-is. A vertex mixes at most two painted layers (base and overlay,
 /// with a blend between them) over the automatic ground by its <em>coverage</em>: where coverage is below 1 the shader
-/// fills the rest with its automatic rules (TerrainLook: rock on slopes, sand by water, ...), so an unpainted map is fully automatic.
+/// fills the rest with its automatic ground (the theme's rules and erosion slots), so an unpainted map is fully automatic.
+///
+/// Layer indices mean the materials in <see cref="Palette"/> (material ids of the map's theme, <see cref="ThemeId"/>).
+/// Materials the current theme doesn't have stay at the end of the palette (the shader skips indices past the theme's
+/// materials), so painted ground survives switching themes and back.
 ///
 /// Stored as sparse 256² tiles, allocated only where something was painted: an unpainted 8k map costs nothing.
 ///
@@ -16,7 +20,10 @@ namespace CitySim.TerrainSystem;
 /// </summary>
 public sealed class SplatMap
 {
-    public const int Layers = TerrainLayers.PaintableCount;
+    /// <summary>Most layers a control value can address (5 bits).</summary>
+    public const int MaxLayers = 32;
+    /// <summary>What layer indices meant before themes (map files v1 and v2, all made with the default theme).</summary>
+    public static readonly string[] LegacyPalette = ["grass", "grass_dry", "grass_dirt", "dirt", "gravel", "sand", "rock", "snow"];
     public const int TileSize = 256;
 
     /// <summary>The control value of an unpainted vertex: automatic ground, no coverage.</summary>
@@ -24,6 +31,11 @@ public sealed class SplatMap
 
     private readonly uint[]?[] _tiles;
     private readonly int _tilesX;
+
+    /// <summary>Id of the map's terrain theme ("" = not chosen yet: the default).</summary>
+    public string ThemeId { get; set; } = "";
+    /// <summary>Material id of each layer index: the theme's materials, then painted ones the theme doesn't have.</summary>
+    public string[] Palette { get; set; } = [];
 
     public int Width { get; }
     public int Depth { get; }
@@ -125,6 +137,67 @@ public sealed class SplatMap
             }
     }
 
+    /// <summary>
+    /// Makes layer indices mean <paramref name="materialIds"/> (a theme's materials, in shader order) and moves painted
+    /// values to match, by material id. Painted ids the theme doesn't have are kept after its materials. Returns whether
+    /// any painted value changed.
+    /// </summary>
+    public bool Remap(string themeId, string[] materialIds)
+    {
+        ThemeId = themeId;
+        var palette = new System.Collections.Generic.List<string>(materialIds);
+        var map = new int[MaxLayers];
+        Array.Fill(map, -1);
+        bool identity = true;
+        for (int i = 0; i < Palette.Length && i < MaxLayers; i++)
+        {
+            string id = Palette[i];
+            int j = palette.IndexOf(id);
+            if (j < 0 && id.Length > 0 && palette.Count < MaxLayers)
+            {
+                palette.Add(id);
+                j = palette.Count - 1;
+            }
+            map[i] = j;
+            identity &= j == i;
+        }
+        Palette = palette.ToArray();
+        if (identity) return false;
+
+        bool changed = false;
+        foreach (var tile in _tiles)
+        {
+            if (tile is null) continue;
+            for (int k = 0; k < tile.Length; k++)
+            {
+                uint c = tile[k];
+                if (Coverage(c) == 0) continue;
+                int b = map[Base(c)], o = map[Overlay(c)];
+                uint n = b < 0 || o < 0 ? Unpainted : Encode(b, o, Blend(c), Coverage(c));
+                changed |= n != c;
+                tile[k] = n;
+            }
+        }
+        return changed;
+    }
+
+    /// <summary>Which layer indices are painted anywhere (scans only allocated tiles).</summary>
+    public bool[] UsedLayers()
+    {
+        var used = new bool[MaxLayers];
+        foreach (var tile in _tiles)
+        {
+            if (tile is null) continue;
+            foreach (uint c in tile)
+            {
+                if (Coverage(c) == 0) continue;
+                if (Blend(c) < 255) used[Base(c)] = true;
+                if (Blend(c) > 0) used[Overlay(c)] = true;
+            }
+        }
+        return used;
+    }
+
     // --- Control value encoding ---
 
     public static int Base(uint c) => (int)(c >> 27 & 0x1F);
@@ -160,7 +233,7 @@ public sealed class SplatMap
     public static uint FromWeights(ReadOnlySpan<float> weights)
     {
         int a = -1, b = -1;
-        for (int i = 0; i < weights.Length && i < Layers; i++)
+        for (int i = 0; i < weights.Length && i < MaxLayers; i++)
         {
             if (weights[i] <= 0f) continue;
             if (a < 0 || weights[i] > weights[a]) { b = a; a = i; }

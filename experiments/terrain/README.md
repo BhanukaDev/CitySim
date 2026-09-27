@@ -35,8 +35,13 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
 - `src/Terrain/Erosion/`: engine-agnostic C# side (settings, `ErosionSim`, `Lakes`/`LakeMap`, function-pointer calls
   into the library); `src/Terrain/LakeWater.cs` + `shaders/lake_water.gdshader` draw the lakes; `src/UI/ErosionPanel.cs`
 - `src/Camera/CityCamera.cs`: city-builder orbit camera
-- `src/Terrain/TerrainLayers.cs`, `SplatMap.cs`: ground layer list and engine-agnostic painted layers (sparse Terrain3D-style control values)
+- `src/Terrain/SplatMap.cs`: engine-agnostic painted materials (sparse Terrain3D-style control values, plus the map's
+  theme id and a palette of material ids, so paint survives theme changes)
 - `src/Terrain/Sculpt/PaintOps.cs`: paint/erase brush ops on the splat map
-- `src/Debug/TextureBaker.cs`: packs the layer textures into the strips Godot imports as texture arrays
-- `shaders/terrain.gdshader`: Terrain3D shader override: stylized texture splatting (automatic + painted layers, height
-  blend, triplanar rock), soft lighting, grid, contour, brush and edge-fog overlays
+- **Terrain themes** (M3.5): a theme is made in Godot and bundles a shader, its materials and erosion slots.
+  `terrain_sdk/` holds the shader side every theme includes (Terrain3D vertex stage, painting, erosion slots, overlays,
+  edge fog; see `terrain_sdk/README.md`). `themes/<id>/` holds each theme (`theme.tres`, `terrain.gdshader`, the baked
+  `materials.gdshaderinc` and `baked/`). `src/Terrain/Themes/`: `TerrainTheme`, `TerrainMaterial`, `ErosionSlot`,
+  `ThemeLibrary` (finds themes), `ThemeBaker` (texture arrays, previews, include). `addons/citysim_themes/`: editor
+  plugin with Bake/Validate buttons. `src/UI/ThemePanel.cs`: pick the map's theme in the Map Editor
+- `src/Debug/TextureBaker.cs`: bakes the brush masks

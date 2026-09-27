@@ -10,7 +10,7 @@ namespace CitySim.TerrainSystem;
 /// <summary>
 /// Reads and writes a map (heights plus painted layers) as a <c>.csmap</c> file. Engine-agnostic.
 ///
-/// Version 2, little-endian: magic "CSMP", u16 version, then
+/// Version 3, little-endian: magic "CSMP", u16 version, then
 /// <list type="bullet">
 /// <item>i32 width, i32 depth, f32 cell size, f32 min height, f32 max height, i32 tile size (256).</item>
 /// <item>Heights: for each tile (row-major), i32 length + a zlib stream of u16 heights (0 = min, 65535 = max), each row
@@ -18,14 +18,19 @@ namespace CitySim.TerrainSystem;
 /// <item>Painted layers: i32 tile size (256), i32 layer count, i32 tile count, then per painted tile: i32 tx, i32 tz,
 ///   i32 length + a zlib stream of the tile's u32 control values (see <see cref="SplatMap"/>). Unpainted tiles are skipped.</item>
 /// <item>i32 background count: 0 for now. Reserved for the coarse 70 km background map (M6 phase 3).</item>
+/// <item>Theme (v3): string theme id, i32 palette length, then a string (material id) per painted layer index
+///   (<see cref="SplatMap.Palette"/>). Strings are .NET BinaryWriter strings (7-bit length + UTF-8).</item>
 /// </list>
+/// Version 2 files have no theme section: they load with the default theme and the pre-theme layer ids
+/// (<see cref="SplatMap.LegacyPalette"/>).
 /// Heights are quantised to 16 bits over the map's range (7.6 mm steps over 500 m, like CS2). Tiles are compressed and
 /// decompressed in parallel. Version 1 (float heights, 8 float weights per vertex, one zlib stream) still loads.
 /// </summary>
 public static class MapFile
 {
     public const string Extension = "csmap";
-    public const ushort Version = 2;
+    public const ushort Version = 3;
+    public const string LegacyThemeId = "default";
     private static readonly byte[] Magic = "CSMP"u8.ToArray();
     private const int MaxVertices = 8193;
     private const int HeightTile = 256;
@@ -65,7 +70,7 @@ public static class MapFile
                     w.Write(t);
                 }
                 w.Write(SplatMap.TileSize);
-                w.Write(SplatMap.Layers);
+                w.Write(Math.Max(splat.Palette.Length, 1));
                 w.Write(painted.Count);
                 for (int i = 0; i < painted.Count; i++)
                 {
@@ -75,6 +80,9 @@ public static class MapFile
                     w.Write(controlTiles[i]);
                 }
                 w.Write(0); // no background map yet
+                w.Write(splat.ThemeId);
+                w.Write(splat.Palette.Length);
+                foreach (var id in splat.Palette) w.Write(id);
             }
             File.Move(tmp, path, overwrite: true);
         }
@@ -100,7 +108,7 @@ public static class MapFile
             throw new InvalidDataException($"Map file version {version} is newer than this build supports ({Version}).");
         try
         {
-            return version == 1 ? LoadV1(file) : LoadV2(file);
+            return version == 1 ? LoadV1(file) : LoadV2(file, version);
         }
         catch (EndOfStreamException)
         {
@@ -112,7 +120,7 @@ public static class MapFile
         }
     }
 
-    private static (HeightMap, SplatMap) LoadV2(Stream file)
+    private static (HeightMap, SplatMap) LoadV2(Stream file, ushort version)
     {
         using var r = new BinaryReader(file);
         int width = r.ReadInt32(), depth = r.ReadInt32();
@@ -163,14 +171,24 @@ public static class MapFile
         {
             var data = new uint[SplatMap.TileSize * SplatMap.TileSize];
             Inflate(painted[i].Blob, MemoryMarshal.AsBytes(data.AsSpan()));
-            // A layer this build doesn't have becomes automatic ground.
-            if (layers > SplatMap.Layers)
-                for (int j = 0; j < data.Length; j++)
-                    if (SplatMap.Base(data[j]) >= SplatMap.Layers || SplatMap.Overlay(data[j]) >= SplatMap.Layers)
-                        data[j] = SplatMap.Unpainted;
             lock (splat) splat.SetTile(painted[i].Tx, painted[i].Tz, data);
         });
-        // Background maps (none are written yet) would follow here.
+        int backgrounds = r.ReadInt32();
+        if (backgrounds != 0) throw new InvalidDataException("Map file has background maps, which this build can't read.");
+        if (version >= 3)
+        {
+            splat.ThemeId = r.ReadString();
+            int n = r.ReadInt32();
+            if (n is < 0 or > SplatMap.MaxLayers) throw new InvalidDataException("Map file theme section is corrupt.");
+            var palette = new string[n];
+            for (int i = 0; i < n; i++) palette[i] = r.ReadString();
+            splat.Palette = palette;
+        }
+        else
+        {
+            splat.ThemeId = LegacyThemeId;
+            splat.Palette = (string[])SplatMap.LegacyPalette.Clone();
+        }
         return (map, splat);
     }
 
@@ -196,8 +214,10 @@ public static class MapFile
         {
             z.ReadExactly(MemoryMarshal.AsBytes(row.AsSpan()));
             for (int x = 0; x < width; x++)
-                splat.Set(x, zi, SplatMap.FromWeights(row.AsSpan(x * layers, Math.Min(layers, SplatMap.Layers))));
+                splat.Set(x, zi, SplatMap.FromWeights(row.AsSpan(x * layers, Math.Min(layers, SplatMap.MaxLayers))));
         }
+        splat.ThemeId = LegacyThemeId;
+        splat.Palette = (string[])SplatMap.LegacyPalette.Clone();
         return (map, splat);
     }
 

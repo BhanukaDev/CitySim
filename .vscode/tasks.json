@@ -23,10 +23,10 @@
       "problemMatcher": []
     },
     {
-      "label": "terrain: rebake textures",
-      "detail": "Re-bake and re-import the texture arrays from the downloaded JPGs",
+      "label": "terrain: rebake themes",
+      "detail": "Re-bake every terrain theme (texture arrays, previews, shader include) and re-import them",
       "type": "shell",
-      "command": "\"$GODOT\" --headless --path . -- --bake-terrain-textures && \"$GODOT\" --headless --path . --import",
+      "command": "\"$GODOT\" --headless --path . -- --bake-theme=all && \"$GODOT\" --headless --path . --import",
       "dependsOn": "terrain: build",
       "problemMatcher": []
     },

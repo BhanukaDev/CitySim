@@ -86,7 +86,7 @@ public static class ScaleDemo
         for (int i = 0; i < 60; i++)
         {
             history.Touch(splat.CircleRect(c.X, c.Y, brush.Radius));
-            PaintOps.Paint(splat, c, brush, TerrainLayers.Dirt, 1f / 60f);
+            PaintOps.Paint(splat, c, brush, 3, 1f / 60f); // any material index
         }
         history.EndStroke();
         double paintMs = sw.Elapsed.TotalMilliseconds;

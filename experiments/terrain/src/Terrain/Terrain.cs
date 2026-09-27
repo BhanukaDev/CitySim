@@ -5,7 +5,7 @@ using Godot;
 using CitySim.App;
 using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
-using CitySim.TerrainSystem.Look;
+using CitySim.TerrainSystem.Themes;
 
 namespace CitySim.TerrainSystem;
 
@@ -36,36 +36,47 @@ public partial class Terrain : Node3D
 
     [ExportGroup("Rendering")]
     /// <summary>
-    /// Holds the terrain shader (a Terrain3D shader override) and its tuned uniforms. Terrain3D draws with its own
-    /// material, so these are copied onto it; runtime changes (brush, grid, ...) go straight to Terrain3D.
+    /// The look for new maps (a loaded map uses the theme it was saved with). Empty: the default theme
+    /// (<see cref="ThemeLibrary.DefaultId"/>). Terrain3D draws with the theme's shader; see <see cref="SetTheme"/>.
+    /// In the Godot editor, setting it switches the viewport's terrain to that theme, and edits to the theme (uniforms,
+    /// tints, tiling, slot settings) show within half a second: a live preview while making a theme.
     /// </summary>
-    [Export] public Material? Material { get; set; }
-    /// <summary>Fog-only material for the ring around the map; gets the terrain's edge fog settings.</summary>
+    [Export] public TerrainTheme? DefaultTheme
+    {
+        get => _defaultTheme;
+        set
+        {
+            _defaultTheme = value;
+            if (Engine.IsEditorHint() && value is not null && _render is not null) SetTheme(value);
+        }
+    }
+    private TerrainTheme? _defaultTheme;
+    /// <summary>Fog-only material for the ring around the map; gets the theme's edge fog settings.</summary>
     [Export] public Material? SkirtMaterial { get; set; }
     /// <summary>Lake surfaces (<c>lake_water.gdshader</c>).</summary>
     [Export] public Material? WaterMaterial { get; set; }
-    /// <summary>
-    /// Automatic ground rules, tints and layer blending (shared by every map; edited in the Materials panel). Applied over
-    /// <see cref="Material"/>'s values. Falls back to <see cref="TerrainLook.DefaultPath"/>, then the built-in default.
-    /// </summary>
-    [Export] public TerrainLook? Look
+
+    /// <summary>The current map's theme: its shader, materials and erosion slots.</summary>
+    public TerrainTheme? Theme { get; private set; }
+    /// <summary>Raised when <see cref="Theme"/> changes (or is reloaded), so the Paint tool can list its materials.</summary>
+    public event System.Action? ThemeChanged;
+
+    /// <summary>Debug view: <see cref="MaterialDebugView"/> the strongest material, <see cref="CostDebugView"/> textures blended per pixel; 0 off.</summary>
+    public int DebugView
     {
-        get => _look;
-        set { _look = value; ApplyLook(); }
+        get => _debugView;
+        set { _debugView = value; _render?.SetParam("terrain_debug", value); }
+    }
+    public const int MaterialDebugView = 1, CostDebugView = 2;
+
+    /// <summary>Shows one erosion slot's coverage (an <see cref="ErosionSlotKind"/>), -1 off.</summary>
+    public int SlotDebug
+    {
+        get => _slotDebug;
+        set { _slotDebug = value; _render?.SetParam("slot_debug", value); }
     }
 
-    /// <summary>
-    /// Debug view: a rule index shows that rule's coverage, <see cref="LayerDebugView"/> the strongest layer,
-    /// <see cref="CostDebugView"/> how many textures each pixel blends; -1 off.
-    /// </summary>
-    public int RuleDebug
-    {
-        get => _ruleDebug;
-        set { _ruleDebug = value; _render?.SetParam("rule_debug", value); }
-    }
-    public const int LayerDebugView = -2, CostDebugView = -3;
-
-    /// <summary>The shader code Terrain3D draws with (terrain.gdshader with the rules specialised, see <see cref="RuleShaderGen"/>).</summary>
+    /// <summary>The shader code Terrain3D draws with (the theme's shader with its own includes inlined).</summary>
     public string? DrawnShaderCode => _liveShader?.Code;
 
     [ExportToolButton("Regenerate")]
@@ -76,12 +87,12 @@ public partial class Terrain : Node3D
     private bool _skirtDirty;
     private VertexRect _heightDirty = VertexRect.Empty, _splatDirty = VertexRect.Empty;
     private double _paramCopyTimer;
-    private TerrainLook? _look;
-    private const double LookBakeDelay = 0.5;
-    private double _lookBakeTimer = -1;
-    // Runtime copy of Material's shader with the rule loop specialised for the look (RuleShaderGen); what Terrain3D draws.
+    // Runtime copy of the theme's shader with its own (relative) includes inlined; what Terrain3D draws. See ThemeShaderCode.
     private Shader? _liveShader;
-    private int _ruleDebug = -1;
+    private int _debugView, _slotDebug = -1;
+    private string? _newMapTheme;
+    // The last theme warning, so the editor's twice-a-second refresh doesn't repeat it.
+    private string? _lastThemeWarning;
     private LakeWater? _water;
     private double _lakeTimer = -1;
     private CancellationTokenSource? _lakeJob;
@@ -142,7 +153,6 @@ public partial class Terrain : Node3D
         Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
         if (Engine.IsEditorHint()) Generate();
         else Open(MapSession.TakePending());
-        CheckTextures();
     }
 
     /// <summary>Starts with the requested map; with no request (e.g. run straight from a CLI flag), generates from the exports.</summary>
@@ -151,11 +161,13 @@ public partial class Terrain : Node3D
         switch (request)
         {
             case GeneratedMapRequest { Map: { } map } gen:
+                _newMapTheme = MapSession.NewMapTheme;
                 Settings = gen.Settings;
                 SetMap(map);
                 ShowGeneratorOnStart = gen.ShowGenerator;
                 break;
             case GeneratedMapRequest gen:
+                _newMapTheme = MapSession.NewMapTheme;
                 Generate(gen.Settings);
                 ShowGeneratorOnStart = gen.ShowGenerator;
                 break;
@@ -187,16 +199,6 @@ public partial class Terrain : Node3D
         },
     };
 
-    /// <summary>Warns when the material has no ground textures (the shader then shows flat, over-bright tints).</summary>
-    private void CheckTextures()
-    {
-        if (Material is not ShaderMaterial sm) return;
-        foreach (var param in new[] { "albedo_height_array", "normal_array" })
-            if (sm.GetShaderParameter(param).VariantType == Variant.Type.Nil)
-                GD.PushWarning($"Terrain: material has no '{param}'. Run tools/fetch_textures.sh, and check that " +
-                               "Main.tscn still assigns the texture arrays (an editor tab with an old copy of the scene can overwrite it).");
-    }
-
     public override void _Process(double delta)
     {
         if (_render is null) return;
@@ -205,8 +207,7 @@ public partial class Terrain : Node3D
         if (Engine.IsEditorHint() && (_paramCopyTimer += delta) > 0.5)
         {
             _paramCopyTimer = 0;
-            CopyMaterialParams();
-            ApplyLook();
+            ApplyTheme();
         }
         if (_skirtDirty)
         {
@@ -215,7 +216,6 @@ public partial class Terrain : Node3D
         }
         PushDirty();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
-        if (_lookBakeTimer >= 0 && (_lookBakeTimer -= delta) < 0) ApplyLook();
     }
 
     public override void _ExitTree() => _lakeJob?.Cancel();
@@ -344,9 +344,12 @@ public partial class Terrain : Node3D
             throw new System.ArgumentException("Splat map size doesn't match the heightmap.", nameof(splat));
         var sw = Stopwatch.StartNew();
 
-        if (Material is not ShaderMaterial { Shader: { } shader })
+        // A loaded map keeps its theme; a new one gets New Map's choice, else the current theme, else the default.
+        var theme = ThemeLibrary.Get(splat?.ThemeId is { Length: > 0 } id ? id : _newMapTheme ?? Theme?.Id ?? DefaultTheme?.Id);
+        _newMapTheme = null;
+        if (theme?.Material?.Shader is null)
         {
-            GD.PushError("Terrain: Material must be a ShaderMaterial with the terrain shader.");
+            GD.PushError($"Terrain: no usable terrain theme in {ThemeLibrary.Root} (each needs theme.tres with a shader).");
             return;
         }
         if (!GlobalPosition.IsZeroApprox())
@@ -370,11 +373,11 @@ public partial class Terrain : Node3D
         CellsZ = map.Depth - 1;
         CellSize = map.CellSize;
         Splat = splat ?? new SplatMap(map.Width, map.Depth, map.CellSize);
-        _liveShader = new Shader { Code = shader.Code };
+        Theme = theme;
+        Splat.Remap(theme.Id, theme.MaterialIds());
+        _liveShader = new Shader { Code = ThemeShaderCode(theme) };
         _render = Terrain3DBridge.Create(this, Map, Splat, _liveShader);
-        CopyMaterialParams();
-        ApplyLook();
-        UpdateMaterialRange();
+        ApplyTheme();
 
         _skirt = new TerrainSkirt();
         _skirt.Init(Map, _render.RenderedX - 1, _render.RenderedZ - 1);
@@ -545,49 +548,110 @@ public partial class Terrain : Node3D
         RefreshLakes();
     }
 
-    /// <summary>Copies the uniforms tuned on <see cref="Material"/> to Terrain3D's material and the skirt.</summary>
-    private void CopyMaterialParams()
+    /// <summary>
+    /// Switches the map to another theme. Painted ground keeps its material ids: materials the new theme doesn't have
+    /// stay in the map (drawn as automatic ground) and come back when a theme that has them is chosen again.
+    /// </summary>
+    public void SetTheme(TerrainTheme theme)
     {
-        if (Material is not ShaderMaterial sm) return;
-        _render?.CopyParams(sm);
-        if (SkirtMaterial is not ShaderMaterial skirt || skirt.Shader is null) return;
-        foreach (var u in skirt.Shader.GetShaderUniformList())
-        {
-            string name = u.AsGodotDictionary()["name"].AsString();
-            var value = sm.GetShaderParameter(name);
-            if (value.VariantType != Variant.Type.Nil) skirt.SetShaderParameter(name, value);
-        }
+        if (Splat is null || _render is null) { Theme = theme; return; }
+        var old = Splat.Palette;
+        Splat.Remap(theme.Id, theme.MaterialIds());
+        Theme = theme;
+        // Painted indices moved: push every painted tile again.
+        if (!System.Linq.Enumerable.SequenceEqual(old, Splat.Palette)) MarkSplatDirty(Splat.All);
+        ApplyTheme(reset: true);
+    }
+
+    /// <summary>Reloads the current theme from disk (after editing and baking it in Godot).</summary>
+    public void ReloadTheme()
+    {
+        if (Theme is null) return;
+        if (ThemeLibrary.Reload(Theme.Id) is { } fresh) SetTheme(fresh);
     }
 
     /// <summary>
-    /// Sends <see cref="Look"/> to the shader: the rule stack, layer tints and blending. With <paramref name="live"/>
-    /// (while editing) the rules are read from uniforms, so repeated edits don't recompile; the shader is re-baked with
-    /// constants, which is much faster to draw, once edits stop for <see cref="LookBakeDelay"/> seconds.
+    /// Sends <see cref="Theme"/> to Terrain3D: its shader, tuned uniforms, texture arrays, per-material and per-slot
+    /// uniforms, and its edge fog to the skirt. With <paramref name="reset"/> (a different theme), uniforms the theme
+    /// doesn't set go back to their defaults instead of keeping the previous theme's values.
     /// </summary>
-    public void ApplyLook(bool live = false)
+    private void ApplyTheme(bool reset = false)
     {
-        _lookBakeTimer = live ? LookBakeDelay : -1;
-        if (_render is null) return;
-        _look ??= TerrainLook.LoadOrDefault();
-        var rules = _look.Pack(out int count);
-        UpdateLiveShader(rules, count, bake: !live);
-        _render.SetParam("rules", rules);
-        _render.SetParam("rule_count", count);
-        _render.SetParam("rule_debug", _ruleDebug);
-        foreach (var layer in TerrainLayers.All)
-            _render.SetParam("tint_" + layer.Name, _look.Tint(layer.Index));
-        _render.SetParam("height_blend", _look.HeightBlend);
-        _render.SetParam("blend_softness", _look.BlendSoftness);
+        if (_render is null || Theme is not { Material: { Shader: { } shader } sm } theme) return;
+        string code = ThemeShaderCode(theme);
+        if (_liveShader is null || code != _liveShader.Code || reset)
+        {
+            _liveShader = new Shader { Code = code };
+            _render.SetShader(_liveShader);
+        }
+        if (reset)
+            foreach (var u in shader.GetShaderUniformList())
+            {
+                string name = u.AsGodotDictionary()["name"].AsString();
+                if (!name.StartsWith('_') && !RuntimeParams.Contains(name) && !name.StartsWith("brush_") && !name.StartsWith("anchor_"))
+                    _render.SetParam(name, RenderingServer.ShaderGetParameterDefault(shader.GetRid(), name));
+            }
+        _render.CopyParams(sm);
+
+        var albedo = ResourceLoader.Exists(theme.AlbedoArrayPath) ? ResourceLoader.Load<TextureLayered>(theme.AlbedoArrayPath) : null;
+        var normal = ResourceLoader.Exists(theme.NormalArrayPath) ? ResourceLoader.Load<TextureLayered>(theme.NormalArrayPath) : null;
+        string? warning = null;
+        if (albedo is null || normal is null)
+            warning = $"Terrain: theme '{theme.Id}' isn't baked (no {theme.AlbedoArrayPath}). Run tools/fetch_textures.sh, " +
+                      "or press Bake on the theme in the Godot inspector.";
+        else if (albedo.GetLayers() != theme.Materials.Count)
+            warning = $"Terrain: theme '{theme.Id}' has {theme.Materials.Count} materials but its baked textures have " +
+                      $"{albedo.GetLayers()}; bake it again.";
+        else if (!ThemeBaker.IsIncludeCurrent(theme))
+            warning = $"Terrain: theme '{theme.Id}' changed since it was baked ({TerrainTheme.IncludeName} is out of date); bake it again.";
+        if (warning is not null && warning != _lastThemeWarning) GD.PushWarning(warning);
+        _lastThemeWarning = warning;
+        _render.SetParam("albedo_height_array", albedo);
+        _render.SetParam("normal_array", normal);
+
+        var (tints, prms) = theme.PackMaterials();
+        _render.SetParam("material_tint", tints);
+        _render.SetParam("material_params", prms);
+        var (edge, slope) = theme.PackSlots();
+        _render.SetParam("slot_edge", edge);
+        _render.SetParam("slot_slope", slope);
+        _render.SetParam("terrain_debug", _debugView);
+        _render.SetParam("slot_debug", _slotDebug);
+        UpdateMaterialRange();
+
+        if (SkirtMaterial is ShaderMaterial skirt && skirt.Shader is not null)
+            foreach (var u in skirt.Shader.GetShaderUniformList())
+            {
+                string name = u.AsGodotDictionary()["name"].AsString();
+                var value = sm.GetShaderParameter(name);
+                if (value.VariantType == Variant.Type.Nil) value = RenderingServer.ShaderGetParameterDefault(shader.GetRid(), name);
+                if (value.VariantType != Variant.Type.Nil) skirt.SetShaderParameter(name, value);
+            }
+        ThemeChanged?.Invoke();
     }
 
-    /// <summary>Recompiles the drawn shader when the rule stack's structure (or the shader file, in the editor) changed.</summary>
-    private void UpdateLiveShader(Vector4[] rules, int count, bool bake)
+    // Uniforms the game sets while running; a theme switch leaves them alone.
+    private static readonly System.Collections.Generic.HashSet<string> RuntimeParams =
+    [
+        "height_min", "height_max", "terrain_origin", "terrain_size", "albedo_height_array", "normal_array", "material_tint",
+        "material_params", "slot_edge", "slot_slope", "terrain_debug", "slot_debug", "ground_debug", "show_grid", "show_contours",
+    ];
+
+    /// <summary>
+    /// The theme's shader code with its relative <c>#include</c>s (its own files, such as materials.gdshaderinc) replaced by
+    /// their text, read fresh from disk. Terrain3D copies the code into a shader with no path, where relative includes
+    /// wouldn't resolve, and a re-baked include must not come from Godot's resource cache. Absolute includes (the SDK)
+    /// stay as they are.
+    /// </summary>
+    private static string ThemeShaderCode(TerrainTheme theme)
     {
-        if (_liveShader is null || Material is not ShaderMaterial { Shader: { } source }) return;
-        string code = RuleShaderGen.Specialize(source.Code, rules, count, bake);
-        if (code == _liveShader.Code) return;
-        _liveShader.Code = code;
-        _render?.SetShader(_liveShader);
+        var shader = theme.Material!.Shader!;
+        string dir = shader.ResourcePath.GetBaseDir();
+        return System.Text.RegularExpressions.Regex.Replace(shader.Code, @"#include\s+""(?!res://)([^""]+)""", m =>
+        {
+            string path = $"{dir}/{m.Groups[1].Value}";
+            return Godot.FileAccess.FileExists(path) ? Godot.FileAccess.GetFileAsString(path) : $"#include \"{path}\"";
+        });
     }
 
     private void UpdateMaterialRange()

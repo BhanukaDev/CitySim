@@ -5,7 +5,8 @@ using CitySim.CameraSystem;
 using CitySim.TerrainSystem;
 using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
-using CitySim.TerrainSystem.Look;
+using CitySim.TerrainSystem.Sculpt;
+using CitySim.TerrainSystem.Themes;
 using System.Linq;
 using CitySim.Tools;
 using CitySim.UI;
@@ -17,9 +18,11 @@ namespace CitySim.Debug;
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
-/// --show-materials, --demo-materials, --rule-debug=index|layers|cost, --write-default-look (saves TerrainLook.CreateDefault() to materials/terrain_look.tres, then quits), --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
+/// --theme=id (switch the map's theme), --show-theme, --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
+/// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
-/// --bake-terrain-textures and --bake-brushes (bake textures / brush masks for import, then quit; see TextureBaker).
+/// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
+/// --bake-brushes (bake brush masks for import, then quit; see TextureBaker).
 /// </summary>
 public partial class DebugOverlay : CanvasLayer
 {
@@ -72,30 +75,25 @@ public partial class DebugOverlay : CanvasLayer
                     foreach (var node in GetParent().GetChildren())
                         if (node is GameUi ui) ui.OpenErosion();
                 }).CallDeferred();
-            else if (arg == "--show-materials")
+            else if (arg == "--show-theme")
                 Callable.From(() =>
                 {
                     foreach (var node in GetParent().GetChildren())
-                        if (node is GameUi ui) ui.OpenMaterials();
+                        if (node is GameUi ui) ui.OpenTheme();
                 }).CallDeferred();
-            else if (arg == "--demo-materials")
-                Callable.From(RunMaterialsDemo).CallDeferred();
-            else if (arg.StartsWith("--rule-debug=") && Terrain is not null)
+            else if (arg.StartsWith("--theme=") && Terrain is not null)
             {
-                string v = arg["--rule-debug=".Length..];
-                Terrain.RuleDebug = v switch
-                {
-                    "layers" => Terrain.LayerDebugView,
-                    "cost" => Terrain.CostDebugView,
-                    _ => int.TryParse(v, out int r) ? r : -1,
-                };
+                if (ThemeLibrary.Get(arg["--theme=".Length..]) is { } theme) Terrain.SetTheme(theme);
             }
-            else if (arg == "--write-default-look")
+            else if (arg.StartsWith("--view=") && Terrain is not null)
             {
-                var err = ResourceSaver.Save(TerrainLook.CreateDefault(), TerrainLook.DefaultPath);
-                GD.Print($"TerrainLook: wrote {TerrainLook.DefaultPath} ({err})");
-                GetTree().Quit(err == Error.Ok ? 0 : 1);
+                string v = arg["--view=".Length..];
+                if (v == "materials") Terrain.DebugView = Terrain.MaterialDebugView;
+                else if (v == "cost") Terrain.DebugView = Terrain.CostDebugView;
+                else if (v.StartsWith("slot:") && int.TryParse(v[5..], out int slot)) Terrain.SlotDebug = slot;
             }
+            else if (arg == "--demo-themes")
+                Callable.From(RunThemeDemo).CallDeferred();
             else if (arg == "--demo-erosion")
                 Callable.From(RunErosionDemo).CallDeferred();
             else if (arg == "--erode" || arg.StartsWith("--erode="))
@@ -113,9 +111,13 @@ public partial class DebugOverlay : CanvasLayer
                 bool ok = TextureBaker.BakeBrushes();
                 GetTree().Quit(ok ? 0 : 1);
             }
-            else if (arg == "--bake-terrain-textures")
+            else if (arg.StartsWith("--bake-theme="))
             {
-                bool ok = TextureBaker.Bake();
+                string id = arg["--bake-theme=".Length..];
+                bool ok = true;
+                foreach (var theme in ThemeLibrary.All)
+                    if (id == "all" || theme.Id == id)
+                        ok &= ThemeBaker.Bake(theme) is not null;
                 GetTree().Quit(ok ? 0 : 1);
             }
         }
@@ -211,51 +213,72 @@ public partial class DebugOverlay : CanvasLayer
     /// undoes and redoes as one step. Prints "Demo erosion: ok".
     /// </summary>
     /// <summary>
-    /// Checks the material rule stack: a live edit draws from uniforms, the shader is re-baked with constants once edits
-    /// pause, a structural edit (disabling a rule) recompiles cleanly, and a look survives a save/load round trip.
-    /// Restores the look and prints "Demo materials: ok".
+    /// Checks themes and painted materials: paint survives a switch to another theme and back (by material id, including
+    /// materials the other theme lacks), a v3 map file keeps the theme and palette, and a v2 file loads with the default
+    /// theme's legacy ids. Restores the starting theme and prints "Demo themes: ok".
     /// </summary>
-    private async void RunMaterialsDemo()
+    private void RunThemeDemo()
     {
-        if (Terrain?.Look is not { } look) return;
+        if (Terrain?.Map is not { } map || Terrain.Splat is not { } splat || Terrain.Theme is not { } start) return;
         bool ok = true;
         void Check(bool cond, string what)
         {
-            GD.Print($"Demo materials: {what}: {(cond ? "ok" : "FAILED")}");
+            GD.Print($"Demo themes: {what}: {(cond ? "ok" : "FAILED")}");
             ok &= cond;
         }
-        var original = new TerrainLook();
-        original.CopyFrom(look);
-        static bool Baked(string? code) => code is not null && code.Contains("Generated by RuleShaderGen") && !code.Contains("c = rules[");
+        var def = ThemeLibrary.Get(ThemeLibrary.DefaultId)!;
+        var other = ThemeLibrary.All.FirstOrDefault(t => t != def);
+        Terrain.SetTheme(def);
 
-        Check(Baked(Terrain.DrawnShaderCode), "settled look is baked");
-        var sand = System.Linq.Enumerable.First(look.Rules, r => r.Layer == TerrainLayers.Sand);
-        sand.A.To += 3f;
-        Terrain.ApplyLook(live: true);
-        Check(Terrain.DrawnShaderCode?.Contains("c = rules[") == true, "live edit reads uniforms");
-        await ToSignal(GetTree().CreateTimer(1.0), SceneTreeTimer.SignalName.Timeout);
-        Check(Baked(Terrain.DrawnShaderCode), "re-baked after edits pause");
-        Check(Terrain.DrawnShaderCode!.Contains(sand.A.To.ToString("0.0#########", System.Globalization.CultureInfo.InvariantCulture)),
-            "baked code has the edited value");
+        // Two painted patches: sand (the other theme may lack it) and rock.
+        var c = Terrain.Bounds.GetCenter();
+        var brush = new Brush(30f, 1f);
+        PaintOps.Paint(splat, new System.Numerics.Vector2(c.X, c.Y), brush, def.IndexOf("sand"), 1f);
+        PaintOps.Paint(splat, new System.Numerics.Vector2(c.X + 120, c.Y), brush, def.IndexOf("rock"), 1f);
+        Terrain.MarkSplatDirty(splat.All);
+        int x = (int)(c.X / map.CellSize), z = (int)(c.Y / map.CellSize), x2 = (int)((c.X + 120) / map.CellSize);
+        string IdAt(int vx) => splat.Palette[SplatMap.Base(splat.Get(vx, z))];
+        Check(IdAt(x) == "sand" && IdAt(x2) == "rock", "painted by id");
 
-        sand.Enabled = false;
-        Terrain.ApplyLook();
-        Check(look.ShaderIndex(sand) == -1, "disabled rule isn't sent");
-        int enabled = System.Linq.Enumerable.Count(look.Rules, r => r.Enabled);
-        Check(Terrain.DrawnShaderCode!.Contains($"// rule {enabled - 1}\n") && !Terrain.DrawnShaderCode.Contains($"// rule {enabled}\n"),
-            "code has one block per enabled rule");
+        if (other is not null)
+        {
+            Terrain.SetTheme(other);
+            Check(splat.Palette.Take(other.Materials.Count).SequenceEqual(other.MaterialIds()), $"palette starts with {other.Id}'s materials");
+            Check(IdAt(x) == "sand" && IdAt(x2) == "rock", $"paint keeps its ids in {other.Id}");
+            Check(other.IndexOf("sand") >= 0 || SplatMap.Base(splat.Get(x, z)) >= other.Materials.Count, "missing material is past the theme's");
+            Terrain.SetTheme(def);
+            Check(SplatMap.Base(splat.Get(x, z)) == def.IndexOf("sand") && IdAt(x2) == "rock", "back to default: indices restored");
+        }
+        else GD.Print("Demo themes: only one theme, switch not tested");
 
-        const string path = "user://demo_look.tres";
-        var err = ResourceSaver.Save(look, path);
-        var loaded = ResourceLoader.Load<TerrainLook>(path, cacheMode: ResourceLoader.CacheMode.Ignore);
-        Check(err == Error.Ok && loaded is not null &&
-              loaded.Pack(out int n1).AsSpan().SequenceEqual(look.Pack(out int n2)) && n1 == n2 &&
-              loaded.Tints.AsSpan().SequenceEqual(look.Tints), "save/load round trip");
-        DirAccess.RemoveAbsolute(ProjectSettings.GlobalizePath(path));
+        string path = System.IO.Path.Combine(MapFiles.MapsDir, "_themetest.csmap");
+        MapFile.Save(path, map, splat);
+        var (_, loaded) = MapFile.Load(path);
+        Check(loaded.ThemeId == def.Id && loaded.Palette.SequenceEqual(splat.Palette) &&
+              loaded.Snapshot().AsSpan().SequenceEqual(splat.Snapshot()), "v3 file keeps theme, palette and paint");
 
-        look.CopyFrom(original);
-        Terrain.ApplyLook();
-        GD.Print(ok ? "Demo materials: ok" : "Demo materials: FAILED");
+        // A v2 file is a v3 file without the trailing theme section.
+        var tail = new System.IO.MemoryStream();
+        using (var w = new System.IO.BinaryWriter(tail, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            w.Write(splat.ThemeId);
+            w.Write(splat.Palette.Length);
+            foreach (var id in splat.Palette) w.Write(id);
+        }
+        var bytes = System.IO.File.ReadAllBytes(path);
+        Array.Resize(ref bytes, bytes.Length - (int)tail.Length);
+        bytes[4] = 2;
+        bytes[5] = 0;
+        System.IO.File.WriteAllBytes(path, bytes);
+        var (_, legacy) = MapFile.Load(path);
+        Check(legacy.ThemeId == MapFile.LegacyThemeId && legacy.Palette.SequenceEqual(SplatMap.LegacyPalette), "v2 file loads with legacy ids");
+        System.IO.File.Delete(path);
+
+        Terrain.ReloadTheme();
+        Check(Terrain.Theme is { } reloaded && reloaded.Id == def.Id && IdAt(x) == "sand", "reload from disk keeps paint");
+
+        Terrain.SetTheme(ThemeLibrary.Get(start.Id)!);
+        GD.Print(ok ? "Demo themes: ok" : "Demo themes: FAILED");
     }
 
     private void RunErosionDemo()

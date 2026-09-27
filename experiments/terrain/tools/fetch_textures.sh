@@ -9,7 +9,7 @@ DEST=assets/textures/terrain
 RES=2K
 FORCE=${1:-}
 
-# layer:assetId  (previews: https://ambientcg.com/view?id=<assetId>)
+# folder:assetId  (previews: https://ambientcg.com/view?id=<assetId>). Themes (themes/*/theme.tres) point at these files.
 LAYERS=(
   grass:Grass005        # lush, clean lawn
   grass_dry:Grass004    # yellow-green meadow for variation
@@ -19,6 +19,8 @@ LAYERS=(
   sand:Ground101        # fine, smooth grain (no ripples), holds up on slopes
   gravel:Ground062S     # rock/dirt transition, paths
   snow:Snow010A         # clean soft snow for peaks
+  snow_rough:Snow004    # winter theme: wind-blown, rougher snow
+  ice:Ice002            # winter theme: frozen streams
 )
 
 tmp=$(mktemp -d)
@@ -46,9 +48,10 @@ done
 
 echo "downloaded -> $DEST (CC0, ambientCG.com)"
 
-# Pack the layers into the two texture-array strips, then let Godot (re)import them.
+# Bake every theme (texture-array strips, previews, shader include), then let Godot (re)import them.
 G=${GODOT:-/Applications/Godot_mono.app/Contents/MacOS/Godot}
 dotnet build -nologo -v q >/dev/null
-"$G" --headless --path . -- --bake-terrain-textures 2>&1 | grep TextureBaker
 "$G" --headless --path . --import >/dev/null 2>&1
-echo "baked and imported: $DEST/terrain_albedo_height.png, terrain_normal.png"
+"$G" --headless --path . -- --bake-theme=all 2>&1 | grep ThemeBaker
+"$G" --headless --path . --import >/dev/null 2>&1
+echo "baked and imported: themes/*/baked"

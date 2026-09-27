@@ -100,7 +100,7 @@ public partial class ConfigPanel : PanelContainer
         if (_tools is null) return;
         var tool = _tools.Tool;
         _title.Text = tool == TerrainTool.Paint
-            ? $"Paint: {TerrainLayers.All[_tools.PaintLayer].DisplayName}"
+            ? $"Paint: {_tools.PaintMaterial?.Label ?? "?"}"
             : tool.ToString();
         // Shown as diameter; the controller works in radius.
         _size.Text = $"{_tools.BrushRadius * 2f:0} m";

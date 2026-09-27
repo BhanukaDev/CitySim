@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Godot;
+using CitySim.TerrainSystem.Themes;
 using CitySim.App;
 using CitySim.TerrainSystem;
 using CitySim.TerrainSystem.Generation;
@@ -124,6 +125,10 @@ public partial class MainMenu : Control
         size.Selected = 1;
         Row(grid, "Size", size);
 
+        var theme = new OptionButton { TooltipText = "The map's look (terrain theme); it can be changed later in the editor" };
+        foreach (var t in ThemeLibrary.All) theme.AddItem(t.Label);
+        Row(grid, "Theme", theme);
+
         var type = new OptionButton();
         type.AddItem("Generator");
         type.AddItem("Flat (empty)");
@@ -183,6 +188,7 @@ public partial class MainMenu : Control
         AddButton(column, "Create", () =>
         {
             int cells = MapSize.All[size.Selected].Cells;
+            MapSession.NewMapTheme = theme.Selected >= 0 && theme.Selected < ThemeLibrary.All.Count ? ThemeLibrary.All[theme.Selected].Id : null;
             var settings = new GenSettings { Cells = cells, CellSize = Terrain.DefaultCellSize };
             switch (type.Selected)
             {
