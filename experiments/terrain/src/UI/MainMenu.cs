@@ -86,6 +86,8 @@ public partial class MainMenu : Control
                 gen ??= new GenSettings();
             else if (arg.StartsWith("--size=") && int.TryParse(arg["--size=".Length..], out int cells))
                 gen = (gen ?? new GenSettings()) with { Cells = cells };
+            else if (arg.StartsWith("--water-cells=") && int.TryParse(arg["--water-cells=".Length..], out int waterCells))
+                CitySim.WaterSystem.WaterSim.GridLimit = waterCells;
             else if (arg.StartsWith("--load=") && MapFiles.QueueLoad(arg["--load=".Length..]) is { } error)
                 GD.PushError(error);
             else if (arg.StartsWith("--heightmap="))

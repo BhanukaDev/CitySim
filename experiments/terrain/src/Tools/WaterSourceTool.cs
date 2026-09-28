@@ -245,7 +245,7 @@ public sealed class WaterSourceTool
         var before = sim.Sources.ToArray();
         var after = before.Where(x => x.Id != s.Id).ToArray();
         sim.SetSources(after);
-        float[]? drained = s.Kind == WaterSourceKind.Lake ? sim.DrainSource(s) : null;
+        WaterGrid? drained = s.Kind == WaterSourceKind.Lake ? sim.DrainSource(s) : null;
         _c.History.PushAction(
             () =>
             {

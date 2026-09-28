@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using CitySim.TerrainSystem;
 
@@ -17,13 +18,20 @@ namespace CitySim.WaterSystem;
 /// snapshot (surface, depth, velocity and pollutant per water cell); queries and rendering read that, and the renderer
 /// blends from one tick's snapshot to the next. Engine-agnostic.
 ///
-/// The water grid is the terrain's vertex grid, or every <see cref="Factor"/>th vertex on very large maps, so water
-/// cell (x, z) sits at local position (x, z) × <see cref="CellSize"/>, the same metres as the terrain.
+/// The water grid is the terrain's vertex grid, or every <see cref="Factor"/>th vertex on very large maps (7 m cells at
+/// 28.7 km), so water cell (x, z) sits at local position (x, z) × <see cref="CellSize"/>, the same metres as the
+/// terrain. Storage is sparse (see <c>water.h</c>): memory follows the water, not the map. Grids handed in and out are
+/// <see cref="WaterGrid"/>s in the same tiles. The ground marks for the terrain shader are on a coarser grid
+/// (<see cref="MarksWidth"/>, at most <see cref="MaxMarkCells"/> + 1 a side), as the hover flood preview is.
 /// </summary>
 public sealed class WaterSim : IDisposable
 {
     /// <summary>Largest water grid side we simulate; bigger terrains use a coarser water grid.</summary>
-    public const int MaxCells = 2048;
+    public const int MaxCells = 4096;
+    /// <summary>The largest grid side new sims use (debug flag <c>--water-cells=n</c>; 2048 gives the 14 m cells big maps had before M6 phase 3f).</summary>
+    public static int GridLimit { get; set; } = MaxCells;
+    /// <summary>Largest ground-marks grid side (a dense texture and a distance pass); finer water grids are averaged into it.</summary>
+    public const int MaxMarkCells = 2048;
     /// <summary>Snapshot pages (for rendering uploads), in water cells.</summary>
     public const int PageSize = 256;
     /// <summary>Simulated seconds per tick.</summary>
@@ -39,8 +47,16 @@ public sealed class WaterSim : IDisposable
     public int TilesZ { get; }
     public int PagesX { get; }
     public int PagesZ { get; }
+    /// <summary>Water cells per ground-marks cell.</summary>
+    public int MarkFactor { get; }
+    public int MarksWidth { get; }
+    public int MarksDepth { get; }
+    public float MarksCellSize => CellSize * MarkFactor;
+    /// <summary>Terrain cells per ground-marks cell (the coarse grid the hover preview also runs on).</summary>
+    public int MarksTerrainFactor => Factor * MarkFactor;
 
     private IntPtr _h;
+    private GCHandle _pin;
     private readonly bool _threaded;
     private Thread? _thread;
     private volatile bool _stop;
@@ -49,14 +65,20 @@ public sealed class WaterSim : IDisposable
     private VertexRect _groundDirty = VertexRect.Empty;
     private bool _paramsDirty = true, _sourcesDirty = true;
 
-    // Snapshot: 4 floats per water cell (display surface, depth, velocity x, z; see cs_water_read), the pollutant
-    // concentration per cell, and dirty pages.
-    private readonly float[] _snapshot;
-    private readonly float[] _pollution;
+    // Snapshot per tile (null = nothing shows): 4 floats per water cell (display surface, depth, velocity x, z; see
+    // cs_water_read_tiles) and the pollutant concentration per cell; dirty pages.
+    private readonly float[]?[] _snapshot;
+    private readonly float[]?[] _pollution;
     private long _publishes;
     private readonly bool[] _pageDirty;
     private readonly byte[] _tileChanged;
     private readonly object _snapLock = new();
+    // Worker-side read buffers, ReadBatch tiles at a time.
+    private const int ReadBatch = 64;
+    private readonly int[] _readTiles = new int[ReadBatch];
+    private readonly float[] _readRgba = new float[ReadBatch * WaterGrid.TileCells * 4];
+    private readonly float[] _readPollution = new float[ReadBatch * WaterGrid.TileCells];
+    private readonly byte[] _readVisible = new byte[ReadBatch];
 
     // Ground marks (distance to water, wet paint; 2 bytes per cell, see cs_water_read_ground), read at most once a
     // second of real time: they change slowly and the distance pass costs a few ms.
@@ -75,29 +97,40 @@ public sealed class WaterSim : IDisposable
     private readonly object _statsLock = new();
 
     /// <param name="threads">Native worker threads (0 = the default); results don't depend on it.</param>
-    public WaterSim(HeightMap ground, bool threaded = true, int threads = 0)
+    /// <param name="maxCells">Largest water grid side (tests use a small one to get a coarser grid on a small map).</param>
+    public WaterSim(HeightMap ground, bool threaded = true, int threads = 0, int maxCells = 0, int maxMarkCells = MaxMarkCells)
     {
+        if (maxCells <= 0) maxCells = GridLimit;
         Ground = ground;
         int cells = Math.Max(ground.Width, ground.Depth) - 1;
-        int f = Math.Max(1, (cells + MaxCells - 1) / MaxCells);
+        int f = Math.Max(1, (cells + maxCells - 1) / maxCells);
         if ((ground.Width - 1) % f != 0 || (ground.Depth - 1) % f != 0) f = 1;
         Factor = f;
         Width = (ground.Width - 1) / f + 1;
         Depth = (ground.Depth - 1) / f + 1;
         CellSize = ground.CellSize * f;
         TileSize = WaterNative.TileSize;
+        if (TileSize != WaterGrid.Tile) throw new InvalidOperationException($"Water library tiles are {TileSize}², WaterGrid expects {WaterGrid.Tile}².");
         TilesX = (Width + TileSize - 1) / TileSize;
         TilesZ = (Depth + TileSize - 1) / TileSize;
         PagesX = Math.Max(1, (Width - 1 + PageSize - 1) / PageSize);
         PagesZ = Math.Max(1, (Depth - 1 + PageSize - 1) / PageSize);
-        _snapshot = new float[Width * Depth * 4];
-        _pollution = new float[Width * Depth];
+        int m = Math.Max(1, (Math.Max(Width, Depth) - 1 + maxMarkCells - 1) / maxMarkCells);
+        if ((Width - 1) % m != 0 || (Depth - 1) % m != 0) m = 1;
+        MarkFactor = m;
+        MarksWidth = (Width - 1) / m + 1;
+        MarksDepth = (Depth - 1) / m + 1;
+        _snapshot = new float[TilesX * TilesZ][];
+        _pollution = new float[TilesX * TilesZ][];
         _pageDirty = new bool[PagesX * PagesZ];
         _tileChanged = new byte[TilesX * TilesZ];
-        _groundMarks = new byte[Width * Depth * 2];
-        _groundScratch = new byte[Width * Depth * 2];
-        _h = WaterNative.Create(Width, Depth, CellSize, threads);
-        WaterNative.SetGround(_h, ground.Data, ground.Width, ground.Depth, Factor, 0, 0, Width - 1, Depth - 1);
+        _groundMarks = new byte[MarksWidth * MarksDepth * 2];
+        _groundScratch = new byte[MarksWidth * MarksDepth * 2];
+        _pin = GCHandle.Alloc(ground.Buffer, GCHandleType.Pinned);
+        unsafe
+        {
+            _h = WaterNative.Create(Width, Depth, CellSize, threads, (float*)_pin.AddrOfPinnedObject(), ground.Width, ground.Depth, Factor);
+        }
         _threaded = threaded;
         Publish(all: true);
         if (threaded)
@@ -147,19 +180,33 @@ public sealed class WaterSim : IDisposable
     /// </summary>
     public void FillHollows(float[]? lakeLevels)
     {
-        float[]? surface = null;
-        if (lakeLevels is not null && lakeLevels.Length == Ground.Width * Ground.Depth)
-        {
-            surface = new float[Width * Depth];
-            for (int z = 0; z < Depth; z++)
-                for (int x = 0; x < Width; x++)
-                    surface[z * Width + x] = lakeLevels[z * Factor * Ground.Width + x * Factor];
-        }
+        var surface = lakeLevels is not null && lakeLevels.Length == Ground.Width * Ground.Depth ? Levels(lakeLevels) : null;
         Enqueue(() =>
         {
-            if (surface is not null) WaterNative.RaiseTo(_h, surface);
+            if (surface is not null) RaiseTiles(surface);
             WaterNative.FillSources(_h);
         });
+    }
+
+    /// <summary>Terrain-vertex levels (NaN = none) sampled onto the water cells, only tiles that have any.</summary>
+    private WaterGrid Levels(float[] terrainLevels)
+    {
+        var grid = new WaterGrid(Width, Depth, float.NaN);
+        int gw = Ground.Width;
+        for (int t = 0; t < TilesX * TilesZ; t++)
+            grid.ForTile(t, (x, z, i) =>
+            {
+                float v = terrainLevels[z * Factor * gw + x * Factor];
+                if (float.IsFinite(v)) grid.GetOrAdd(t)[i] = v;
+            });
+        return grid;
+    }
+
+    /// <summary>Worker: raises the water to a surface grid (NaN = leave), then recounts.</summary>
+    private void RaiseTiles(WaterGrid surface)
+    {
+        foreach (int t in surface.Tiles()) WaterNative.RaiseTile(_h, t, surface.GetTile(t));
+        WaterNative.Commit(_h);
     }
 
     /// <summary>
@@ -167,29 +214,34 @@ public sealed class WaterSim : IDisposable
     /// on downhill. Returns the drained surface per water cell (NaN = untouched), for <see cref="RestoreSurface"/>.
     /// Waits for the worker.
     /// </summary>
-    public float[] DrainSource(WaterSource s)
+    public WaterGrid DrainSource(WaterSource s)
     {
-        var removed = new float[Width * Depth];
-        Sync(() => WaterNative.Drain(_h, s.X, s.Z, s.Radius, s.Level, removed));
+        var removed = new WaterGrid(Width, Depth, float.NaN);
+        Sync(() =>
+        {
+            if (WaterNative.Drain(_h, s.X, s.Z, s.Radius, s.Level) <= 0) return;
+            foreach (int t in WaterNative.ListDrained(_h))
+            {
+                var values = new float[WaterGrid.TileCells];
+                if (WaterNative.GetDrained(_h, t, values)) removed.SetTile(t, values);
+            }
+        });
         return removed;
     }
 
     /// <summary>Raises the water back to a surface from <see cref="DrainSource"/> (NaN = leave).</summary>
-    public void RestoreSurface(float[] surface)
+    public void RestoreSurface(WaterGrid surface)
     {
-        if (surface.Length != Width * Depth) throw new ArgumentException("Surface grid has the wrong size.", nameof(surface));
-        Enqueue(() => WaterNative.RaiseTo(_h, surface));
+        if (surface.Width != Width || surface.Depth != Depth) throw new ArgumentException("Surface grid has the wrong size.", nameof(surface));
+        Enqueue(() => RaiseTiles(surface));
     }
 
     /// <summary>Raises the water to at least the given surface per terrain vertex (NaN = leave), like <see cref="FillHollows"/> without the sea.</summary>
     public void RaiseTo(float[] terrainLevels)
     {
         if (terrainLevels.Length != Ground.Width * Ground.Depth) throw new ArgumentException("Level grid has the wrong size.", nameof(terrainLevels));
-        var surface = new float[Width * Depth];
-        for (int z = 0; z < Depth; z++)
-            for (int x = 0; x < Width; x++)
-                surface[z * Width + x] = terrainLevels[z * Factor * Ground.Width + x * Factor];
-        Enqueue(() => WaterNative.RaiseTo(_h, surface));
+        var surface = Levels(terrainLevels);
+        Enqueue(() => RaiseTiles(surface));
     }
 
     /// <summary>Runs <paramref name="a"/> on the worker and waits for it.</summary>
@@ -206,45 +258,85 @@ public sealed class WaterSim : IDisposable
         if (!done.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("The water simulation didn't answer.");
     }
 
-    /// <summary>Removes all water.</summary>
-    public void Clear() => Enqueue(() => WaterNative.SetDepth(_h, ReadOnlySpan<float>.Empty));
+    /// <summary>Removes all water (the wet paint stays).</summary>
+    public void Clear() => Enqueue(() => WaterNative.Clear(_h));
 
-    /// <summary>Replaces the water with saved depths (<see cref="Width"/> × <see cref="Depth"/>).</summary>
-    public void LoadDepth(float[] depth)
+    /// <summary>A new grid over the water cells (to fill for the Load methods).</summary>
+    public WaterGrid NewGrid() => new(Width, Depth);
+
+    /// <summary>
+    /// Replaces the water with saved depths, and optionally the pollutant (kg per cell) and the wet paint (0..1); grids
+    /// of <see cref="Width"/> × <see cref="Depth"/>.
+    /// </summary>
+    public void LoadWater(WaterGrid depth, WaterGrid? pollution = null, WaterGrid? paint = null)
     {
-        if (depth.Length != Width * Depth) throw new ArgumentException("Water depth grid has the wrong size.", nameof(depth));
-        Enqueue(() => WaterNative.SetDepth(_h, depth));
+        Check(depth);
+        if (pollution is not null) Check(pollution);
+        if (paint is not null) Check(paint);
+        Enqueue(() =>
+        {
+            WaterNative.Clear(_h);
+            Write(depth, WaterNative.Field.Depth);
+            if (pollution is not null) Write(pollution, WaterNative.Field.Pollution);
+            if (paint is not null) Write(paint, WaterNative.Field.Paint);
+            WaterNative.Commit(_h);
+        });
     }
 
-    /// <summary>Replaces the pollutant with saved masses (kg per cell; call after <see cref="LoadDepth"/>).</summary>
-    public void LoadPollution(float[] mass)
+    /// <summary>Replaces the water with saved depths (the pollutant is cleared).</summary>
+    public void LoadDepth(WaterGrid depth) => LoadWater(depth);
+
+    /// <summary>Sets the pollutant (kg per cell) where the grid has tiles.</summary>
+    public void LoadPollution(WaterGrid mass) => LoadField(mass, WaterNative.Field.Pollution);
+
+    /// <summary>Sets the wet paint (0..1 per water cell) where the grid has tiles.</summary>
+    public void LoadPaint(WaterGrid paint) => LoadField(paint, WaterNative.Field.Paint);
+
+    private void LoadField(WaterGrid grid, WaterNative.Field field)
     {
-        if (mass.Length != Width * Depth) throw new ArgumentException("Pollution grid has the wrong size.", nameof(mass));
-        Enqueue(() => WaterNative.SetPollution(_h, mass));
+        Check(grid);
+        Enqueue(() =>
+        {
+            Write(grid, field);
+            WaterNative.Commit(_h);
+        });
     }
 
-    /// <summary>Replaces the wet paint with saved values (0..1 per water cell).</summary>
-    public void LoadPaint(float[] paint)
+    private void Check(WaterGrid g)
     {
-        if (paint.Length != Width * Depth) throw new ArgumentException("Paint grid has the wrong size.", nameof(paint));
-        Enqueue(() => WaterNative.SetPaint(_h, paint));
+        if (g.Width != Width || g.Depth != Depth) throw new ArgumentException($"Water grid is {g.Width}x{g.Depth}, the sim {Width}x{Depth}.");
+    }
+
+    private void Write(WaterGrid grid, WaterNative.Field field)
+    {
+        foreach (int t in grid.Tiles()) WaterNative.SetTile(_h, t, field, grid.GetTile(t));
     }
 
     /// <summary>The wet paint per water cell, 0..1 (waits for the worker; for saving).</summary>
-    public float[] ReadPaint() => ReadGrid(WaterNative.GetPaint);
+    public WaterGrid ReadPaint() => ReadGrid(WaterNative.Field.Paint);
 
     /// <summary>The current depth per water cell (waits for the worker; for saving).</summary>
-    public float[] ReadDepth() => ReadGrid(WaterNative.GetDepth);
+    public WaterGrid ReadDepth() => ReadGrid(WaterNative.Field.Depth);
 
     /// <summary>The current pollutant mass per water cell in kg (waits for the worker; for saving).</summary>
-    public float[] ReadPollution() => ReadGrid(WaterNative.GetPollution);
+    public WaterGrid ReadPollution() => ReadGrid(WaterNative.Field.Pollution);
 
-    private delegate void GridReader(IntPtr h, Span<float> into);
-
-    private float[] ReadGrid(GridReader read)
+    private WaterGrid ReadGrid(WaterNative.Field field)
     {
-        var result = new float[Width * Depth];
-        Sync(() => read(_h, result));
+        var result = NewGrid();
+        Sync(() =>
+        {
+            var tile = new float[WaterGrid.TileCells];
+            foreach (int t in WaterNative.ListTiles(_h))
+            {
+                if (!WaterNative.GetTile(_h, t, field, tile)) continue;
+                bool any = false;
+                foreach (float v in tile) if (v > 0f) { any = true; break; }
+                if (!any) continue;
+                result.SetTile(t, tile);
+                tile = new float[WaterGrid.TileCells];
+            }
+        });
         return result;
     }
 
@@ -273,10 +365,10 @@ public sealed class WaterSim : IDisposable
         if (prm) WaterNative.SetParams(_h, ToParams(_settings));
         if (!ground.IsEmpty)
         {
-            // A water cell averages the vertices up to Factor/2 away, so widen by one water cell.
+            // A water cell's ground comes from the vertices up to Factor/2 away, so widen by one water cell.
             int x0 = ground.MinX / Factor - 1, z0 = ground.MinZ / Factor - 1;
             int x1 = (ground.MaxX + Factor - 1) / Factor + 1, z1 = (ground.MaxZ + Factor - 1) / Factor + 1;
-            WaterNative.SetGround(_h, Ground.Data, Ground.Width, Ground.Depth, Factor, x0, z0, x1, z1);
+            WaterNative.SetGround(_h, x0, z0, x1, z1);
         }
         if (src) WaterNative.SetSources(_h, _sources.Select(s => s.ToNative()).ToArray());
         foreach (var a in actions) a();
@@ -392,22 +484,39 @@ public sealed class WaterSim : IDisposable
     private void Publish(bool all)
     {
         PublishGround(all);
-        lock (_snapLock)
+        if (WaterNative.ChangedTiles(_h, _tileChanged, all) <= 0) return;
+        int tilesPerPage = PageSize / TileSize, n = 0;
+        for (int t = 0; t <= _tileChanged.Length; t++)
         {
-            if (WaterNative.Read(_h, _snapshot, _pollution, _tileChanged, all) <= 0) return;
-            _publishes++;
-            int tilesPerPage = PageSize / TileSize;
-            for (int tz = 0; tz < TilesZ; tz++)
-                for (int tx = 0; tx < TilesX; tx++)
+            if (t < _tileChanged.Length && _tileChanged[t] != 0) _readTiles[n++] = t;
+            if (n == 0 || (n < ReadBatch && t < _tileChanged.Length)) continue;
+            WaterNative.ReadTiles(_h, _readTiles.AsSpan(0, n), _readRgba, _readPollution, _readVisible);
+            lock (_snapLock)
+                for (int k = 0; k < n; k++)
                 {
-                    if (_tileChanged[tz * TilesX + tx] == 0) continue;
+                    int tile = _readTiles[k];
+                    if (_readVisible[k] == 0)
+                    {
+                        _snapshot[tile] = null;
+                        _pollution[tile] = null;
+                    }
+                    else
+                    {
+                        _readRgba.AsSpan(k * WaterGrid.TileCells * 4, WaterGrid.TileCells * 4)
+                            .CopyTo(_snapshot[tile] ??= new float[WaterGrid.TileCells * 4]);
+                        _readPollution.AsSpan(k * WaterGrid.TileCells, WaterGrid.TileCells)
+                            .CopyTo(_pollution[tile] ??= new float[WaterGrid.TileCells]);
+                    }
                     // A tile's cells also appear as the last row/column of the page before it.
+                    int tx = tile % TilesX, tz = tile / TilesX;
                     int px0 = Math.Max(0, (tx * TileSize - 1) / PageSize), px1 = Math.Min(PagesX - 1, tx / tilesPerPage);
                     int pz0 = Math.Max(0, (tz * TileSize - 1) / PageSize), pz1 = Math.Min(PagesZ - 1, tz / tilesPerPage);
                     for (int pz = pz0; pz <= pz1; pz++)
                         for (int px = px0; px <= px1; px++) _pageDirty[pz * PagesX + px] = true;
                 }
+            n = 0;
         }
+        lock (_snapLock) _publishes++;
     }
 
     private void PublishGround(bool force)
@@ -415,7 +524,7 @@ public sealed class WaterSim : IDisposable
         double now = _groundClock.Elapsed.TotalSeconds;
         if (!force && now < _groundReadAt + 1.0) return;
         _groundReadAt = now;
-        if (!WaterNative.ReadGround(_h, _groundScratch, force)) return;
+        if (!WaterNative.ReadGround(_h, _groundScratch, force, MarkFactor)) return;
         lock (_groundLock)
         {
             _groundScratch.CopyTo(_groundMarks, 0);
@@ -427,7 +536,7 @@ public sealed class WaterSim : IDisposable
     public long GroundVersion { get { lock (_groundLock) return _groundVersion; } }
 
     /// <summary>
-    /// Copies the ground marks: per water cell (row-major) the distance to water in quarter metres (255 = 63.75 m or
+    /// Copies the ground marks: per marks cell (<see cref="MarksWidth"/> × <see cref="MarksDepth"/>, row-major) the distance to water in quarter metres (255 = 63.75 m or
     /// more, each metre above the water counting as 4) and the wet paint (0..255). Returns their version.
     /// </summary>
     public long CopyGroundMarks(Span<byte> into)
@@ -472,16 +581,32 @@ public sealed class WaterSim : IDisposable
             if (!_pageDirty[p] && !force) return false;
             _pageDirty[p] = false;
             int x0 = px * PageSize, z0 = pz * PageSize;
+            // Nothing shows anywhere on the page (most of a big map): its tiles are all hidden, no cells to copy.
+            bool shows = false;
+            for (int tz = z0 / TileSize; tz <= Math.Min((z0 + PageSize) / TileSize, TilesZ - 1) && !shows; tz++)
+                for (int tx = x0 / TileSize; tx <= Math.Min((x0 + PageSize) / TileSize, TilesX - 1) && !shows; tx++)
+                    shows = _snapshot[tz * TilesX + tx] is not null;
+            if (!shows) return true;
             for (int z = 0; z < n; z++)
             {
                 int sz = Math.Min(z0 + z, Depth - 1);
                 for (int x = 0; x < n; x++)
                 {
                     int sx = Math.Min(x0 + x, Width - 1);
-                    var src = _snapshot.AsSpan((sz * Width + sx) * 4, 4);
-                    src.CopyTo(rgba.Slice((z * n + x) * 4, 4));
-                    pollution[z * n + x] = _pollution[sz * Width + sx];
-                    if (src[1] < 0f) continue;
+                    var dst = rgba.Slice((z * n + x) * 4, 4);
+                    int t = sz / TileSize * TilesX + sx / TileSize, li = WaterGrid.Local(sx, sz);
+                    if (_snapshot[t] is not { } snap)
+                    {
+                        // Nothing shows here: hidden, 1 m under the ground like the library's hidden cells.
+                        dst[0] = Ground[sx * Factor, sz * Factor] - 1f;
+                        dst[1] = -1f;
+                        dst[2] = dst[3] = 0f;
+                        pollution[z * n + x] = 0f;
+                        continue;
+                    }
+                    snap.AsSpan(li * 4, 4).CopyTo(dst);
+                    pollution[z * n + x] = _pollution[t]![li];
+                    if (dst[1] < 0f) continue;
                     anyWater = true;
                     // A cell on a tile border belongs to both tiles' meshes.
                     for (int tz = Math.Max(0, (z - 1) / TileSize); tz <= Math.Min(tilesPerPage - 1, z / TileSize); tz++)
@@ -503,7 +628,9 @@ public sealed class WaterSim : IDisposable
     public float PollutionAt(float x, float z)
     {
         int cx = Math.Clamp((int)MathF.Round(x / CellSize), 0, Width - 1), cz = Math.Clamp((int)MathF.Round(z / CellSize), 0, Depth - 1);
-        lock (_snapLock) return _snapshot[(cz * Width + cx) * 4 + 1] > 0.01f ? _pollution[cz * Width + cx] : 0f;
+        int t = cz / TileSize * TilesX + cx / TileSize, li = WaterGrid.Local(cx, cz);
+        lock (_snapLock)
+            return _snapshot[t] is { } snap && snap[li * 4 + 1] > 0.01f ? _pollution[t]![li] : 0f;
     }
 
     /// <summary>Water velocity (m/s, x and z) at a local position.</summary>
@@ -518,7 +645,9 @@ public sealed class WaterSim : IDisposable
         {
             float V(int xi, int zi)
             {
-                float v = _snapshot[(zi * Width + xi) * 4 + channel];
+                float v;
+                if (_snapshot[zi / TileSize * TilesX + xi / TileSize] is { } snap) v = snap[WaterGrid.Local(xi, zi) * 4 + channel];
+                else v = channel switch { 0 => Ground[xi * Factor, zi * Factor] - 1f, 1 => -1f, _ => 0f };
                 return clampZero ? Math.Max(v, 0f) : v;
             }
             float a = V(x0, z0) + (V(x0 + 1, z0) - V(x0, z0)) * tx;
@@ -552,5 +681,6 @@ public sealed class WaterSim : IDisposable
             WaterNative.Destroy(_h);
             _h = IntPtr.Zero;
         }
+        if (_pin.IsAllocated) _pin.Free();
     }
 }

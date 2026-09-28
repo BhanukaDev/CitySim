@@ -66,6 +66,9 @@ public sealed class HeightMap
     /// </summary>
     public Span<float> Data => _heights;
 
+    /// <summary>The array behind <see cref="Data"/>, never replaced, for code that pins it (the water sim reads it natively).</summary>
+    public float[] Buffer => _heights;
+
     /// <summary>One row of heights (safe to take inside a parallel loop). Call <see cref="Invalidate()"/> after writing through it.</summary>
     public Span<float> Row(int z) => _heights.AsSpan(z * Width, Width);
 

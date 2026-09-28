@@ -8,10 +8,11 @@ namespace CitySim.WaterSystem;
 
 /// <summary>
 /// A map's water as saved: settings, sources, the depth per water cell (null = no saved water) and the pollutant mass
-/// per water cell in kg (null = clean) and the wet paint per water cell, 0..1 (null = none).
+/// per water cell in kg (null = clean) and the wet paint per water cell, 0..1 (null = none). Width × Depth is the water
+/// grid it was saved on (a map saved before M6 phase 3f has a coarser one on big maps; see <see cref="WaterGrid.Resample"/>).
 /// </summary>
-public sealed record WaterData(WaterSettings Settings, IReadOnlyList<WaterSource> Sources, int Width, int Depth, float[]? DepthGrid,
-    float[]? PollutionGrid = null, float[]? PaintGrid = null);
+public sealed record WaterData(WaterSettings Settings, IReadOnlyList<WaterSource> Sources, int Width, int Depth, WaterGrid? DepthGrid,
+    WaterGrid? PollutionGrid = null, WaterGrid? PaintGrid = null);
 
 /// <summary>
 /// The water section of a map file (<see cref="MapFile"/> v4), little-endian:
@@ -55,29 +56,38 @@ public static class WaterFile
         w.Write(data.Width);
         w.Write(data.Depth);
         w.Write(Tile);
-        WriteTiles(w, grid, data.Width, data.Depth, v => (Half)v);
-        if (data.PollutionGrid is { } pollution && pollution.Length == grid.Length) WriteTiles(w, pollution, data.Width, data.Depth, v => v);
+        WriteTiles(w, grid, v => (Half)v);
+        if (data.PollutionGrid is { } pollution && Same(pollution, grid)) WriteTiles(w, pollution, v => v);
         else w.Write(0);
-        if (data.PaintGrid is { } paint && paint.Length == grid.Length)
-            WriteTiles(w, paint, data.Width, data.Depth, v => (byte)Math.Clamp(MathF.Round(v * 255f), 0f, 255f));
+        if (data.PaintGrid is { } paint && Same(paint, grid))
+            WriteTiles(w, paint, v => (byte)Math.Clamp(MathF.Round(v * 255f), 0f, 255f));
         else w.Write(0);
     }
 
+    private static bool Same(WaterGrid a, WaterGrid b) => a.Width == b.Width && a.Depth == b.Depth;
+
     /// <summary>Writes the 256² tiles of a grid that hold anything above 0, each as a zlib stream of T.</summary>
-    private static void WriteTiles<T>(BinaryWriter w, float[] grid, int width, int depth, Func<float, T> convert) where T : unmanaged
+    private static void WriteTiles<T>(BinaryWriter w, WaterGrid grid, Func<float, T> convert) where T : unmanaged
     {
-        int tilesX = (width + Tile - 1) / Tile, tilesZ = (depth + Tile - 1) / Tile;
+        int width = grid.Width, depth = grid.Depth;
+        int tilesX = (width + Tile - 1) / Tile, tilesZ = (depth + Tile - 1) / Tile, per = Tile / WaterGrid.Tile;
         var tiles = new List<(int, int, byte[])>();
         for (int tz = 0; tz < tilesZ; tz++)
             for (int tx = 0; tx < tilesX; tx++)
             {
+                // Skip file tiles whose grid tiles are all missing without touching their cells.
+                bool held = false;
+                for (int gz = tz * per; gz < Math.Min((tz + 1) * per, grid.TilesZ) && !held; gz++)
+                    for (int gx = tx * per; gx < Math.Min((tx + 1) * per, grid.TilesX) && !held; gx++)
+                        held = grid.GetTile(gz * grid.TilesX + gx) is not null;
+                if (!held) continue;
                 int x0 = tx * Tile, z0 = tz * Tile, tw = Math.Min(Tile, width - x0), td = Math.Min(Tile, depth - z0);
                 var values = new T[tw * td];
                 bool any = false;
                 for (int z = 0; z < td; z++)
                     for (int x = 0; x < tw; x++)
                     {
-                        float v = grid[(z0 + z) * width + x0 + x];
+                        float v = grid[x0 + x, z0 + z];
                         if (v > 0f) any = true;
                         values[z * tw + x] = convert(v);
                     }
@@ -118,26 +128,27 @@ public static class WaterFile
         int width = r.ReadInt32(), depth = r.ReadInt32(), tile = r.ReadInt32();
         if (width is < 0 or > 8193 || depth is < 0 or > 8193 || tile != Tile)
             throw new InvalidDataException("Map file water grid is corrupt.");
-        float[]? grid = width > 0 && depth > 0 ? new float[width * depth] : null;
-        ReadTiles<Half>(r, grid, width, depth, v => (float)v);
-        float[]? pollutionGrid = null;
+        WaterGrid? grid = width > 0 && depth > 0 ? new WaterGrid(width, depth) : null;
+        ReadTiles<Half>(r, grid, v => (float)v);
+        WaterGrid? pollutionGrid = null;
         if (version >= 2)
         {
-            pollutionGrid = grid is null ? null : new float[grid.Length];
-            if (!ReadTiles<float>(r, pollutionGrid, width, depth, v => v)) pollutionGrid = null;
+            pollutionGrid = grid is null ? null : new WaterGrid(width, depth);
+            if (!ReadTiles<float>(r, pollutionGrid, v => v)) pollutionGrid = null;
         }
-        float[]? paintGrid = null;
+        WaterGrid? paintGrid = null;
         if (version >= 3)
         {
-            paintGrid = grid is null ? null : new float[grid.Length];
-            if (!ReadTiles<byte>(r, paintGrid, width, depth, v => v / 255f)) paintGrid = null;
+            paintGrid = grid is null ? null : new WaterGrid(width, depth);
+            if (!ReadTiles<byte>(r, paintGrid, v => v / 255f)) paintGrid = null;
         }
         return new WaterData(settings, sources, width, depth, grid, pollutionGrid, paintGrid);
     }
 
     /// <summary>Reads what <see cref="WriteTiles"/> wrote into <paramref name="grid"/>; false when there were no tiles.</summary>
-    private static bool ReadTiles<T>(BinaryReader r, float[]? grid, int width, int depth, Func<T, float> convert) where T : unmanaged
+    private static bool ReadTiles<T>(BinaryReader r, WaterGrid? grid, Func<T, float> convert) where T : unmanaged
     {
+        int width = grid?.Width ?? 0, depth = grid?.Depth ?? 0;
         int tiles = r.ReadInt32();
         if (tiles < 0) throw new InvalidDataException("Map file water grid is corrupt.");
         int tilesX = (width + Tile - 1) / Tile, tilesZ = (depth + Tile - 1) / Tile;
@@ -151,7 +162,10 @@ public static class WaterFile
             MapFile.Inflate(r.ReadBytes(length), MemoryMarshal.AsBytes(values.AsSpan()));
             for (int z = 0; z < td; z++)
                 for (int x = 0; x < tw; x++)
-                    grid[(z0 + z) * width + x0 + x] = Math.Max(convert(values[z * tw + x]), 0f);
+                {
+                    float v = convert(values[z * tw + x]);
+                    if (v > 0f) grid[x0 + x, z0 + z] = v;
+                }
         }
         return tiles > 0;
     }

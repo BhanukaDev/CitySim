@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -35,11 +36,11 @@ public static class WaterDemo
             var depth = new float[sim.Width * sim.Depth];
             for (int z = 40; z < 90; z++)
                 for (int x = 20; x < 60; x++) depth[z * sim.Width + x] = 3f;
-            sim.LoadDepth(depth);
+            sim.LoadDepth(WaterGrid.FromDense(depth, sim.Width, sim.Depth));
             double before = Volume(sim);
             sim.Advance(900);
             double after = Volume(sim);
-            var surfaces = Wet(sim).Select(i => map.Data[i] + sim.ReadDepth()[i]).ToArray();
+            var surfaces = Wet(sim).Select(i => map.Data[i] + sim.ReadDepth().ToDense()[i]).ToArray();
             float spread = surfaces.Length == 0 ? 99f : surfaces.Max() - surfaces.Min();
             Check(Math.Abs(after - before) / before < 1e-3, $"volume kept ({before:0} → {after:0} m³)");
             Check(spread < 0.1f, $"settles flat (surface spread {spread:0.000} m)");
@@ -117,22 +118,26 @@ public static class WaterDemo
                 new WaterSource(9, WaterSourceKind.Stream, 100, 100, 12, 0, FlowRate: 7.5f),
             ]);
             sim.FillHollows(Levels(map, 20f, 16f));
-            var pollution = sim.ReadDepth().Select(d => d > 0 ? d * 0.01f : 0f).ToArray();
-            sim.LoadPollution(pollution);
-            sim.LoadPaint(sim.ReadDepth().Select(d => MathF.Min(d / 5f, 1f)).ToArray());
+            var pollution = sim.ReadDepth().ToDense().Select(d => d > 0 ? d * 0.01f : 0f).ToArray();
+            sim.LoadPollution(WaterGrid.FromDense(pollution, sim.Width, sim.Depth));
+            sim.LoadPaint(WaterGrid.FromDense(sim.ReadDepth().ToDense().Select(d => MathF.Min(d / 5f, 1f)).ToArray(), sim.Width, sim.Depth));
             var data = new WaterData(sim.Settings, sim.Sources, sim.Width, sim.Depth, sim.ReadDepth(), sim.ReadPollution(), sim.ReadPaint());
             string path = Path.Combine(Path.GetTempPath(), "citysim_water_demo.csmap");
             MapFile.Save(path, map, new SplatMap(map.Width, map.Depth, map.CellSize) { ThemeId = "default" }, data);
             var (_, _, loaded) = MapFile.LoadWithWater(path);
             File.Delete(path);
             float worst = 0, worstPollution = 0;
-            if (loaded?.DepthGrid is { } g)
-                for (int i = 0; i < g.Length; i++) worst = MathF.Max(worst, MathF.Abs(g[i] - data.DepthGrid![i]));
-            if (loaded?.PollutionGrid is { } pg)
-                for (int i = 0; i < pg.Length; i++) worstPollution = MathF.Max(worstPollution, MathF.Abs(pg[i] - data.PollutionGrid![i]));
-            float worstPaint = 0;
-            if (loaded?.PaintGrid is { } pp)
-                for (int i = 0; i < pp.Length; i++) worstPaint = MathF.Max(worstPaint, MathF.Abs(pp[i] - data.PaintGrid![i]));
+            static float Worst(WaterGrid? a, WaterGrid? b)
+            {
+                if (a is null || b is null) return 0f;
+                float[] da = a.ToDense(), db = b.ToDense();
+                float m = 0;
+                for (int i = 0; i < da.Length; i++) m = MathF.Max(m, MathF.Abs(da[i] - db[i]));
+                return m;
+            }
+            worst = Worst(loaded?.DepthGrid, data.DepthGrid);
+            worstPollution = Worst(loaded?.PollutionGrid, data.PollutionGrid);
+            float worstPaint = Worst(loaded?.PaintGrid, data.PaintGrid);
             bool same = loaded is not null && loaded.Settings == data.Settings && loaded.Sources.SequenceEqual(data.Sources)
                 && loaded.DepthGrid is not null && loaded.PollutionGrid is not null && data.PollutionGrid!.Sum() > 1f
                 && loaded.PaintGrid is not null && data.PaintGrid!.Sum() > 1f;
@@ -151,7 +156,7 @@ public static class WaterDemo
                     new WaterSource(2, WaterSourceKind.Lake, 200, 300, 40, 12f, MaxFlow: 30),
                 ]);
                 sim.Advance(240);
-                return Hash(sim.ReadDepth()) ^ (Hash(sim.ReadPollution()) * 31);
+                return Hash(sim.ReadDepth().ToDense()) ^ (Hash(sim.ReadPollution().ToDense()) * 31);
             }
             ulong a = Run(0), b = Run(0), c = Run(1);
             Check(a == b && a == c, $"repeatable (hash {a:x16}, again {(a == b ? "same" : "different")}, on 1 thread {(a == c ? "same" : "different")})");
@@ -218,37 +223,36 @@ public static class WaterDemo
                 $"{far:0.0000} kg/m³ in the basin; with a 2 min half-life {decayed:0} kg)");
         }
 
-        // 11. Narrow channels: a 7 m and a 14 m wide channel (1.5 m deep) down a gentle slope, on 3.5 m cells and on
-        //     14 m cells (averaged like a 4× coarser water grid). Reports how much water leaves the channel.
-        foreach (float cell in new[] { 3.5f, 14f })
+        // 11. Narrow channels: a 7 m and a 14 m wide channel (1.5 m deep) down a gentle slope, on 3.5, 7 (28.7 km maps) and
+        //     14 m cells (averaged like a 2× or 4× coarser water grid). Reports how much water leaves the channel.
+        foreach (float cell in new[] { 3.5f, 7f, 14f })
             foreach (float width in new[] { 7f, 14f })
             {
-                float Fine(float x, float z) => z * 0.01f + (MathF.Abs(x - 448f) < width * 0.5f ? -1.5f : 0f);
-                int verts = (int)(896f / cell) + 1;
-                var map = Make(verts, cell, (x, z) =>
-                {
-                    // The water grid averages the vertices around each cell; do the same from the fine shape.
-                    int k = (int)(cell / 3.5f) / 2;
-                    float sum = 0;
-                    for (int dz = -k; dz <= k; dz++)
-                        for (int dx = -k; dx <= k; dx++) sum += Fine(x + dx * 3.5f, z + dz * 3.5f);
-                    return sum / ((2 * k + 1) * (2 * k + 1));
-                });
-                using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { EvaporationMmPerMin = 0 } };
+                // A 3.5 m terrain; the sim takes every 1st, 2nd or 4th vertex, as on maps up to 14.3 km, 28.7 km (7 m),
+                // and before M6 phase 3f (14 m).
+                var map = Make(257, 3.5f, (x, z) => z * 0.01f + (MathF.Abs(x - 448f) < width * 0.5f ? -1.5f : 0f));
+                using var sim = new WaterSim(map, threaded: false, maxCells: (int)(256 * 3.5f / cell))
+                    { Settings = new WaterSettings { EvaporationMmPerMin = 0 } };
                 sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 448, 850, 5, 0, FlowRate: 3)]);
                 sim.Advance(900);
-                var d = sim.ReadDepth();
-                double inside = 0, outside = 0;
+                var d = sim.ReadDepth().ToDense();
+                // What a player sees: how wide the wet strip is (mean over the rows it runs through), and the water
+                // lying more than 7 m past the banks (a fixed band, whatever the cell size).
+                double inside = 0, outside = 0, wetArea = 0;
+                var rows = new HashSet<int>();
                 for (int i = 0; i < d.Length; i++)
                 {
                     if (d[i] <= 0.01f) continue;
                     float x = i % sim.Width * sim.CellSize;
-                    if (MathF.Abs(x - 448f) <= width * 0.5f + sim.CellSize) inside += d[i];
+                    wetArea += sim.CellSize * sim.CellSize;
+                    rows.Add(i / sim.Width);
+                    if (MathF.Abs(x - 448f) <= width * 0.5f + 7f) inside += d[i];
                     else outside += d[i];
                 }
                 double share = outside / Math.Max(inside + outside, 1e-9);
-                log($"Demo water: narrow channel {width:0} m wide on {cell:0.#} m cells: {share:P1} of the water outside it, " +
-                    $"deepest {sim.LastStats.MaxDepth:0.00} m");
+                double wetWidth = rows.Count == 0 ? 0 : wetArea / (rows.Count * sim.CellSize);
+                log($"Demo water: narrow channel {width:0} m wide on {cell:0.#} m cells: wet strip {wetWidth:0.0} m wide, " +
+                    $"{share:P1} of the water > 7 m past the banks, deepest {sim.LastStats.MaxDepth:0.00} m");
             }
 
         // 13. Lake sources: one per hollow, filled at once to the Priority-Flood volume, and they keep it (evaporation on);
@@ -290,8 +294,8 @@ public static class WaterDemo
             using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { PaintMinutes = 5f } };
             sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 256, 400, 10, 0, FlowRate: 20)]);
             sim.Advance(900);
-            var paint = sim.ReadPaint();
-            var depth = sim.ReadDepth();
+            var paint = sim.ReadPaint().ToDense();
+            var depth = sim.ReadDepth().ToDense();
             int wetCell = Enumerable.Range(0, depth.Length).Where(i => depth[i] > 0.3f).DefaultIfEmpty(-1).First(); // shores count water over 25 cm
             int dryCell = 5 * sim.Width + 5;
             sim.PublishNow();
@@ -317,6 +321,38 @@ public static class WaterDemo
                 $"flood preview (below the rim: {below?.Surface:0.0} m, {below?.Volume:0} of {expected:0} m³; above: spills {above?.Spills} at {above?.Surface:0.0} m)");
         }
 
+        // 16. Sparse tiles (M6 phase 3f): on a water grid 2× coarser than the terrain (as on 28.7 km maps), a stream holds
+        //     memory only along its path, and once it's gone and dried up the tiles are freed. A pond saved on that grid
+        //     loads onto a 2× finer one (an old 14 m save on today's 7 m grid) with about the same volume.
+        {
+            var map = Make(513, 3.5f, (x, z) => z * 0.02f + 3f * MathF.Abs(x - 900) / 900f + Pit(x, z, 400, 1300, 150, 0f, 6f));
+            var dry = new WaterSettings { EvaporationMmPerMin = 0, PaintMinutes = 0, PaintFadeHours = 0 };
+            using var sim = new WaterSim(map, threaded: false, maxCells: 256) { Settings = dry };
+            int total = sim.TilesX * sim.TilesZ;
+            sim.SetSources([new WaterSource(1, WaterSourceKind.Stream, 900, 1700, 10, 0, FlowRate: 5)]);
+            sim.Advance(600);
+            int running = sim.LastStats.AllocatedTiles;
+            sim.SetSources([]);
+            sim.Settings = dry with { EvaporationMmPerMin = 60 };
+            sim.Advance(1800);
+            int after = sim.LastStats.AllocatedTiles;
+            Check(sim.Factor == 2 && running > 0 && running < total && after == 0,
+                $"sparse tiles ({sim.Width}² cells of {sim.CellSize:0.#} m, {total} tiles: {running} in memory with a stream, " +
+                $"{after} after it dried up)");
+
+            var bowl = Make(513, 3.5f, (x, z) => Pit(x, z, 900, 900, 300, 10f, 8f));
+            using var coarse = new WaterSim(bowl, threaded: false, maxCells: 256) { Settings = dry };
+            coarse.FillHollows(Levels(bowl, 7f, 7f));
+            coarse.Advance(1);
+            double before = Volume(coarse);
+            using var fine = new WaterSim(bowl, threaded: false) { Settings = dry };
+            fine.LoadWater(coarse.ReadDepth().Resample(fine.Width, fine.Depth));
+            fine.Advance(1);
+            double loaded = Volume(fine);
+            Check(before > 1000 && Math.Abs(loaded - before) / before < 0.05,
+                $"coarse save on a finer grid ({before:0} m³ on {coarse.CellSize:0.#} m cells → {loaded:0} m³ on {fine.CellSize:0.#} m)");
+        }
+
         // 12. Cost of a substep with every cell wet (2 m of water on a gentle slope, walls), 1025² and 2049².
         foreach (int verts in new[] { 1025, 2049 })
         {
@@ -324,7 +360,7 @@ public static class WaterDemo
             using var sim = new WaterSim(map, threaded: false) { Settings = new WaterSettings { OpenEdges = false } };
             var depth = new float[sim.Width * sim.Depth];
             Array.Fill(depth, 2f);
-            sim.LoadDepth(depth);
+            sim.LoadDepth(WaterGrid.FromDense(depth, sim.Width, sim.Depth));
             sim.Advance(1);
             var sw = Stopwatch.StartNew();
             sim.Advance(20);
@@ -376,13 +412,13 @@ public static class WaterDemo
     private static double Volume(WaterSim sim)
     {
         double v = 0;
-        foreach (float d in sim.ReadDepth()) v += d;
+        foreach (float d in sim.ReadDepth().ToDense()) v += d;
         return v * sim.CellSize * sim.CellSize;
     }
 
     private static int[] Wet(WaterSim sim)
     {
-        var d = sim.ReadDepth();
+        var d = sim.ReadDepth().ToDense();
         return Enumerable.Range(0, d.Length).Where(i => d[i] > 0.01f).ToArray();
     }
 }

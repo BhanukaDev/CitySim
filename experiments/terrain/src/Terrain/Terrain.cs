@@ -244,21 +244,21 @@ public partial class Terrain : Node3D
     private void PushWaterGround()
     {
         if (_render is null || Water is not { } sim || sim.GroundVersion == _groundVersion) return;
-        int n = sim.Width * sim.Depth * 2;
+        int w = sim.MarksWidth, d = sim.MarksDepth, n = w * d * 2;
         if (_groundBytes?.Length != n) _groundBytes = new byte[n];
         _groundVersion = sim.CopyGroundMarks(_groundBytes);
-        if (_groundImage is null || _groundImage.GetWidth() != sim.Width || _groundImage.GetHeight() != sim.Depth)
+        if (_groundImage is null || _groundImage.GetWidth() != w || _groundImage.GetHeight() != d)
         {
-            _groundImage = Image.CreateFromData(sim.Width, sim.Depth, false, Image.Format.Rg8, _groundBytes);
+            _groundImage = Image.CreateFromData(w, d, false, Image.Format.Rg8, _groundBytes);
             _groundTexture = ImageTexture.CreateFromImage(_groundImage);
         }
         else
         {
-            _groundImage.SetData(sim.Width, sim.Depth, false, Image.Format.Rg8, _groundBytes);
+            _groundImage.SetData(w, d, false, Image.Format.Rg8, _groundBytes);
             _groundTexture!.Update(_groundImage);
         }
         _render.SetParam("water_ground", _groundTexture);
-        _render.SetParam("water_ground_cell", sim.CellSize);
+        _render.SetParam("water_ground_cell", sim.MarksCellSize);
         _render.SetParam("has_water_ground", true);
     }
 
@@ -418,11 +418,22 @@ public partial class Terrain : Node3D
         {
             Water.Settings = saved.Settings;
             Water.SetSources(saved.Sources);
-            if (saved.DepthGrid is { } grid && saved.Width == Water.Width && saved.Depth == Water.Depth)
+            if (saved.DepthGrid is { } grid && saved.Width > 1 && saved.Depth > 1)
             {
-                Water.LoadDepth(grid);
-                if (saved.PollutionGrid is { } pollution) Water.LoadPollution(pollution);
-                if (saved.PaintGrid is { } paint) Water.LoadPaint(paint);
+                var pollution = saved.PollutionGrid;
+                var paint = saved.PaintGrid;
+                if (saved.Width != Water.Width || saved.Depth != Water.Depth)
+                {
+                    // Saved on another water grid (before M6 phase 3f big maps had 14 m cells): nearest cell, the
+                    // pollutant's kg scaled by the cell areas so the total stays about the same.
+                    int w = Water.Width, d = Water.Depth;
+                    float area = (w - 1f) * (d - 1f) / ((saved.Width - 1f) * (saved.Depth - 1f));
+                    grid = grid.Resample(w, d);
+                    pollution = pollution?.Resample(w, d, 1f / area);
+                    paint = paint?.Resample(w, d);
+                    GD.Print($"Terrain: water saved on {saved.Width}² cells, resampled to {w}²");
+                }
+                Water.LoadWater(grid, pollution, paint);
             }
         }
         _waterSurface = new WaterSurface { Name = "Water", Visible = _showWater };

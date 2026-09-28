@@ -4,6 +4,9 @@
 // Plain C ABI, called from C# through function pointers (src/Water/WaterNative.cs); structs match field for field.
 // A handle owns the state; calls on one handle must not overlap (the C# side runs them on one worker thread).
 // Grids are row-major (index z * width + x), in metres. No Godot types.
+// Storage is sparse, in square tiles of cs_water_tile_size() cells (tile index tz * tiles_x + tx, cells inside a tile
+// row-major, tile_size² floats per tile even for partial tiles at the grid edge): only tiles with water, next to it or
+// under a source hold memory. Bulk data moves per tile.
 #pragma once
 #include <stdint.h>
 
@@ -54,18 +57,29 @@ struct CsWaterStats {
     int32_t sleeping_tiles; // wet tiles not stepped because their water has settled
     int32_t clamp_hits;    // cells whose outflow would have taken more than they held (should stay 0: pipes are scaled)
     double pollution;      // kg of pollutant in the water
+    int32_t allocated_tiles; // tiles holding cells (the rest of the grid is dry ground and costs nothing)
+    float allocated_mb;    // their memory
+};
+
+// Per-cell fields for cs_water_get_tile / cs_water_set_tile.
+enum CsWaterField : int32_t {
+    CS_WATER_FIELD_DEPTH = 0,     // m
+    CS_WATER_FIELD_POLLUTION = 1, // kg of pollutant per cell
+    CS_WATER_FIELD_PAINT = 2,     // wet paint, 0..1
 };
 
 typedef struct CsWater CsWater;
 
-// width x depth water cells, cell_size metres apart. Returns null on bad arguments.
-CS_API CsWater* cs_water_create(int32_t width, int32_t depth, float cell_size, int32_t threads);
+// width x depth water cells, cell_size metres apart, over a terrain heightmap (terrain_width x terrain_depth vertices,
+// row-major; `factor` terrain cells per water cell: each water cell's ground is halfway between the mean and the
+// lowest of the terrain vertices around it, so narrow stream beds survive). The heightmap is read, not copied: it must
+// stay alive and in place until cs_water_destroy. Returns null on bad arguments.
+CS_API CsWater* cs_water_create(int32_t width, int32_t depth, float cell_size, int32_t threads, const float* heights,
+                                int32_t terrain_width, int32_t terrain_depth, int32_t factor);
 CS_API void cs_water_destroy(CsWater* w);
 
-// Sets the ground under water cells x0..x1, z0..z1 (inclusive, water coordinates) from a terrain heightmap with
-// `factor` terrain cells per water cell: each water cell gets the mean of the terrain vertices around it.
-CS_API int32_t cs_water_set_ground(CsWater* w, const float* heights, int32_t terrain_width, int32_t terrain_depth,
-                                   int32_t factor, int32_t x0, int32_t z0, int32_t x1, int32_t z1);
+// The terrain heights under water cells x0..x1, z0..z1 (inclusive, water coordinates) changed: re-read them.
+CS_API int32_t cs_water_set_ground(CsWater* w, int32_t x0, int32_t z0, int32_t x1, int32_t z1);
 
 CS_API void cs_water_set_params(CsWater* w, const CsWaterParams* params);
 CS_API int32_t cs_water_set_sources(CsWater* w, const CsWaterSource* sources, int32_t count);
@@ -75,43 +89,47 @@ CS_API int32_t cs_water_set_sources(CsWater* w, const CsWaterSource* sources, in
 // (not stepped) until something nearby changes. The result depends only on the state and dt, never on timing or the
 // thread count, so a fixed dt per call makes runs repeatable.
 CS_API int32_t cs_water_step(CsWater* w, float dt, int32_t max_substeps, CsWaterStats* stats);
-
-// Render/query snapshot, 4 floats per cell: display surface, depth, velocity x, velocity z. Depth is -1 for dry cells
-// with no wet neighbour (surface is then 1 m under the ground, hidden) and 0 for dry cells next to water (surface is
-// the highest neighbouring water surface, so the water mesh reaches into the bank and the ground cuts the shoreline).
-// With all = 0 only tiles changed since the last read are written; tile_changed (tiles_x * tiles_z bytes) gets 1 for
-// each written tile. Returns the number of tiles written. extra (optional, 1 float per cell) gets the pollutant
-// concentration in kg/m³ (dry cells next to water copy their wettest neighbour's).
-CS_API int32_t cs_water_read(CsWater* w, float* out, float* extra, uint8_t* tile_changed, int32_t all);
 CS_API int32_t cs_water_tile_size(void);
 
-// Depth per cell (width * depth floats): read for saving, write for loading or clearing (null = all dry).
-CS_API void cs_water_get_depth(CsWater* w, float* depth);
-// Setting depths clears the pollutant.
-CS_API void cs_water_set_depth(CsWater* w, const float* depth);
+// Tiles to redraw: flags (tiles_x * tiles_z bytes) gets 1 for every tile changed since the last call (every tile with
+// all = 1). Returns how many.
+CS_API int32_t cs_water_changed_tiles(CsWater* w, uint8_t* flags, int32_t all);
+// Render/query snapshot of `count` tiles: per tile tile_size² cells × 4 floats in out (display surface, depth,
+// velocity x, velocity z) and optionally tile_size² floats in extra (pollutant concentration, kg/m³). Depth is -1 for
+// dry cells with no wet neighbour (hidden) and 0 for dry cells next to water (surface is the highest neighbouring
+// water surface, so the water mesh reaches into the bank and the ground cuts the shoreline; their concentration is
+// that neighbour's). visible[k] = 0 when nothing in tile k shows.
+CS_API int32_t cs_water_read_tiles(CsWater* w, const int32_t* tiles, int32_t count, float* out, float* extra, uint8_t* visible);
 
-// Pollutant mass per cell in kg (width * depth floats): read for saving, write for loading (null = clean).
-CS_API void cs_water_get_pollution(CsWater* w, float* mass);
-CS_API void cs_water_set_pollution(CsWater* w, const float* mass);
-
-// Raises the water to at least the given surface (NaN = leave), per cell. Used to fill hollows from lake levels.
-CS_API void cs_water_raise_to(CsWater* w, const float* surface);
+// The allocated tiles (up to capacity written); returns how many there are.
+CS_API int32_t cs_water_list_tiles(CsWater* w, int32_t* out, int32_t capacity);
+// Copies a field of tile t (tile_size² floats). Returns 0 when the tile isn't allocated (all zero), 1 when copied.
+CS_API int32_t cs_water_get_tile(CsWater* w, int32_t t, int32_t field, float* out);
+// Writes a field of tile t (allocating it; null = zeros). Call cs_water_commit after a batch of writes.
+CS_API int32_t cs_water_set_tile(CsWater* w, int32_t t, int32_t field, const float* in);
+// After cs_water_set_tile / cs_water_raise_tile: clears flows, recounts, wakes wet tiles, redraws everything.
+CS_API void cs_water_commit(CsWater* w);
+// Removes all water and pollutant (the wet paint stays).
+CS_API void cs_water_clear(CsWater* w);
+// Raises tile t's water to at least the given surface (tile_size² floats, NaN = leave). Returns 1 if any water was
+// added. Call cs_water_commit after a batch.
+CS_API int32_t cs_water_raise_tile(CsWater* w, int32_t t, const float* surface);
 
 // Removes the water a lake or river source holds: from the cells within `radius` of (x, z), every 4-connected wet cell
 // whose ground is below `level` and whose surface is within 0.3 m of the source cells' surface (at most `level`). Water
-// that ran on downhill (a river out of the lake) sits lower and is kept. `removed_surface` (optional, width * depth)
-// gets the old surface of each drained cell and NaN elsewhere, for cs_water_raise_to to put it back. Returns the
-// number of cells drained.
-CS_API int32_t cs_water_drain(CsWater* w, float x, float z, float radius, float level, float* removed_surface);
+// that ran on downhill (a river out of the lake) sits lower and is kept. Returns the number of cells drained; the old
+// surfaces stay available (cs_water_list_drained / cs_water_get_drained, NaN = untouched) until the next drain, for
+// cs_water_raise_tile to put them back.
+CS_API int32_t cs_water_drain(CsWater* w, float x, float z, float radius, float level);
+CS_API int32_t cs_water_list_drained(CsWater* w, int32_t* out, int32_t capacity);
+CS_API int32_t cs_water_get_drained(CsWater* w, int32_t t, float* out);
 
-// Ground marks for the terrain shader, 2 bytes per cell: distance to water deeper than 25 cm (metres × 4, so 0..255 = 0..63.75 m; every
-// metre above the nearest water surface counts as 4 m, like the M5.1 shore mask), and wet paint (0..255: how long
-// water has stood or run there). Returns 0 without writing when nothing changed since the last read (force = 0).
-CS_API int32_t cs_water_read_ground(CsWater* w, uint8_t* out, int32_t force);
-
-// Wet paint per cell, 0..1 (width * depth floats): read for saving, write for loading (null = none).
-CS_API void cs_water_get_paint(CsWater* w, float* paint);
-CS_API void cs_water_set_paint(CsWater* w, const float* paint);
+// Ground marks for the terrain shader on a grid mark_factor times coarser than the water's (((width - 1) / mark_factor
+// + 1) x ((depth - 1) / mark_factor + 1) cells), 2 bytes per cell: distance to water deeper than 25 cm (metres × 4, so
+// 0..255 = 0..63.75 m; every metre above the nearest water surface counts as 4 m, like the M5.1 shore mask), and wet
+// paint (0..255: how long water has stood or run there; the most in the cell's block). Returns 0 without writing
+// when nothing changed since the last read (force = 0).
+CS_API int32_t cs_water_read_ground(CsWater* w, uint8_t* out, int32_t force, int32_t mark_factor);
 
 // Instantly floods everything below sea level that connects to the border (sea sources). River and lake sources aren't
 // flood-filled: their water runs downhill, so a flat fill at their level would drown everything below them.

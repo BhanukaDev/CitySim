@@ -80,7 +80,8 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --preview-at=x,z,level (the Lake placement preview there),
 #   --stream-flow=m³/s (the --demo-water stream's flow, default 40), --pollute=kg/s (the --demo-water stream carries pollutant),
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
-#   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
+#   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, water memory/speed, then quits),
+#   --water-cells=n (cap the water grid side; 2048 = the pre-3f 14 m cells on 28.7 km),
 #   --size=cells (8192 = 28.7 km)
 # any flag skips the start menu (scenes/Menu.tscn)
 tools/fetch_textures.sh      # first time (or after changing a texture): download the ground textures, bake every theme, import
@@ -505,6 +506,49 @@ Authoring guide: `terrain_sdk/README.md`.
 - Not done / next (**M3.6**): loading themes from mod `.pck` files in `user://mods`, a modder template project, frozen lake
   water (lakes still use one water shader for every theme), a theme preview button that launches the game on the theme.
 
+### ⬜ M3.7: Wet ground look (idea, to try here)
+Ground the water has painted wet should look wet, not just sandy: darker, smoother, and catching the sun. Today the
+"Wet ground" slot (M5.5) only swaps the material, and the whole terrain is one matte roughness (0.9) with no sun
+highlight at all: the custom `light()` in `terrain_fragment.gdshaderinc` adds diffuse light only.
+- **Driven by `t.wet`** (the sim's wet paint, already sampled for the Wet slot), so it covers the same ground and dries
+  off the same way. Optionally a little from the shore distance too, for the band right at the waterline.
+- **Smoother and more specular where wet**: roughness 0.9 → ~0.3 and specular up, so the sky reflects on it.
+- **Sun glint in `light()`**: a crisp, toon-style highlight (like the water's sparkles), only where the ground is
+  smooth. `light()` can read `ROUGHNESS`, so no extra varying is needed. Broken up by the fine noise the shader already
+  computes, so it glitters in patches rather than shining like plastic.
+- **Darker albedo where wet** (damp sand reads darker), which does as much as the shine.
+- **Theme parameters**: amount, glint size/strength, darkening, set per theme in the Godot inspector (winter: icy
+  glints), like the other theme uniforms. Keep the defaults subtle: stylized looks turn plastic when too shiny.
+- **Cost (estimate)**: close to free. No new texture samples (the wet value is already read), a few multiply-adds, and
+  one dot product for the sun per pixel. The sky reflection is already computed (specular 0.2 today); lower roughness
+  only samples a sharper level. Well under 1 % of frame time. Measure before/after at a close shoreline view.
+- **Not planned**: screen-space reflections (the wet ground mirroring hills). A whole-screen post effect that can
+  cost several ms, and the sky reflection plus glint suits the style better. At most a later high-quality option.
+- **Graphics setting**: "Wet ground shine" on/off (see Graphics settings below). Off = today's matte look.
+
+### Graphics settings (plan for the game)
+The experiment tries visual features; the game exposes the optional ones in a **Graphics settings** menu so players
+can switch them off (or pick a quality) on weaker hardware. Build each optional effect so it can be switched from the start:
+- A `bool`/`int` uniform (or a shader `#define` variant when an off switch should also drop the cost entirely), read
+  from one settings object, never hard-wired per scene.
+- Off must look fine, just plainer (no holes, no broken blends), and switching must work while the game runs.
+- Note each feature's measured cost here when it lands, so the menu can say what it costs.
+- Three kinds of setting:
+  - **Bool** (on/off): the effect is there or not.
+  - **Enum level** (Off / Low / Medium / High, or a feature's own names): the same effect at several costs.
+  - **Number** (slider): continuous trade-offs such as draw distances.
+- An overall **preset** (Low / Medium / High / Custom) only sets the individual settings. Changing one by hand makes it
+  Custom.
+
+Candidates so far (tick when the switch exists):
+- [ ] Wet ground shine (M3.7): bool.
+- [ ] Water quality (M5.4–M5.6): enum. Low = no caustics, no white-water streaks; High = everything. The far-fall bias
+  stays on at every level (it fixes a bug, it isn't an effect).
+- [ ] Water mesh detail: enum on the near LOD (1 or 2 vertices per cell, M5.4).
+- [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows.
+- [ ] Effect draw distance (caustics, glints): number, later if needed.
+- [ ] Flow arrows are an editor aid, not a graphics setting (stay a tool option).
+
 ### 🔶 M5: Water (M5.0/M5.1 lakes + masks, M5.2 simulation, M5.4 look + sim performance, M5.5 sources-only water done; M5.3 next)
 - Sea level: a Sea source (M5.2). Buildable = above water: `Terrain.IsUnderwater`/`GetWaterDepth` (M5.2).
 
@@ -512,7 +556,7 @@ Authoring guide: `terrain_sdk/README.md`.
 Water flows over the terrain and reacts to edits, placed as sources like the CS2 **Water Features** mod (yenyang).
 The static M5.0 lakes (flat quads over every hollow) are gone: water is simulated; hollows are only *filled* once.
 - **Sim** (`native/water/`, C++): shallow water with **virtual pipes** (O'Brien & Hodgins 1995, Mei et al. 2007) on the
-  terrain's vertex grid (every 4th vertex at 28.7 km: `WaterSim.MaxCells` 2048). Pipe cross-section = cell × depth (the
+  terrain's vertex grid (every 2nd vertex at 28.7 km since M6 phase 3f: `WaterSim.MaxCells` 4096; sparse tiles). Pipe cross-section = cell × depth (the
   classic cell² made thin sheets race at the speed cap), Manning-like bed friction (n 0.03, d^1.5), flux damping
   0.2/s, velocity capped at Froude 3 (thin cells read absurd speeds otherwise, and the CFL limit followed them), CFL
   substeps (≤ 0.5 s). Only 64² tiles that are wet, next to wet ones or under a source are stepped. Evaporation (mm per
@@ -593,8 +637,7 @@ stylized (Ghibli-like) and the sim got the performance items from the user's lis
   stream, border river, lake source) ~94 stepped tiles, 1.7 ms/substep. 28.7 km map, same demo: 39 stepped tiles at
   0.7 ms/substep on the 14 m grid. Fully wet worst case (nothing sleeps): ~8 % slower per substep than M5.2 (6.6 → 7.1 ms at
   1025², standalone bench). Screenshot FPS at close lake/stream views: 38–39 → 32–34 (the new shader); overview 38 → 37.
-- Not done / next: a finer water grid for narrow streams on big maps (sparse 64² tiles allocated only where water goes,
-  so 7 m or 3.5 m fits in memory); per-theme water materials (winter: icy water); pollution diffusion and ground deposits;
+- Not done / next: ~~a finer water grid for narrow streams on big maps~~ (done in M6 phase 3f); per-theme water materials (winter: icy water); pollution diffusion and ground deposits;
   the shader's cost at close range (FPS above) if it matters on target hardware.
 
 ### 🔶 M5.5: Water from sources only, wet ground, flow arrows, flow foam (implemented, waiting for the user to test)
@@ -689,9 +732,11 @@ The user found fast water a white blob, the M5.5 flow foam static and bug-like, 
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
 - ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
-### 🔶 M6: Performance & scale (phases 0–2 done; next: phase 3)
-Target (user): a 70 × 70 km map on an 8 GB M1. Tiered like CS2: a **28,672 m build area** (8192 cells × 3.5 m, an "8k"
-heightmap) sculptable and buildable, centred in a coarse 70 km background (4096 cells ≈ 17 m, scenery only).
+### 🔶 M6: Performance & scale (phases 0–2 done; next: phase 3, one item per session)
+Target (user, revised 2026-09-28): the map **stops at 28,672 m** (8192 cells × 3.5 m, an "8k" heightmap), sculptable and
+buildable, on an 8 GB M1. **No 70 km background**: 28.7 km is already ~2× CS2's buildable side (4096 × 3.5 m ≈ 14.3 km),
+4× its area. The effort goes into quality and performance at 28.7 km instead (phase 3). Why 28.7 km: 3.5 m is CS2's
+spacing, and 8192 is the biggest power of two (whole Terrain3D regions) that fits the memory budget; 16384 (57 km) doesn't.
 Rendering moves to the **Terrain3D** addon (v1.0.2, `addons/terrain_3d/`, MIT; GPU clipmap, 1024² regions). `HeightMap`
 stays the source of truth for queries, tools and saves, and Terrain3D is only the render copy.
 
@@ -721,9 +766,9 @@ Phases (tick off as they land):
   - `HeightMap.GetRange`: min/max cached per 64² block; the indexer, `PasteRegion`/`SwapRegion` and `Invalidate(rect)` mark
     blocks stale. Bulk writers through `Data`/`Row` call `Invalidate()`. 0.4 ms after a stroke at 8193² (was a full scan).
   - `MapFile` v2: u16 heights over min/max, row-delta coded, zlib per 256² tile (parallel), painted control tiles only, an
-    empty background slot for phase 3. Reads v1 (weights → two heaviest layers). 16-bit steps: 7.6 mm per 500 m of range.
+    empty background slot (was for the dropped 70 km background; unused). Reads v1 (weights → two heaviest layers). 16-bit steps: 7.6 mm per 500 m of range.
   - Heightmap size (decided): keep `HeightMap` at cells + 1 = 8193². Phase 2 drops the last row/column in the Terrain3D copy
-    (8192² px = exactly 8×8 regions); the phase 3 background ring covers that 3.5 m strip. Keeps the generator, files, queries
+    (8192² px = exactly 8×8 regions); edge fog and the skirt cover that 3.5 m strip. Keeps the generator, files, queries
     and every small size unchanged.
   - `--demo-scale[=cells]` (8193², Mountains, M1 8 GB): generate 2.2 s, first range 19 ms, sculpt tick worst 1.9 ms, paint
     60 ticks 8 ms, undo/redo ok, save 0.36 s, load 0.19 s, 104 MB file, peak footprint 1.4 GB with two maps alive (spike: 3.6 GB).
@@ -763,11 +808,63 @@ Phases (tick off as they land):
   - Not done: 60 FPS at 28.7 km (46–48 now); stroke push at 28.7 km region corners (~10 ms for 4 × 1 MB uploads; could
     split a push across frames); load/generate > 2 s at 28.7 km (copy could overlap generation); camera still capped at
     1,800 m (phase 3). Snow and rock look blotchy at 28.7 km (noise sizes were tuned for 2 km); a tuning pass later.
-- [ ] **3. 70 km background**
-  - `BackgroundMap`: 4097² `HeightMap` over 70 km from the same `TerrainGen` settings (world coords), build area downsampled into the centre.
-  - Own coarse ring mesh (17 → 70 → 280 m cells) with a hole for the build area, welded to its border; replaces `TerrainSkirt`.
-  - Edge fog moves to the 70 km border; subtle marker on the build border. `CityCamera`: `MaxDistance` → 8–10 km, `Far` → ~80 km,
-    pivot stays inside the build area.
+- ~~**70 km background**~~ (the old phase 3) dropped 2026-09-28 (see decision log). It was: a 4097² `BackgroundMap` over 70 km, a
+  coarse ring mesh replacing `TerrainSkirt`, `MaxDistance` 8–10 km, `Far` ~80 km.
+- [ ] **3. Polish at 28.7 km** (replaces the background). Independent items, meant to be done **one per session**, roughly in
+  this order. Tick each off with its own notes and numbers.
+  - [ ] **3a. Edge fog per mode.** Game: on, as now. Map Editor: off by default so the creator sees the ground up to the
+    border (square corners), with a "Preview edge fog" toggle; display only, not saved in the map. The skirt is fog-only,
+    so with fog off it would show as a band: hide it in the editor and draw a thin line on the map border instead.
+    Today `edge_fog_enabled` (`terrain_sdk/terrain_core.gdshaderinc`) is never set from C#; mode is `MapSession.Mode`
+    (`AppMode.MapEditor`/`Game`). Also copy the flag to the skirt material.
+  - [ ] **3b. Float precision check, then centre the map.** No dynamic floating origin (decided, see log). First look:
+    screenshots close up (15–50 m) at the far corner (~28,000, 28,000) vs near (0, 0), terrain and water. Suspects are
+    world-space UVs, not vertices: `water.gdshader` rebuilds `world_pos` from `INV_VIEW_MATRIX` and samples detail normals /
+    foam at `world_pos.xz / scale`. Fix locally (wrap UVs by a period) if it shows. Then centre the map on the world origin
+    (a static shift: Terrain3D locations -4..3 at 512² regions, within its -16..15), which halves the float error (≈2 mm →
+    ≈1 mm at the edge). `HeightMap` and sim data stay map-local; only the map ↔ world conversion gains a half-size offset.
+    Touches: the "`Terrain` node must stay at the origin" rule from phase 2, `terrain_origin` uniforms, water tile offsets,
+    brushes, raycasts, camera bounds, `--cam` coordinates.
+  - [ ] **3c. Performance** (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
+    across frames (~10 ms at region corners); overlap the Terrain3D copy with generation/load (> 2 s now); peak footprint
+    3.96 GB → < 2.5 GB, leaving room for city systems.
+  - [ ] **3d. Camera zoom-out.** `CityCamera.MaxDistance` is 1,800 m and `Far` 12 km: too close to see a 28.7 km map. Raise
+    both (a whole-map view), keep the pivot inside the map; check the edge fog and skirt still hide the border from far.
+  - [ ] **3e. Horizon ring** (the old nice-to-have): a cheap low-poly ring a few km wide past the border, heights from the
+    edge plus noise, fading into the fog. No second `HeightMap`, no sim, not editable. Replaces the flat fog skirt in game
+    mode. Optional later: an unbuildable strip *inside* the heightmap (e.g. 1.5 km, a rule, not a grid change; could become
+    CS-style unlockable tiles with M7).
+  - [x] **3f. Finer water grid on big maps** (implemented, waiting for the user to test). 28.7 km water runs on **7 m cells**
+    (4097², `WaterSim.MaxCells` 2048 → 4096; smaller maps stay on 3.5 m). User: it's a game, so looks and feel beat
+    physical accuracy.
+    - **Sparse storage** (`native/water/`): cells live in 64² `TileData` blocks allocated only where there's water, next
+      to it, or a source; a dry, unpainted tile with no wet neighbour is freed after a tick. The ground is read from the
+      heightmap by pointer (C# pins `HeightMap.Buffer`) when a tile is allocated, so there's no dense ground copy. Bulk data
+      moves per tile (`cs_water_get_tile/set_tile/commit`, `raise_tile`, drained tiles), and the snapshot is read per
+      changed tile (`cs_water_read_tiles`). C#: `WaterGrid` (sparse, same tiles) for save/load, drain/undo and fills;
+      `WaterSim`'s snapshot is per tile (null = nothing shows). `WaterSurface` makes a page's material/tile nodes the first
+      time it holds water.
+    - **Coarse cell ground = halfway between the mean and the lowest vertex** (`kGroundLow` 0.5). This mattered more than
+      the cell size. With the mean, a 3.5 m bed 1.5 m deep became a 0.5 m dip on 7 m cells and the stream spread 24 m wide.
+      With the lowest vertex, 14 m beds leaked into neighbouring cells (21 m). Halfway keeps both at their width
+      (`--demo-water` check 11, now wet-strip width + water > 7 m past the banks: 3.5 m bed → 7 m strip on 7 m cells, 14 m
+      on 14 m cells; before, 24 m and 34 m). Thin terrain walls are lower in the sim by up to half their height (dams
+      will be an obstacle layer, M5.3).
+    - **Stays coarse** (≤ 2049², 14 m at 28.7 km): the ground marks (shore distance + wet paint texture; `MarksWidth`,
+      `MarkFactor`, max over each block) and the hover flood preview. Both are dense, and 14 m is enough for them.
+    - Map files: format unchanged (width/depth say which grid). A water section saved on another grid (old 14 m saves) is
+      resampled on load (`WaterGrid.Resample`, nearest cell; pollutant kg scaled by the cell areas). Before, it was dropped.
+    - Measured (`--demo-scale`, 8193² Mountains; stream 20 m³/s, a lake, sea at 5 % of the range, 10 sim-min): 1,365 of
+      4,225 tiles in memory = **240 MB** for 119 km² of water (dense 7 m would be ~0.8 GB), 5.2 ms/substep with 310 active
+      tiles, 8 substeps/tick, 10 sim-min in 21 s (×8 keeps up), sea fill 0.3 s, grids read 17 ms / load 0.33 s. Fully wet
+      1025²: 6.3 ms/substep (M5.4: 7.1). `--demo-water` all ok, including new check 16 (sparse: a stream allocates its
+      path, tiles freed after it dries; a pond saved on 7 m loads on 3.5 m with the same volume). FPS at the 28.7 km
+      demo stream overview (900 m): 31 (14 m cells: 30); `--demo-falls` 31.
+    - `--water-cells=n` caps the water grid (2048 = the old 14 m on 28.7 km) to compare looks.
+    - Not done: sleeping tiles could drop their flow arrays (7 of 11 floats) to halve the memory of big calm seas; the
+      ground marks' coarse distance pass still scans the whole 2049² grid once a second.
+  - [ ] **3g. Look tuning at 28.7 km**: snow and rock read blotchy (noise sizes tuned for 2 km maps).
+  - [ ] **3h. A 14.3 km size** (4096 cells, CS2's buildable side) in `MapSize.All`: the menu jumps 7.2 → 28.7 km.
 - [ ] **4. Measure + document**: extend `--demo-scale` (phase 1: data timings) with Terrain3D push timings and peak RAM. Targets on the M1:
   60 FPS at every zoom, generate < 3 s, load < 2 s, stroke < 4 ms/frame, RAM < 2.5 GB. All `--demo-*` flags still pass at 2 km and 28 km.
 
@@ -798,6 +895,7 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 
 ### Nice-to-have / ideas
 - Edge-of-map: the M3.1 skirt is flat fog. A real fake-terrain ring (low-poly hills fading into the fog) could replace it
+  (now planned as M6 phase 3e)
 - Camera: double-click to focus
 
 ---
@@ -832,6 +930,19 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
   island/coast presets: the user chose to wait for M5. Live generator updates are one undo step, not one per change.
 - M6: 70 km map = 28 km build area at 3.5 m (8192²) + coarse 70 km background, like CS2. Uniform 2 m over 70 km would be
   1.2B heights (4.9 GB) plus 39 GB of paint weights. Rendering via the Terrain3D addon (user's choice over our own clipmap).
+  *The 70 km background was dropped; see the 2026-09-28 entry.*
+- M6 (2026-09-28, user's call): **the map stops at 28.7 km; no 70 km background.** 28.7 km is already ~2× CS2's buildable
+  side. Instead: polish at 28.7 km (M6 phase 3a–3h), a cheap horizon ring rather than real terrain beyond the border.
+  - **No dynamic floating origin.** A float at 28.7 km is ≈2 mm precise (≈1 mm centred), sub-pixel at the 15 m closest zoom;
+    Terrain3D can't be moved around anyway. Instead centre the map once (static shift) and fix any world-space UV issues
+    locally, after a far-corner screenshot test (phase 3b).
+  - **Terrain stays a uniform 3.5 m grid**; no adaptive density under small brushes (Terrain3D has one vertex spacing, and every
+    system indexes cells uniformly). Fine detail comes from meshes/decals (roads, walls) and the shader. The brush minimum
+    (`TerrainToolController.MinRadius` 8 m, > 2 cells) already covers too-small brushes. "Finer where it matters" goes into
+    the water grid (phase 3f), not the terrain. A sparse detail-offset layer stays an idea until roads/buildings exist.
+  - **Edge fog stays** as the map's edge in game mode; hidden (with a preview toggle) in the Map Editor (phase 3a).
+  - Map size 28.7 km isn't a design number: 3.5 m (CS2's spacing) × 8192 (biggest power of two in the memory budget).
+    Sizes in between (e.g. 20 km) would leave Terrain3D regions part-empty or need another cell size.
 - M3.2: Random rotation rolls once per click, not per tick: a new angle every tick blurs a stationary brush into a round blob.
 - M6 phase 2: Terrain3D regions are 256²/512² (smallest that fits 16 per side), not 1024², because each edit re-uploads whole
   regions. (The relative snow line decided here was removed in M3.4: snow is paint-only.)
@@ -859,3 +970,9 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
   from its own panel, not part of the generator. C++ as a plain C library via P/Invoke-style function pointers rather than a
   GDExtension (no C# bindings, needs godot-cpp/scons, copies arrays). Shallow hollows are drained by cutting outlets
   (breaching) at the end of erosion; without it noise terrain turns 17–30% of the map into ponds and valley lakes.
+- 2026-09-28: **optional visual effects get a graphics-settings switch** (user). Features are tried in the experiment,
+  then exposed in the game's Graphics settings so players can turn them off. Every new optional effect is built
+  switchable from the start (uniform or shader variant, off still looks fine). List: "Graphics settings" above M5.
+- 2026-09-28 (M6 phase 3f): **looks and feel over physical accuracy** (user: "this is a game not a water sim"). Sim
+  changes are judged by close-up screenshots and what players notice, e.g. water cell ground halfway between the
+  mean and the lowest vertex, chosen because streams stay in their beds.

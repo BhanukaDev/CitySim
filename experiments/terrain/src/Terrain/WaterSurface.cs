@@ -13,6 +13,8 @@ namespace CitySim.TerrainSystem;
 /// the sim changed are uploaded, once per published tick.
 /// Near tiles have two vertices per cell (the shader samples the water bilinearly, so the surface is smoother than the
 /// sim grid); far tiles use coarser grids (every 2nd, 4th or 8th cell).
+/// A page's material and tile nodes are made the first time it holds water (a 28.7 km map has 256 pages and 4096 tiles,
+/// most of them dry).
 /// </summary>
 public partial class WaterSurface : Node3D
 {
@@ -35,7 +37,10 @@ public partial class WaterSurface : Node3D
     }
 
     private WaterSim? _sim;
-    private Page[] _pages = [];
+    private Page?[] _pages = [];
+    private ShaderMaterial? _baseMaterial;
+    private Aabb _tileAabb;
+    private Vector2 _mapSize;
     private ArrayMesh[] _meshes = [];
     private float[] _scratch = [], _pollutionScratch = [];
     private byte[] _bytes = [], _pollutionBytes = [];
@@ -57,46 +62,49 @@ public partial class WaterSurface : Node3D
         _image = Image.CreateEmpty(n, n, false, Image.Format.Rgbaf);
         _pollutionImage = Image.CreateEmpty(n, n, false, Image.Format.Rf);
         _tileWater = new bool[_tilesPerPage * _tilesPerPage];
-        var baseMaterial = material as ShaderMaterial ?? new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/water.gdshader") };
-        float pageMetres = WaterSim.PageSize * sim.CellSize, tileMetres = sim.TileSize * sim.CellSize;
+        _baseMaterial = material as ShaderMaterial ?? new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/water.gdshader") };
         _meshes = new ArrayMesh[LodSteps.Length];
         for (int i = 0; i < LodSteps.Length; i++) _meshes[i] = GridMesh((int)(sim.TileSize / LodSteps[i]), LodSteps[i] * sim.CellSize);
 
         // Heights come from the texture, so the mesh's own bounds (flat at 0) would cull it wrongly.
         var (min, max) = ground.GetRange();
-        var aabb = new Aabb(new Vector3(0, min - 50f, 0), new Vector3(tileMetres, max - min + 250f, tileMetres));
-        _pages = new Page[sim.PagesX * sim.PagesZ];
-        for (int pz = 0; pz < sim.PagesZ; pz++)
-            for (int px = 0; px < sim.PagesX; px++)
-            {
-                var mat = (ShaderMaterial)baseMaterial.Duplicate();
-                mat.SetShaderParameter("blend", 1f);
-                mat.SetShaderParameter("cell_size", sim.CellSize);
-                mat.SetShaderParameter("map_size", new Vector2(ground.SizeX, ground.SizeZ));
-                var tiles = new MeshInstance3D?[_tilesPerPage * _tilesPerPage];
-                for (int tz = 0; tz < _tilesPerPage; tz++)
-                    for (int tx = 0; tx < _tilesPerPage; tx++)
-                    {
-                        int cx = px * WaterSim.PageSize + tx * sim.TileSize, cz = pz * WaterSim.PageSize + tz * sim.TileSize;
-                        if (cx >= sim.Width - 1 || cz >= sim.Depth - 1) continue;
-                        var tile = new MeshInstance3D
-                        {
-                            Name = $"Tile{cx / sim.TileSize}_{cz / sim.TileSize}",
-                            Position = new Vector3(px * pageMetres + tx * tileMetres, 0, pz * pageMetres + tz * tileMetres),
-                            MaterialOverride = mat,
-                            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-                            CustomAabb = aabb,
-                            Visible = false,
-                        };
-                        AddChild(tile);
-                        tile.SetInstanceShaderParameter("tile_offset", new Vector2(tx * tileMetres, tz * tileMetres));
-                        tiles[tz * _tilesPerPage + tx] = tile;
-                    }
-                var lods = new int[tiles.Length];
-                System.Array.Fill(lods, -1);
-                _pages[pz * sim.PagesX + px] = new Page { Material = mat, Tiles = tiles, Lods = lods };
-            }
+        float tileMetres = sim.TileSize * sim.CellSize;
+        _tileAabb = new Aabb(new Vector3(0, min - 50f, 0), new Vector3(tileMetres, max - min + 250f, tileMetres));
+        _mapSize = new Vector2(ground.SizeX, ground.SizeZ);
+        _pages = new Page?[sim.PagesX * sim.PagesZ];
         Upload(force: true);
+    }
+
+    private Page CreatePage(int px, int pz)
+    {
+        var sim = _sim!;
+        float pageMetres = WaterSim.PageSize * sim.CellSize, tileMetres = sim.TileSize * sim.CellSize;
+        var mat = (ShaderMaterial)_baseMaterial!.Duplicate();
+        mat.SetShaderParameter("blend", 1f);
+        mat.SetShaderParameter("cell_size", sim.CellSize);
+        mat.SetShaderParameter("map_size", _mapSize);
+        var tiles = new MeshInstance3D?[_tilesPerPage * _tilesPerPage];
+        for (int tz = 0; tz < _tilesPerPage; tz++)
+            for (int tx = 0; tx < _tilesPerPage; tx++)
+            {
+                int cx = px * WaterSim.PageSize + tx * sim.TileSize, cz = pz * WaterSim.PageSize + tz * sim.TileSize;
+                if (cx >= sim.Width - 1 || cz >= sim.Depth - 1) continue;
+                var tile = new MeshInstance3D
+                {
+                    Name = $"Tile{cx / sim.TileSize}_{cz / sim.TileSize}",
+                    Position = new Vector3(px * pageMetres + tx * tileMetres, 0, pz * pageMetres + tz * tileMetres),
+                    MaterialOverride = mat,
+                    CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+                    CustomAabb = _tileAabb,
+                    Visible = false,
+                };
+                AddChild(tile);
+                tile.SetInstanceShaderParameter("tile_offset", new Vector2(tx * tileMetres, tz * tileMetres));
+                tiles[tz * _tilesPerPage + tx] = tile;
+            }
+        var lods = new int[tiles.Length];
+        System.Array.Fill(lods, -1);
+        return _pages[pz * sim.PagesX + px] = new Page { Material = mat, Tiles = tiles, Lods = lods };
     }
 
     public override void _Process(double delta)
@@ -115,7 +123,7 @@ public partial class WaterSurface : Node3D
         double tickReal = WaterSim.TickSeconds / Math.Max(settings.Speed, 0.001);
         float blend = settings.Paused ? 1f : (float)Math.Clamp(_sinceTick / tickReal, 0, 1);
         foreach (var page in _pages)
-            if (!page.Settled)
+            if (page is { Settled: false })
             {
                 page.Material.SetShaderParameter("blend", blend);
                 if (blend >= 1f) Settle(page);
@@ -134,8 +142,13 @@ public partial class WaterSurface : Node3D
                 if (!_sim.CopyPage(px, pz, _scratch, _pollutionScratch, _tileWater, out bool wet, force))
                 {
                     // Unchanged this tick: it has nothing left to blend toward.
-                    if (!page.Settled) Settle(page);
+                    if (page is { Settled: false }) Settle(page);
                     continue;
+                }
+                if (page is null)
+                {
+                    if (!wet) continue;
+                    page = CreatePage(px, pz);
                 }
                 for (int i = 0; i < page.Tiles.Length; i++)
                     if (page.Tiles[i] is { } tile) tile.Visible = _tileWater[i];
@@ -183,7 +196,7 @@ public partial class WaterSurface : Node3D
         var eye = cam.GlobalPosition;
         float tileMetres = _sim.TileSize * _sim.CellSize;
         foreach (var page in _pages)
-            for (int i = 0; i < page.Tiles.Length; i++)
+            for (int i = 0; page is not null && i < page.Tiles.Length; i++)
             {
                 if (page.Tiles[i] is not { Visible: true } tile) continue;
                 var centre = tile.GlobalPosition + new Vector3(tileMetres * 0.5f, 0, tileMetres * 0.5f);

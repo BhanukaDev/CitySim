@@ -81,7 +81,7 @@ public partial class WaterPreview : Node3D
         if (_sim is not { } sim || _terrain?.Map is not { } map) return;
         // Same cell and level as what's shown (or being worked out): nothing to do.
         if (_shown is { } old && old.Kind == source.Kind && Mathf.Abs(old.Level - source.Level) < 0.05f
-            && Mathf.Abs(old.Radius - source.Radius) < 0.5f && new Vector2(old.X - source.X, old.Z - source.Z).Length() < sim.CellSize * 0.5f)
+            && Mathf.Abs(old.Radius - source.Radius) < 0.5f && new Vector2(old.X - source.X, old.Z - source.Z).Length() < sim.MarksCellSize * 0.5f)
         {
             Visible = true;
             return;
@@ -91,8 +91,9 @@ public partial class WaterPreview : Node3D
         _job?.Cancel();
         var job = _job = new CancellationTokenSource();
         int version = _terrain.HeightVersion;
-        int w = sim.Width, d = sim.Depth, factor = sim.Factor;
-        float cell = sim.CellSize;
+        // On the ground-marks grid: a preview needs no finer, and the flood fill is dense.
+        int w = sim.MarksWidth, d = sim.MarksDepth, factor = sim.MarksTerrainFactor;
+        float cell = sim.MarksCellSize;
         if (_fill is null || _fillVersion != version)
         {
             _fillVersion = version;

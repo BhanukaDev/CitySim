@@ -24,7 +24,7 @@ namespace CitySim.Debug;
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
 /// --preview-at=x,z,level (the Lake placement preview there), --water-speed=n, --water-run=seconds (simulate that long right away),
 /// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
-/// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
+/// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path, --water-cells=n (water grid side cap; 2048 = old 14 m on 28.7 km),
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
 /// --bake-brushes (bake brush masks for import, then quit; see TextureBaker).

@@ -129,11 +129,62 @@ public static class ScaleDemo
         GD.Print($"Demo scale: save {saveMs:0} ms, load {loadMs:0} ms, {bytes >> 20} MB, max height error {maxErr * 1000:0.##} mm, round trip {Ok(fileOk)}");
         ok &= fileOk;
         Mem("after load (two maps alive)");
+        map2 = null!;
+        splat2 = null!;
+        GC.Collect();
+
+        ok &= RunWater(map, min, max, Mem);
 
         bool fast = genMs < 3000 && loadMs < 2000 && worst < 4;
         GD.Print($"Demo scale: targets (generate < 3 s, load < 2 s, tick < 4 ms) {(fast ? "met" : "MISSED")}");
         GD.Print(ok ? "Demo scale: ok" : "Demo scale: FAILED");
         return ok;
+    }
+
+    /// <summary>
+    /// Water on the big map (M6 phase 3f: 7 m cells, sparse tiles): a mountain stream, a lake and a sea along the low
+    /// border, 10 sim-minutes. Reports the grid, the tiles in memory and their MB, the substep cost, and a save/load of
+    /// the water grids.
+    /// </summary>
+    private static bool RunWater(HeightMap map, float min, float max, Action<string> mem)
+    {
+        CitySim.WaterSystem.WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://native/water/bin");
+        var sw = Stopwatch.StartNew();
+        using var sim = new CitySim.WaterSystem.WaterSim(map, threaded: false);
+        double createMs = sw.Elapsed.TotalMilliseconds;
+        float cx = map.SizeX * 0.5f, cz = map.SizeZ * 0.5f, sea = min + (max - min) * 0.05f;
+        sim.SetSources([
+            new CitySim.WaterSystem.WaterSource(1, CitySim.WaterSystem.WaterSourceKind.Stream, cx, cz, 20, 0, FlowRate: 20),
+            new CitySim.WaterSystem.WaterSource(2, CitySim.WaterSystem.WaterSourceKind.Lake, cx - 3000, cz + 2000, 150,
+                map.SampleHeight(cx - 3000, cz + 2000) + 8f, MaxFlow: 200),
+            new CitySim.WaterSystem.WaterSource(3, CitySim.WaterSystem.WaterSourceKind.Sea, 0, 0, 0, sea),
+        ]);
+        sw.Restart();
+        sim.FillHollows(null);
+        sim.Advance(1);
+        double fillMs = sw.Elapsed.TotalMilliseconds;
+        sw.Restart();
+        sim.Advance(600);
+        double runMs = sw.Elapsed.TotalMilliseconds;
+        var st = sim.LastStats;
+        GD.Print($"Demo scale: water {sim.Width}² cells of {sim.CellSize:0.#} m (marks {sim.MarksWidth}² of {sim.MarksCellSize:0.#} m), " +
+                 $"created in {createMs:0} ms, sea fill {fillMs:0} ms; 10 sim-min in {runMs / 1000:0.0} s: " +
+                 $"{st.AllocatedTiles} of {sim.TilesX * sim.TilesZ} tiles in memory ({st.AllocatedMb:0} MB), {st.ActiveTiles} active, " +
+                 $"{st.SleepingTiles} sleeping, {sim.StepMs:0.00} ms per substep, {st.Substeps} substeps per tick, " +
+                 $"{st.WetCells * sim.CellSize * sim.CellSize / 1e6:0.#} km² wet");
+        mem("with water");
+        sw.Restart();
+        var depth = sim.ReadDepth();
+        var paint = sim.ReadPaint();
+        double readMs = sw.Elapsed.TotalMilliseconds;
+        sw.Restart();
+        sim.LoadWater(depth, null, paint);
+        sim.Advance(1);
+        double loadMs = sw.Elapsed.TotalMilliseconds;
+        bool kept = Math.Abs(sim.LastStats.Volume - st.Volume) <= st.Volume * 0.01 + 1;
+        GD.Print($"Demo scale: water grids read {readMs:0} ms, loaded {loadMs:0} ms, volume {st.Volume / 1e6:0.###} → " +
+                 $"{sim.LastStats.Volume / 1e6:0.###} million m³ {Ok(kept && st.AllocatedTiles < sim.TilesX * sim.TilesZ)}");
+        return kept && st.AllocatedTiles < sim.TilesX * sim.TilesZ;
     }
 
     private static string Ok(bool b) => b ? "ok" : "FAILED";

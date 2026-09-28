@@ -159,6 +159,7 @@ public partial class WaterPanel : PanelContainer
             $"Running at × {sim.SimRatio:0.#} (sim time {TimeSpan.FromSeconds(sim.SimTime):hh\\:mm\\:ss})\n" +
             (st.Pollution > 0.001 ? $"Pollutant: {st.Pollution:0.#} kg\n" : "") +
             $"{sim.Width}² cells of {sim.CellSize:0.#} m · {st.ActiveTiles} active, {st.SleepingTiles} sleeping tiles · " +
+            $"{st.AllocatedTiles} in memory ({st.AllocatedMb:0} MB) · " +
             $"{sim.StepMs:0.00} ms per substep, {st.Substeps} per tick";
         _play.Text = sim.Settings.Paused ? "▶ Run" : "❚❚ Pause";
     }
