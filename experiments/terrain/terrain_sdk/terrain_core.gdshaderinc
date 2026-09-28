@@ -124,6 +124,7 @@ uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 group_uniforms EdgeFog;
 // A fog bank that swallows the map border, so its hard edges and corners never show. Everything outside
 // the bounds (the TerrainSkirt ring) is pure fog; inside, the ground fades into it near the border.
+// Set by the game (Terrain.EdgeFog): on in game mode, off in the Map Editor unless previewing.
 uniform bool edge_fog_enabled = true;
 uniform vec3 edge_fog_color : source_color = vec3(0.80, 0.85, 0.95);
 // Metres over which the ground fades from full fog (at the border) to clear.
@@ -136,6 +137,9 @@ uniform float edge_fog_noise_scale = 1100.0;
 // Brightness variation inside the fog, and how fast the billows drift (texture repeats per second).
 uniform float edge_fog_cloudiness : hint_range(0.0, 0.5) = 0.08;
 uniform float edge_fog_drift = 0.002;
+// With the fog off (the Map Editor's default), a thin line marks the border instead, about this many pixels wide.
+uniform vec3 edge_line_color : source_color = vec3(1.0, 0.95, 0.8);
+uniform float edge_line_pixels = 2.0;
 
 group_uniforms Grid;
 uniform bool show_grid = false;

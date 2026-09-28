@@ -156,6 +156,24 @@ public partial class Terrain : Node3D
     /// <summary>Raised when <see cref="Water"/> is replaced (a new map).</summary>
     public event System.Action? WaterChanged;
 
+    private bool _edgeFog = true;
+    /// <summary>
+    /// The fog bank at the map's edge (and the fog skirt around it). On in game mode; the Map Editor starts with it off so
+    /// the creator sees the ground up to the border (the shader draws a thin line there), and can switch it on to preview.
+    /// Display only, not saved with the map.
+    /// </summary>
+    public bool EdgeFog
+    {
+        get => _edgeFog;
+        set { _edgeFog = value; ApplyEdgeFog(); }
+    }
+
+    private void ApplyEdgeFog()
+    {
+        _render?.SetParam("edge_fog_enabled", _edgeFog);
+        if (_skirt is not null) _skirt.Visible = _edgeFog;
+    }
+
     private bool _showWater = true;
     public bool ShowWater
     {
@@ -170,6 +188,8 @@ public partial class Terrain : Node3D
     {
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
+        // The Godot editor previews themes with their fog; in the app it follows the mode.
+        _edgeFog = Engine.IsEditorHint() || MapSession.Mode == AppMode.Game;
         Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
         WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://native/water/bin");
         if (Engine.IsEditorHint()) Generate();
@@ -223,7 +243,7 @@ public partial class Terrain : Node3D
     public override void _Process(double delta)
     {
         if (_render is null) return;
-        _render.FollowCamera(GetViewport().GetCamera3D());
+        _render.FollowCamera(GetViewport().GetCamera3D(), new Vector2(Bounds.Size.X, Bounds.Size.Y));
         // In the editor, pick up uniforms tuned in the inspector.
         if (Engine.IsEditorHint() && (_paramCopyTimer += delta) > 0.5)
         {
@@ -601,6 +621,7 @@ public partial class Terrain : Node3D
         AddChild(_skirt);
         _skirt.Rebuild();
         _skirtDirty = false;
+        ApplyEdgeFog();
 
         GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms");
         StartWater(map, water);
@@ -672,7 +693,7 @@ public partial class Terrain : Node3D
     /// with a binary search. No physics bodies involved. <paramref name="heightAt"/> (world x, z → world height) replaces
     /// the current ground, e.g. with the ground from before a stroke.
     /// </summary>
-    public bool Raycast(Vector3 origin, Vector3 direction, out Vector3 hit, float maxDistance = 8000f,
+    public bool Raycast(Vector3 origin, Vector3 direction, out Vector3 hit, float maxDistance = 100000f,
         System.Func<float, float, float>? heightAt = null)
     {
         heightAt ??= GetHeight;
@@ -871,6 +892,7 @@ public partial class Terrain : Node3D
         _render.SetParam("terrain_debug", _debugView);
         _render.SetParam("slot_debug", _slotDebug);
         UpdateMaterialRange();
+        ApplyEdgeFog();
 
         if (SkirtMaterial is ShaderMaterial skirt && skirt.Shader is not null)
             foreach (var u in skirt.Shader.GetShaderUniformList())
@@ -888,7 +910,7 @@ public partial class Terrain : Node3D
     [
         "height_min", "height_max", "terrain_origin", "terrain_size", "albedo_height_array", "normal_array", "material_tint",
         "material_params", "slot_edge", "slot_slope", "terrain_debug", "slot_debug", "ground_debug", "show_grid", "show_contours",
-        "water_ground", "water_ground_cell", "has_water_ground",
+        "water_ground", "water_ground_cell", "has_water_ground", "edge_fog_enabled",
     ];
 
     /// <summary>

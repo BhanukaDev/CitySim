@@ -45,7 +45,13 @@ public partial class CityCamera : Node3D
 	[ExportGroup("Limits")]
 	/// <summary>Orbit radius at full zoom-in. 0 = first person.</summary>
 	[Export(PropertyHint.Range, "0,500,1,suffix:m")] public float MinDistance { get; set; } = 0f;
+	/// <summary>
+	/// The god view: zoom-dependent behaviour (pitch limits, clearance, near plane) reaches its far end here. Zooming out
+	/// further only pulls back, up to <see cref="WholeMapZoom"/>.
+	/// </summary>
 	[Export(PropertyHint.Range, "100,5000,10,suffix:m")] public float MaxDistance { get; set; } = 1800f;
+	/// <summary>Furthest zoom as a multiple of the map's longer side, so the whole map fits in view (never below MaxDistance).</summary>
+	[Export(PropertyHint.Range, "0,3,0.05")] public float WholeMapZoom { get; set; } = 1.5f;
 	/// <summary>Offset making zoom logarithmic while still reaching distance 0.</summary>
 	[Export(PropertyHint.Range, "1,50,1,suffix:m")] public float ZoomOffset { get; set; } = 8f;
 	[Export(PropertyHint.Range, "-89,89,1,suffix:°")] public float MinPitchNear { get; set; } = -30f;
@@ -87,7 +93,7 @@ public partial class CityCamera : Node3D
 	{
 		_tilt = new Node3D { Name = "Tilt" };
 		AddChild(_tilt);
-		_camera = new Camera3D { Name = "Camera3D", Fov = 50f, Near = 0.5f, Far = 12000f, Current = true };
+		_camera = new Camera3D { Name = "Camera3D", Fov = 50f, Near = 0.5f, Far = FarPlane, Current = true };
 		_tilt.AddChild(_camera);
 
 		_targetPivot = Position;
@@ -124,7 +130,23 @@ public partial class CityCamera : Node3D
 		return Mathf.Clamp((Mathf.Log(distance + ZoomOffset) - lo) / (hi - lo), 0f, 1f);
 	}
 
-	private float ClampDistance(float d) => Mathf.Clamp(d, MinDistance, MaxDistance);
+	/// <summary>Furthest zoom: <see cref="MaxDistance"/>, or far enough to see the whole map.</summary>
+	public float ZoomOutLimit => Terrain?.Map is { } map
+		? Mathf.Max(MaxDistance, WholeMapZoom * Mathf.Max(map.SizeX, map.SizeZ))
+		: MaxDistance;
+
+	/// <summary>
+	/// 0 up to the god view (<see cref="MaxDistance"/>), 1 at <see cref="ZoomOutLimit"/>: how far into the whole-map zoom.
+	/// Logarithmic, like the zoom itself.
+	/// </summary>
+	private float Beyond01(float distance)
+	{
+		float limit = ZoomOutLimit;
+		if (distance <= MaxDistance || limit <= MaxDistance) return 0f;
+		return Mathf.Clamp(Mathf.Log(distance / MaxDistance) / Mathf.Log(limit / MaxDistance), 0f, 1f);
+	}
+
+	private float ClampDistance(float d) => Mathf.Clamp(d, MinDistance, ZoomOutLimit);
 
 	/// <summary>Multiplies (distance + offset) by e^logDelta, so zoom is even in feel and can reach 0.</summary>
 	private float ZoomedDistance(float d, float logDelta)
@@ -154,8 +176,9 @@ public partial class CityCamera : Node3D
 		if (Terrain?.Map is null) return p;
 		var b = Terrain.Bounds;
 		float m = Mathf.Min(EdgeMargin, 0.45f * Mathf.Min(b.Size.X, b.Size.Y));
-		// Camera offset from the pivot on the ground plane.
-		float horiz = distance * Mathf.Cos(Mathf.DegToRad(pitchDeg));
+		// Camera offset from the pivot on the ground plane. Past the god view the camera may leave the map (a whole-map
+		// view needs it), easing out over the first half of the zoom beyond; the pivot always stays inside.
+		float horiz = distance * Mathf.Cos(Mathf.DegToRad(pitchDeg)) * (1f - Smooth01(Mathf.Min(1f, 2f * Beyond01(distance))));
 		float yaw = Mathf.DegToRad(yawDeg);
 		p.X = ClampAxis(p.X, horiz * Mathf.Sin(yaw), b.Position.X + m, b.End.X - m);
 		p.Z = ClampAxis(p.Z, horiz * Mathf.Cos(yaw), b.Position.Y + m, b.End.Y - m);
@@ -206,7 +229,7 @@ public partial class CityCamera : Node3D
 		if (Terrain?.Map is null || oldD < 10f) return; // near first person, zoom stays on the pivot
 		var vp = GetViewport();
 		var mouse = vp.GetMousePosition();
-		if (!Terrain.Raycast(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit)) return;
+		if (!Terrain.Raycast(_camera.ProjectRayOrigin(mouse), _camera.ProjectRayNormal(mouse), out var hit, 4f * oldD + 10000f)) return;
 		float f = (1f - (newD + ZoomOffset) / (oldD + ZoomOffset)) * Smooth01(Mathf.Clamp(oldD / 60f, 0f, 1f));
 		_targetPivot.X = Mathf.Lerp(_targetPivot.X, hit.X, f);
 		_targetPivot.Z = Mathf.Lerp(_targetPivot.Z, hit.Z, f);
@@ -291,7 +314,30 @@ public partial class CityCamera : Node3D
 		Rotation = new Vector3(0f, Mathf.DegToRad(_yaw), 0f);
 		_tilt.Rotation = new Vector3(-Mathf.Atan2(camUpUnit, horizUnit), 0f, 0f);
 		_camera.Position = new Vector3(0f, 0f, _distance * Mathf.Sqrt(horizUnit * horizUnit + camUpUnit * camUpUnit));
-		_camera.Near = Mathf.Lerp(0.1f, 2f, zoom);
+		_camera.Near = Mathf.Lerp(0.1f, 2f, zoom) * Mathf.Max(1f, _distance / MaxDistance);
+		// Far enough for the far side of the map, and the fog skirt around it, from a whole-map view.
+		_camera.Far = Mathf.Max(FarPlane, 4f * _distance);
+		ThinFog();
+	}
+
+	// Camera far plane up to the god view.
+	private const float FarPlane = 12000f;
+	private Environment? _env;
+	private float _baseFogDensity = -1f;
+
+	/// <summary>
+	/// Thins the distance fog past the god view, so the whole map isn't lost in haze: the fog through to the pivot fades
+	/// from what it is at <see cref="MaxDistance"/> (density × distance falls as 1/√distance).
+	/// </summary>
+	private void ThinFog()
+	{
+		if (_env is null)
+		{
+			_env = GetWorld3D()?.Environment ?? GetViewport()?.World3D?.Environment;
+			if (_env is null) return;
+			_baseFogDensity = _env.FogDensity;
+		}
+		_env.FogDensity = _baseFogDensity * Mathf.Pow(Mathf.Min(1f, MaxDistance / Mathf.Max(_distance, 1f)), 1.5f);
 	}
 
 	/// <summary>

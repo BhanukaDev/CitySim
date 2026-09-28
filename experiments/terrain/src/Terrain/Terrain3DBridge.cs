@@ -286,11 +286,34 @@ public sealed class Terrain3DBridge
         }
     }
 
-    /// <summary>Points the clipmap at the viewport's camera (call every frame; only calls through when it changes).</summary>
-    public void FollowCamera(Camera3D? camera)
+    /// <summary>
+    /// Points the clipmap at the viewport's camera (call every frame; only calls through when it changes), and gives it
+    /// enough LOD levels to reach the farthest ground the camera can see: whichever is nearer, its far plane or the
+    /// farthest map corner. Each level doubles the clipmap's reach and adds a ring of triangles, so the default 7 levels
+    /// (~28 km at 3.5 m cells) are only raised for the whole-map views of big maps.
+    /// </summary>
+    public void FollowCamera(Camera3D? camera, Vector2 mapSize)
     {
-        if (camera is null || camera == _camera) return;
-        _camera = camera;
-        _node.Call("set_camera", camera);
+        if (camera is null) return;
+        if (camera != _camera)
+        {
+            _camera = camera;
+            _node.Call("set_camera", camera);
+            _meshSize = _node.Get("mesh_size").AsInt32();
+            _cellSize = (float)_node.Get("vertex_spacing").AsDouble();
+        }
+        var c = camera.GlobalPosition;
+        float dx = Math.Max(Math.Abs(c.X), Math.Abs(c.X - mapSize.X)), dz = Math.Max(Math.Abs(c.Z), Math.Abs(c.Z - mapSize.Y));
+        float reach = Math.Min(camera.Far, MathF.Sqrt(dx * dx + dz * dz));
+        // Measured reach of the clipmap: about 1.3 × mesh_size × 2^lods vertices from the camera.
+        float verts = reach / _cellSize / (1.3f * Math.Max(_meshSize, 8));
+        int lods = Math.Clamp((int)MathF.Ceiling(MathF.Log2(Math.Max(verts, 1f))), DefaultLods, MaxLods);
+        if (lods == _lods) return;
+        _lods = lods;
+        _node.Set("mesh_lods", lods);
     }
+
+    private const int DefaultLods = 7, MaxLods = 10;
+    private int _lods = DefaultLods, _meshSize = 48;
+    private float _cellSize = 1f;
 }

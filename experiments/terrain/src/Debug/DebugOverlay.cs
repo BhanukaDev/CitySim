@@ -42,6 +42,10 @@ public partial class DebugOverlay : CanvasLayer
     private double _refresh;
     private string? _screenshotPath;
     private int _screenshotFrames = 60;
+    /// <summary>--screenshot-zoom: more shots from the same pivot at these distances, one run (saved as name_distance.png).</summary>
+    private readonly System.Collections.Generic.Queue<float> _zoomShots = new();
+    private float[]? _cam;
+    private double _zoomWait;
 
     public override void _Ready()
     {
@@ -57,11 +61,15 @@ public partial class DebugOverlay : CanvasLayer
                 _screenshotPath = arg["--screenshot=".Length..];
             else if (arg.StartsWith("--screenshot-frames=") && int.TryParse(arg["--screenshot-frames=".Length..], out int f))
                 _screenshotFrames = f;
+            else if (arg.StartsWith("--screenshot-zoom="))
+                foreach (var t in arg["--screenshot-zoom=".Length..].Split(','))
+                    _zoomShots.Enqueue(float.Parse(t, System.Globalization.CultureInfo.InvariantCulture));
             else if (arg.StartsWith("--cam=") && CityCamera is not null)
             {
                 // --cam=x,z,distance,pitch,yaw (world metres / degrees)
                 var v = System.Array.ConvertAll(arg["--cam=".Length..].Split(','),
                     s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
+                if (v.Length == 5) _cam = v;
                 if (v.Length == 5)
                     Callable.From(() => CityCamera.JumpTo(new Vector2(v[0], v[1]), v[2], v[3], v[4])).CallDeferred();
             }
@@ -230,7 +238,7 @@ public partial class DebugOverlay : CanvasLayer
 
     /// <summary>
     /// A made-up 1.8 km map for looking at waterfalls: a sloping plateau ending in a 20 m cliff above a sea, with a small, a narrow and a
-    /// wide stream running over the edge, simulated 15 minutes at once. Try <c>--cam=900,900,500,30,0</c>.
+    /// wide stream running over the edge (plateau slope 5 %), simulated 15 minutes at once. Try <c>--cam=900,900,500,30,0</c>.
     /// </summary>
     private void RunFallsDemo()
     {
@@ -241,7 +249,7 @@ public partial class DebugOverlay : CanvasLayer
             {
                 float wx = x * map.CellSize, wz = z * map.CellSize;
                 float ripple = 1.5f * MathF.Sin(wx * 0.013f) * MathF.Sin(wz * 0.011f);
-                float top = 60f - wz * 0.02f + ripple * 0.2f;
+                float top = 90f - wz * 0.05f + ripple * 0.2f;
                 // Channels cut into the plateau: a small shallow one, a narrow one and a wide one.
                 top -= 1f * MathF.Max(0f, 1f - MathF.Abs(wx - 300f) / 10f);
                 top -= 4f * MathF.Max(0f, 1f - MathF.Abs(wx - 600f) / 18f);
@@ -643,10 +651,24 @@ public partial class DebugOverlay : CanvasLayer
 
     public override void _Process(double delta)
     {
-        if (_screenshotPath is not null && --_screenshotFrames <= 0)
+        if (_screenshotPath is not null && --_screenshotFrames <= 0 && (_zoomWait -= delta) <= 0)
         {
-            var err = GetViewport().GetTexture().GetImage().SavePng(_screenshotPath);
-            GD.Print($"Screenshot saved to {_screenshotPath} ({err})");
+            string path = _screenshotPath;
+            if (_zoomShots.Count > 0 && _cam is not null)
+                path = System.IO.Path.ChangeExtension(path, null) + $"_{_cam[2]:0}.png";
+            var err = GetViewport().GetTexture().GetImage().SavePng(path);
+            GD.Print($"Screenshot saved to {path} ({err})");
+            if (_zoomShots.Count > 0 && _cam is not null && CityCamera is not null)
+            {
+                // Same pivot, next distance, with the sim paused so only the view changes; wait for the camera and the LODs to settle.
+                if (Terrain?.Water is { } sim) sim.Settings = sim.Settings with { Paused = true };
+                _cam[2] = _zoomShots.Dequeue();
+                CityCamera.JumpTo(new Vector2(_cam[0], _cam[1]), _cam[2], _cam[3], _cam[4]);
+                _screenshotFrames = 60;
+                _zoomWait = 2.0;
+                if (_zoomShots.Count == 0) _screenshotPath = System.IO.Path.ChangeExtension(_screenshotPath, null) + $"_{_cam[2]:0}.png";
+                return;
+            }
             _screenshotPath = null;
             GetTree().Quit();
             return;

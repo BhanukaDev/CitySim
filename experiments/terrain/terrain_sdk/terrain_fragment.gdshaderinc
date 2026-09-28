@@ -317,6 +317,15 @@ void fragment() {
 		fog *= fog;
 		fog = max(fog, step(edge_distance(world_pos.xz), 0.0));
 		fog_col *= 1.0 + (billow - 0.5) * edge_fog_cloudiness * 2.0;
+	} else {
+		// No fog: a thin line on the border, square corners, the same width in pixels at any distance.
+		vec2 rel = world_pos.xz - terrain_origin;
+		vec2 dd = min(rel, terrain_size - rel);
+		float de = min(dd.x, dd.y);
+		float px = max(fwidth(de), 1e-4);
+		float edge_line = 1.0 - smoothstep(edge_line_pixels * px, (edge_line_pixels + 1.0) * px, de);
+		col_out = mix(col_out, edge_line_color, edge_line);
+		glow += edge_line_color * edge_line * 0.5;
 	}
 
 	ALBEDO = col_out * (1.0 - fog);

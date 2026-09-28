@@ -11,8 +11,9 @@ namespace CitySim.TerrainSystem;
 /// </summary>
 public partial class TerrainSkirt : MeshInstance3D
 {
-    // Distances of each ring from the terrain edge, in metres. The last ring sits near the camera's far plane.
-    private static readonly float[] RingDistances = [0f, 20f, 60f, 150f, 350f, 800f, 2000f, 5000f, 11000f];
+    // Distances of each ring from the terrain edge, in metres. Out to 150 km so the ring's end stays out of frame from the
+    // camera's whole-map zoom on a 28.7 km map (its far plane grows with the zoom to match).
+    private static readonly float[] RingDistances = [0f, 20f, 60f, 150f, 350f, 800f, 2000f, 5000f, 11000f, 30000f, 70000f, 150000f];
     // Rounds each corner with this many segments, so the outer rings don't leave a wedge-shaped gap.
     private const int CornerSegments = 8;
     // How far the skirt drops below the lowest terrain point, and over what distance it gets there.

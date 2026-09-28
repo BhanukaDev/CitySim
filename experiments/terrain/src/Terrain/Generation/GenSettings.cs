@@ -79,11 +79,11 @@ public sealed record ImagePlacement
 public sealed record MapSize(string Label, int Cells)
 {
     /// <summary>
-    /// Powers of two, so the build area fills whole Terrain3D regions. 28 km is the M6 build area (8192 × 3.5 m, CS2-sized).
+    /// Powers of two, so the build area fills whole Terrain3D regions. 14.3 km is CS2's buildable side (4096 × 3.5 m); 28.7 km is the M6 build area (8192 × 3.5 m).
     /// </summary>
     public static readonly MapSize[] All =
     [
-        new("1.8 km", 512), new("3.6 km", 1024), new("7.2 km", 2048), new("28.7 km", 8192),
+        new("1.8 km", 512), new("3.6 km", 1024), new("7.2 km", 2048), new("14.3 km", 4096), new("28.7 km", 8192),
     ];
 }
 

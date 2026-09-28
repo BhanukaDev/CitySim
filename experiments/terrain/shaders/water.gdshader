@@ -5,7 +5,8 @@
 // water_prev holds the previous sim tick; `blend` moves from it to water_data between ticks.
 //
 // Colour comes from absorption: the ground behind the water (screen texture, slightly refracted) fades into the
-// water tint and then the deep colour as the water gets deeper, so even a 30 cm stream reads as water. Caustics
+// water tint and then the deep colour as the water gets deeper, so even a 30 cm stream reads as water. Depth is the
+// simulated depth, not the depth buffer, so the look doesn't change with the terrain's distance LODs. Caustics
 // play on the bed, foam rings the shore, breakers roll in over shallow water, and fast or steep water (rapids, falls) turns milky
 // with white streaks. Far away the water is drawn a little in front of the ground so coarse terrain LODs don't swallow
 // it. Direct light is toon-shaded with crisp sun glints; sky reflections are kept low.
@@ -92,7 +93,7 @@ uniform float caustic_strength = 0.6;
 uniform float caustic_scale = 5.0;
 uniform float caustic_speed = 0.6;
 /// Caustics fade in over the first depth and out by the second (m).
-uniform vec2 caustic_depth = vec2(0.05, 3.0);
+uniform vec2 caustic_depth = vec2(0.2, 3.0);
 /// Caustics fade out between these camera distances (m).
 uniform vec2 caustic_fade = vec2(120.0, 450.0);
 group_uniforms Foam;
@@ -286,21 +287,18 @@ void fragment() {
 	vec3 n_world = normalize(surface_normal + vec3(s.x, 0.0, s.y));
 	vec3 n_view = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
-	// Ground behind this pixel: vertical depth under the surface and the path through the water.
+	// Depth comes from the sim, not from the ground in the depth buffer: the terrain is drawn coarser with distance
+	// (and the water mesh too), so on shallow water the screen depth was off by more than the water is deep, and the
+	// colour, the fades and the shape changed as the camera zoomed.
 	vec3 ground = view_at(SCREEN_UV, INV_PROJECTION_MATRIX);
-	vec3 ground_world = (INV_VIEW_MATRIX * vec4(ground, 1.0)).xyz;
-	float depth = max(world_pos.y - ground_world.y, 0.0);
-	// Far away, ground above the water is mostly the coarse terrain LOD cutting across a narrow stream or a fall (the
-	// water is drawn in front of it, see vertex()): trust the simulated depth there.
-	depth = max(depth, sim_depth * smoothstep(far_bias_start, far_bias_start * 1.5, dist));
-	// On sloped water (fast streams, falls) the ground right behind the surface is nearly level with it when seen
-	// side-on, so the screen depth reads ~0 however much water there is: trust the simulated depth there too.
-	depth = max(depth, sim_depth * smoothstep(0.05, 0.3, slope));
+	float depth = sim_depth;
 	// Thin running water (a small stream) shows by what it carries, so it reads as one stream, not a string of pools.
 	float flux = sim_depth * speed;
 	float running = smoothstep(stream_flux.x, stream_flux.y, flux);
 	depth = max(depth, stream_depth * running);
-	float path = VERTEX.z > ground.z ? length(ground - VERTEX) : 0.0;
+	// Slanted path through the water: longer at grazing angles (capped at 5× the depth).
+	vec3 up_view = (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
+	float path = depth / max(abs(dot(normalize(VERTEX), up_view)), 0.2);
 
 	// Refracted view of the bed, unless that lands on something in front of the water.
 	vec2 ruv = SCREEN_UV + n_view.xy * refraction * clamp(depth, 0.0, 1.0);
@@ -310,8 +308,9 @@ void fragment() {
 	vec3 bed_world = (INV_VIEW_MATRIX * vec4(bed_view, 1.0)).xyz;
 
 	// Caustics on the bed, moving with the flow.
-	float caustic = caustic_strength * smoothstep(caustic_depth.x, caustic_depth.x + 0.3, depth)
-		* (1.0 - smoothstep(caustic_depth.x, caustic_depth.y, depth))
+	// Real water only: on thin sheets (and small streams drawn as if deeper) they read as cracked mud.
+	float caustic = caustic_strength * smoothstep(caustic_depth.x, caustic_depth.x + 0.3, sim_depth)
+		* (1.0 - smoothstep(caustic_depth.x, caustic_depth.y, sim_depth))
 		* (1.0 - smoothstep(caustic_fade.x, caustic_fade.y, dist));
 	if (caustic > 0.001) {
 		vec2 cp = (bed_world.xz - flow * TIME * 0.3) / caustic_scale;
@@ -333,9 +332,9 @@ void fragment() {
 	vec3 water = mix(mix(water_tint, deep_color, t2), pollution_color, murk) * t1;
 
 	float alpha = smoothstep(0.0, shore_fade, depth);
-	// Lake shores keep their look (the bank vertex has depth 0 but the water beside it is deep); thin sheets fade out.
-	// Running water (a fall, a small stream) is thin but carries a lot (depth × speed), so it counts as water too.
-	float film = max(smoothstep(film_fade.x, film_fade.y, sim_depth + flux * 0.1 + step(0.5, depth) * film_fade.y), running);
+	// Thin sheets fade out. Running water (a fall, a small stream) is thin but carries a lot (depth × speed), so it
+	// counts as water too.
+	float film = max(smoothstep(film_fade.x, film_fade.y, sim_depth + flux * 0.1), running);
 	alpha *= film;
 
 	// --- Foam ---

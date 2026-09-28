@@ -65,6 +65,8 @@ native/erosion/build.sh; native/water/build.sh                 # first checkout 
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
+# --screenshot-zoom=60,120,250 (with --cam): more shots from the same pivot at those distances in one run, sim paused
+#   (out_<distance>.png), for checking how things look as the camera zooms
 # extra flags: --demo-sculpt / --demo-channel / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
 #   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups), --flat[=height] (empty map),
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
@@ -74,7 +76,7 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
 #   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
-#   --demo-falls (1.8 km made-up map: plateau, 20 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
+#   --demo-falls (1.8 km made-up map: plateau sloping 5 %, 25 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
 #   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: no flow arrows),
 #   --preview-at=x,z,level (the Lake placement preview there),
@@ -552,7 +554,7 @@ Candidates so far (tick when the switch exists):
 - [ ] Water quality (M5.4–M5.6): enum. Low = no caustics, no white-water streaks; High = everything. The far-fall bias
   stays on at every level (it fixes a bug, it isn't an effect).
 - [ ] Water mesh detail: enum on the near LOD (1 or 2 vertices per cell, M5.4).
-- [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows.
+- [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows. (The on/off per mode from 3a is a mode rule, not a setting.)
 - [ ] Effect draw distance (caustics, glints): number, later if needed.
 - [ ] Flow arrows are an editor aid, not a graphics setting (stay a tool option).
 
@@ -732,6 +734,18 @@ The user found fast water a white blob, the M5.5 flow foam static and bug-like, 
 - Known, not from this change: a cross-hatch on thin sheets running down slopes (water and terrain triangles crossing).
   Caustics still shear the same way (`flow × TIME`); barely visible.
 
+### 🔶 M5.7: Water looks the same at every zoom (implemented, waiting for the user to test)
+User: shallow water (streams, small rivers) changed colour and shape a lot with camera distance, and looked ugly.
+- Cause: `water.gdshader` took the depth from the ground in the depth buffer. Terrain3D draws the ground coarser with
+  distance (and the water mesh coarsens too), so on water a few cm deep the error was bigger than the depth: dark teal shards
+  on slopes, grey sheets or no water, all changing with zoom. Now the depth is the simulated depth (bilinear), and the slanted
+  path is the depth over the view angle (capped at 5×). The screen depth only guards the refraction. The far/slope/lake-shore
+  workarounds for the screen depth are gone.
+- Caustics follow the real simulated depth (`caustic_depth` 0.2–3 m) instead of the 0.3 m stand-in that small streams get:
+  on thin sheets they looked like cracked mud.
+- Checked with `--screenshot-zoom` at 30/60/120/250/500 m over the `--demo-water --stream-flow=4 --erode` stream and the falls.
+- Not done: thin sheets spread over a valley floor still read as flat grey-teal (it's the sim's water, see M5.6).
+
 ### ⬜ M5.3: Water events and structures (next)
 - Waterfalls: curtain mesh + mist where flux crosses a big drop; foam already appears on steep/fast water.
 - Floods (hydrograph on a source, rain event), tsunami (travelling level pulse on the Sea), tides (sine on the sea),
@@ -739,7 +753,7 @@ The user found fast water a white blob, the M5.5 flow foam static and bug-like, 
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
 - ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
-### 🔶 M6: Performance & scale (phases 0–2 done; next: phase 3, one item per session)
+### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3d, 3f, 3h done; next 3b)
 Target (user, revised 2026-09-28): the map **stops at 28,672 m** (8192 cells × 3.5 m, an "8k" heightmap), sculptable and
 buildable, on an 8 GB M1. **No 70 km background**: 28.7 km is already ~2× CS2's buildable side (4096 × 3.5 m ≈ 14.3 km),
 4× its area. The effort goes into quality and performance at 28.7 km instead (phase 3). Why 28.7 km: 3.5 m is CS2's
@@ -819,11 +833,12 @@ Phases (tick off as they land):
   coarse ring mesh replacing `TerrainSkirt`, `MaxDistance` 8–10 km, `Far` ~80 km.
 - [ ] **3. Polish at 28.7 km** (replaces the background). Independent items, meant to be done **one per session**, roughly in
   this order. Tick each off with its own notes and numbers.
-  - [ ] **3a. Edge fog per mode.** Game: on, as now. Map Editor: off by default so the creator sees the ground up to the
-    border (square corners), with a "Preview edge fog" toggle; display only, not saved in the map. The skirt is fog-only,
-    so with fog off it would show as a band: hide it in the editor and draw a thin line on the map border instead.
-    Today `edge_fog_enabled` (`terrain_sdk/terrain_core.gdshaderinc`) is never set from C#; mode is `MapSession.Mode`
-    (`AppMode.MapEditor`/`Game`). Also copy the flag to the skirt material.
+  - [x] **3a. Edge fog per mode** (implemented, waiting for the user to test). `Terrain.EdgeFog`: on in Game mode (and in
+    the Godot editor, for theme previews), off in the Map Editor; display only, not saved. Off hides the skirt and sets
+    `edge_fog_enabled` false, and the shader draws a thin line on the border instead (square corners, `edge_line_color`,
+    `edge_line_pixels` 2 px wide at any distance; new SDK uniforms). Map Editor bottom bar: **Edge Fog** toggle to preview.
+    `edge_fog_enabled` is a runtime param, so a theme can't turn it back on. Check: `--cam=260,260,450,30,45` with and
+    without `--game`.
   - [ ] **3b. Float precision check, then centre the map.** No dynamic floating origin (decided, see log). First look:
     screenshots close up (15–50 m) at the far corner (~28,000, 28,000) vs near (0, 0), terrain and water. Suspects are
     world-space UVs, not vertices: `water.gdshader` rebuilds `world_pos` from `INV_VIEW_MATRIX` and samples detail normals /
@@ -835,8 +850,17 @@ Phases (tick off as they land):
   - [ ] **3c. Performance** (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
     across frames (~10 ms at region corners); overlap the Terrain3D copy with generation/load (> 2 s now); peak footprint
     3.96 GB → < 2.5 GB, leaving room for city systems.
-  - [ ] **3d. Camera zoom-out.** `CityCamera.MaxDistance` is 1,800 m and `Far` 12 km: too close to see a 28.7 km map. Raise
-    both (a whole-map view), keep the pivot inside the map; check the edge fog and skirt still hide the border from far.
+  - [x] **3d. Camera zoom-out** (implemented, waiting for the user to test). `MaxDistance` (1,800 m) is still the god view:
+    every zoom-dependent limit (pitch, clearance, near plane, smoothing) reaches its far end there, so nothing below it
+    changed. Past it the zoom continues to `ZoomOutLimit` = max(MaxDistance, `WholeMapZoom` 1.5 × map side): 43 km on
+    28.7 km, 5.4 km on 3.6 km. Beyond the god view the camera may leave the map (the keep-inside clamp eases out over the
+    first half of that range); the pivot stays inside. `Far` = max(12 km, 4 × distance); the near plane grows with it.
+    The distance fog thins past the god view (density × (1800 / d)^1.5), so the whole map isn't lost in haze.
+    Terrain3D's clipmap only reached ~28 km with its default 7 LODs (half of the 28.7 km map vanished from far):
+    `Terrain3DBridge.FollowCamera` now sets `mesh_lods` (7–10) to reach min(far plane, farthest map corner), so normal
+    play stays at 7. The fog skirt now runs out to 150 km so its end stays out of frame. Screenshots: 28.7 km at 43 km in
+    both modes, 60 FPS (editor) / 50 (game); `--demo-camera` all ok. Known, not new: mountain tops right on the border
+    poke above the fog skirt as small specks (in game mode).
   - [ ] **3e. Horizon ring** (the old nice-to-have): a cheap low-poly ring a few km wide past the border, heights from the
     edge plus noise, fading into the fog. No second `HeightMap`, no sim, not editable. Replaces the flat fog skirt in game
     mode. Optional later: an unbuildable strip *inside* the heightmap (e.g. 1.5 km, a rule, not a grid change; could become
@@ -871,7 +895,8 @@ Phases (tick off as they land):
     - Not done: sleeping tiles could drop their flow arrays (7 of 11 floats) to halve the memory of big calm seas; the
       ground marks' coarse distance pass still scans the whole 2049² grid once a second.
   - [ ] **3g. Look tuning at 28.7 km**: snow and rock read blotchy (noise sizes tuned for 2 km maps).
-  - [ ] **3h. A 14.3 km size** (4096 cells, CS2's buildable side) in `MapSize.All`: the menu jumps 7.2 → 28.7 km.
+  - [x] **3h. A 14.3 km size** (4096 cells, CS2's buildable side) in `MapSize.All` (implemented, waiting for the user to
+    test). 256² Terrain3D regions (16 a side), water on 3.5 m cells (4097², the `MaxCells` cap). Generate ~1.4 s (Rolling Hills).
 - [ ] **4. Measure + document**: extend `--demo-scale` (phase 1: data timings) with Terrain3D push timings and peak RAM. Targets on the M1:
   60 FPS at every zoom, generate < 3 s, load < 2 s, stroke < 4 ms/frame, RAM < 2.5 GB. All `--demo-*` flags still pass at 2 km and 28 km.
 

@@ -85,6 +85,15 @@ public partial class GameUi : CanvasLayer
             {
                 if (_themePanel.Visible) _themePanel.Close(); else OpenTheme();
             });
+
+            // The editor shows the ground up to the border; this previews the fog bank the game hides it behind.
+            if (Tools?.Terrain is { } terrain)
+            {
+                Button? fog = null;
+                fog = _bar.AddToggle("Edge Fog", "Preview the fog at the map's edge, as in the game (the editor shows the border instead)",
+                    () => terrain.EdgeFog = fog!.ButtonPressed);
+                fog.SetPressedNoSignal(terrain.EdgeFog);
+            }
         }
 
         _toast = new Label
