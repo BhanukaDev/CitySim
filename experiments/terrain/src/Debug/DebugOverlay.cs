@@ -17,12 +17,13 @@ namespace CitySim.Debug;
 /// <summary>
 /// On-screen stats and controls help. Also supports automated screenshots:
 ///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
-/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-paint, --demo-camera, --demo-mapfile,
+/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-channel, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
 /// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
+/// --demo-falls (a made-up map with a cliff and two falls),
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
 /// --preview-at=x,z,level (the Lake placement preview there), --water-speed=n, --water-run=seconds (simulate that long right away),
-/// --pollute=kg/s (the --demo-water stream carries pollutant), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
+/// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path,
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
@@ -31,6 +32,7 @@ namespace CitySim.Debug;
 public partial class DebugOverlay : CanvasLayer
 {
     private float _demoPollution;
+    private float _demoStreamFlow = 40f;
     private bool _demoNoTool;
     [Export] public CityCamera? CityCamera { get; set; }
     [Export] public Terrain? Terrain { get; set; }
@@ -65,6 +67,8 @@ public partial class DebugOverlay : CanvasLayer
             }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
+            else if (arg == "--demo-channel" && Tools is not null)
+                Callable.From(Tools.RunChannelDemo).CallDeferred();
             else if (arg == "--demo-camera" && CityCamera is not null)
                 Callable.From(CityCamera.RunDemo).CallDeferred();
             else if (arg == "--demo-paint" && Tools is not null)
@@ -83,6 +87,8 @@ public partial class DebugOverlay : CanvasLayer
                 }).CallDeferred();
             else if (arg == "--demo-water")
                 Callable.From(RunWaterDemo).CallDeferred();
+            else if (arg == "--demo-falls")
+                Callable.From(RunFallsDemo).CallDeferred();
             else if (arg == "--hide-water" && Terrain is not null)
                 Terrain.ShowWater = false;
             else if (arg.StartsWith("--preview-at="))
@@ -104,6 +110,9 @@ public partial class DebugOverlay : CanvasLayer
             else if (arg.StartsWith("--water-speed=") && float.TryParse(arg["--water-speed=".Length..],
                          System.Globalization.CultureInfo.InvariantCulture, out float speed))
                 Callable.From(() => { if (Terrain?.Water is { } w) w.Settings = w.Settings with { Speed = speed }; }).CallDeferred();
+            else if (arg.StartsWith("--stream-flow=") && float.TryParse(arg["--stream-flow=".Length..],
+                         System.Globalization.CultureInfo.InvariantCulture, out float streamFlow))
+                _demoStreamFlow = streamFlow;
             else if (arg.StartsWith("--pollute=") && float.TryParse(arg["--pollute=".Length..],
                          System.Globalization.CultureInfo.InvariantCulture, out float pollute))
                 _demoPollution = pollute;
@@ -195,7 +204,7 @@ public partial class DebugOverlay : CanvasLayer
 
         float cs = map.CellSize;
         water.SetSources([
-            new WaterSource(1, WaterSourceKind.Stream, high.X * cs, high.Z * cs, 20f, 0f, FlowRate: 40f, Pollution: _demoPollution),
+            new WaterSource(1, WaterSourceKind.Stream, high.X * cs, high.Z * cs, 20f, 0f, FlowRate: _demoStreamFlow, Pollution: _demoPollution),
             new WaterSource(2, WaterSourceKind.River, 0f, border.Z * cs, 60f, map[0, border.Z] + 4f),
             new WaterSource(3, WaterSourceKind.Lake, low.X * cs, low.Z * cs, 60f, map[low.X, low.Z] + 6f, MaxFlow: 200f),
         ]);
@@ -217,6 +226,39 @@ public partial class DebugOverlay : CanvasLayer
                 }
             GD.Print($"Demo water: moderate flow at ({best.X:0}, {best.Z:0}), {best.Depth:0.00} m deep, {best.Speed:0.00} m/s");
         };
+    }
+
+    /// <summary>
+    /// A made-up 1.8 km map for looking at waterfalls: a sloping plateau ending in a 20 m cliff above a sea, with a small, a narrow and a
+    /// wide stream running over the edge, simulated 15 minutes at once. Try <c>--cam=900,900,500,30,0</c>.
+    /// </summary>
+    private void RunFallsDemo()
+    {
+        if (Terrain is null) return;
+        var map = new HeightMap(513, 513, 3.5f);
+        for (int z = 0; z < map.Depth; z++)
+            for (int x = 0; x < map.Width; x++)
+            {
+                float wx = x * map.CellSize, wz = z * map.CellSize;
+                float ripple = 1.5f * MathF.Sin(wx * 0.013f) * MathF.Sin(wz * 0.011f);
+                float top = 60f - wz * 0.02f + ripple * 0.2f;
+                // Channels cut into the plateau: a small shallow one, a narrow one and a wide one.
+                top -= 1f * MathF.Max(0f, 1f - MathF.Abs(wx - 300f) / 10f);
+                top -= 4f * MathF.Max(0f, 1f - MathF.Abs(wx - 600f) / 18f);
+                top -= 3f * Math.Clamp((110f - MathF.Abs(wx - 1150f)) / 30f, 0f, 1f);
+                float cliff = Math.Clamp((wz - 900f) / 25f, 0f, 1f);
+                float below = 20f - (wz - 900f) * 0.04f + ripple;
+                map[x, z] = top + (below - top) * cliff * cliff * (3f - 2f * cliff);
+            }
+        Terrain.SetMap(map);
+        if (Terrain.Water is not { } water) return;
+        water.SetSources([
+            new WaterSource(1, WaterSourceKind.Stream, 600f, 200f, 12f, 0f, FlowRate: 40f),
+            new WaterSource(4, WaterSourceKind.Stream, 300f, 200f, 6f, 0f, FlowRate: 2f),
+            new WaterSource(2, WaterSourceKind.Stream, 1150f, 200f, 60f, 0f, FlowRate: 250f),
+            new WaterSource(3, WaterSourceKind.Sea, map.SizeX * 0.5f, 0f, 0f, 10f),
+        ]);
+        water.RunFor(900);
     }
 
     /// <summary>

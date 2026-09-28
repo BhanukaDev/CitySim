@@ -7,7 +7,8 @@
 // minus outflow, and its velocity comes from the averaged flows through it. Pipes lose a little flow per second
 // (damping) so basins settle instead of sloshing forever, and to bed friction (Manning-like: deceleration
 // g n² v² / d^1.5, close to Manning's d^(4/3) but one sqrt instead of a cbrt; applied implicitly so it's stable), so shallow water on steep slopes runs at a few m/s instead of accelerating
-// without limit, while deep rivers on gentle slopes still flow.
+// without limit, while deep rivers on gentle slopes still flow. Shallow water gets a higher n (kSheetManning), which
+// keeps thin streams below the Froude number where they'd break into roll waves.
 //
 // Work is done per 64² tile. A call to cs_water_step is one tick: at its start the tiles to step are chosen (awake
 // tiles, stream tiles, and a ring of one tile around them); inside it, substeps follow the CFL limit for
@@ -60,6 +61,13 @@ constexpr float kSleepFlush = 60.0f;
 constexpr float kPaintDepth = 0.05f;
 /// Water at least this deep counts for the ground distance (shores): lakes, the sea and rivers, not thin streams.
 constexpr float kShoreDepth = 0.25f;
+/// Shallow water is rougher than p.manning: grass and bed texture are large next to a few cm of water, as with
+/// overland/sheet flow in hydrology (n ~0.1-0.4 there). Without it thin streams on slopes run above Froude ~1.5, where
+/// Manning-friction flow is unstable and breaks into roll waves (a staircase of pools and bores). Full at
+/// kSheetFullDepth, fading to p.manning by kSheetFadeDepth.
+constexpr float kSheetManning = 0.15f;
+constexpr float kSheetFullDepth = 0.05f;
+constexpr float kSheetFadeDepth = 0.3f;
 
 struct SourceCell {
     int32_t i;
@@ -299,6 +307,7 @@ struct CsWater {
     void Flux(int t, float dt) {
         const float k = dt * p.gravity, damp0 = std::max(0.f, 1.f - p.damping * dt);
         const float area = cell * cell, fric = dt * p.gravity * p.manning * p.manning;
+        const float fricSheet = dt * p.gravity * std::max(0.f, kSheetManning * kSheetManning - p.manning * p.manning);
         const int open = p.open_edges;
         const int tx = t % tiles_x, tz = t / tiles_x;
         const int x0 = tx * kTile, z0 = tz * kTile;
@@ -317,7 +326,9 @@ struct CsWater {
             const int edges = source_cell[i] ? 0 : open;
             float speed = std::sqrt(vx[i] * vx[i] + vz[i] * vz[i]);
             float hd = std::max(di, 0.02f);
-            float damp = speed > 0 ? damp0 / (1.f + fric * speed / (hd * std::sqrt(hd))) : damp0;
+            float sheet = std::clamp((kSheetFadeDepth - di) / (kSheetFadeDepth - kSheetFullDepth), 0.f, 1.f);
+            float fk = p.manning > 0 ? fric + fricSheet * sheet * sheet * (3.f - 2.f * sheet) : 0.f;
+            float damp = speed > 0 ? damp0 / (1.f + fk * speed / (hd * std::sqrt(hd))) : damp0;
             // Outside the map, an open edge acts like dry ground at this cell's height.
             auto pipe = [&](float f, bool inside, bool simulated, int n, int bit) {
                 float dh;

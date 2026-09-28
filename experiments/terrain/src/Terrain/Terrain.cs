@@ -397,9 +397,9 @@ public partial class Terrain : Node3D
     }
 
     /// <summary>
-    /// Starts the water for a new map: saved water as it was, else no water and a Lake source in each hollow once they're
-    /// found (a new or pre-water map looks like it did with static lakes). A generated map with a sea shape gets a sea
-    /// source.
+    /// Starts the water for a new map: saved water as it was, else none. Water is never placed automatically, not even a
+    /// sea for a generated coast: the map maker places every source (the Sea tool defaults to the generator's sea level;
+    /// the Water panel's Add Lake Sources fills the hollows on request).
     /// </summary>
     private void StartWater(HeightMap map, WaterData? saved)
     {
@@ -424,13 +424,6 @@ public partial class Terrain : Node3D
                 if (saved.PollutionGrid is { } pollution) Water.LoadPollution(pollution);
                 if (saved.PaintGrid is { } paint) Water.LoadPaint(paint);
             }
-            else _lakeSourcesPending = true;
-        }
-        else
-        {
-            if (SeaLevel is { } sea)
-                Water.SetSources([new WaterSource(1, WaterSourceKind.Sea, map.SizeX * 0.5f, 0f, 0f, sea)]);
-            _lakeSourcesPending = true;
         }
         _waterSurface = new WaterSurface { Name = "Water", Visible = _showWater };
         AddChild(_waterSurface);

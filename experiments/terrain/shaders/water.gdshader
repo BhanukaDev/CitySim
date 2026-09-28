@@ -6,8 +6,9 @@
 //
 // Colour comes from absorption: the ground behind the water (screen texture, slightly refracted) fades into the
 // water tint and then the deep colour as the water gets deeper, so even a 30 cm stream reads as water. Caustics
-// play on the bed, foam rings the shore, breakers roll in over shallow water, and fast or steep water (rapids, the
-// lip of a fall) turns white. Direct light is toon-shaded with crisp sun glints; sky reflections are kept low.
+// play on the bed, foam rings the shore, breakers roll in over shallow water, and fast or steep water (rapids, falls) turns milky
+// with white streaks. Far away the water is drawn a little in front of the ground so coarse terrain LODs don't swallow
+// it. Direct light is toon-shaded with crisp sun glints; sky reflections are kept low.
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_back, shadows_disabled;
 
@@ -47,6 +48,10 @@ uniform float view_path = 0.35;
 uniform float shore_fade = 0.12;
 /// Simulated depth (m) over which thin films of running water (rain-like sheets on slopes) fade in.
 uniform vec2 film_fade = vec2(0.02, 0.08);
+/// Small streams run as sheets a few cm deep, which the fades above would hide except where they pool (blobs). Water
+/// carrying this much (depth × speed, m²/s: start, full) shows anyway, coloured as if this deep (m).
+uniform vec2 stream_flux = vec2(0.001, 0.008);
+uniform float stream_depth = 0.3;
 /// How far the ground behind is shifted by the ripples (screen UV per unit of normal).
 uniform float refraction = 0.025;
 /// Murky colour of polluted water, and the concentration (kg/m³) where it takes over fully.
@@ -103,25 +108,31 @@ uniform float shore_foam_width = 0.18;
 /// Foam lines that pulse out from the shore: how far out (m of depth) and how fast.
 uniform float foam_line_depth = 0.6;
 uniform float foam_line_speed = 0.8;
-/// Water speed (m/s) where rapids foam starts and where it's full.
+group_uniforms White_water;
+/// Water speed (m/s) where white water starts and where it's full.
 uniform vec2 foam_speed = vec2(2.0, 5.5);
-/// Surface slope (rise over run) where foam starts and where it's full: rapids and waterfalls.
+/// Surface slope (rise over run) where white water starts and where it's full: rapids and waterfalls.
 uniform vec2 foam_slope = vec2(0.1, 0.4);
-/// Rapids foam is stretched this much along the flow.
-uniform float foam_streak = 3.0;
-group_uniforms Flow_foam;
-/// Foam lanes and crests that ride the current, showing which way and how fast the water flows.
-uniform float flow_foam_strength : hint_range(0.0, 1.0) = 0.7;
-/// Water speed (m/s) where flow foam starts and where it's full.
-uniform vec2 flow_foam_speed = vec2(0.1, 0.8);
-/// Metres per repeat of the flow foam pattern (across the flow).
-uniform float flow_foam_scale = 10.0;
-/// Lanes are stretched this much along the flow.
-uniform float flow_foam_stretch = 6.0;
-/// Strength of the crests across the flow (0 = lanes only).
-uniform float flow_foam_crests : hint_range(0.0, 1.0) = 0.5;
-/// Metres between crests.
-uniform float flow_foam_crest_spacing = 9.0;
+/// Milky colour of aerated water under the white streaks, and how much of it full white water gets.
+uniform vec3 whitewater_color : source_color = vec3(0.55, 0.78, 0.76);
+uniform float whitewater_tint : hint_range(0.0, 1.0) = 0.6;
+/// Share of full white water covered by foam streaks (the rest shows the milky water between them).
+uniform float whitewater_coverage : hint_range(0.0, 1.0) = 0.5;
+/// Streaks are stretched this much along the flow.
+uniform float foam_streak = 6.0;
+/// Metres per repeat of the streak pattern (across the flow).
+uniform float whitewater_scale = 6.0;
+/// Streaks are laid out per cell of this size (m), each rigid along the flow at its centre, and cross-faded into its
+/// neighbours. Smaller follows bends better; larger keeps longer streaks.
+uniform float whitewater_cell = 8.0;
+group_uniforms Depth_bias;
+/// The water is drawn this far (m) in front of where it is, so thin sheets on steep ground (a fall's face, a fast
+/// stream) don't hide inside the ground's triangles up close. Only the depth moves, not the pixel.
+uniform float near_bias = 0.3;
+/// Beyond this distance (m) the water is drawn a little more in front of the ground, by this share of the distance,
+/// so the coarser far terrain doesn't swallow narrow streams and falls.
+uniform float far_bias_start = 250.0;
+uniform float far_bias = 0.012;
 group_uniforms Waves;
 /// White breaker lines rolling toward the shore over shallow, calm water.
 uniform float breaker_strength : hint_range(0.0, 1.0) = 0.8;
@@ -169,7 +180,15 @@ vec4 sample_water(vec2 p, out float vis) {
 void vertex() {
 	page_pos = VERTEX.xz + tile_offset;
 	float vis;
-	VERTEX.y = sample_water(page_pos / cell_size, vis).r;
+	vec2 pc = page_pos / cell_size;
+	VERTEX.y = sample_water(pc, vis).r;
+	if (lod_step > 1.5) {
+		// A coarse grid cuts the chord across convex water (the lip of a fall) and sinks it into the ground; the highest
+		// water around each vertex keeps it on top.
+		float h = lod_step * 0.5;
+		VERTEX.y = max(VERTEX.y, max(max(sample_water(pc + vec2(h, h), vis).r, sample_water(pc + vec2(-h, h), vis).r),
+			max(sample_water(pc + vec2(h, -h), vis).r, sample_water(pc + vec2(-h, -h), vis).r)));
+	}
 	// Surface normal from the surface one grid step to each side.
 	float e = max(lod_step, 1.0), v;
 	vec2 p = page_pos / cell_size;
@@ -179,6 +198,13 @@ void vertex() {
 	slope = length(grad);
 	surface_normal = normalize(vec3(-grad.x, 1.0, -grad.y));
 	NORMAL = surface_normal;
+	// Pull the water toward the camera along the view ray (same pixel, nearer depth): a little everywhere, more far
+	// away, so neither fine nor coarse terrain triangles hide it. The fragment still sees the true position.
+	vec4 view = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
+	float d = length(view.xyz);
+	float pull = min(near_bias + far_bias * max(d - far_bias_start, 0.0), d * 0.5);
+	view.xyz *= 1.0 - pull / max(d, 1e-3);
+	POSITION = PROJECTION_MATRIX * view;
 }
 
 vec2 hash2(vec2 p) {
@@ -199,6 +225,27 @@ float caustic_layer(vec2 p, float t) {
 			else if (d < d2) d2 = d;
 		}
 	return 1.0 - smoothstep(0.0, 0.12, sqrt(d2) - sqrt(d1));
+}
+
+// White-water streaks of one cell: noise stretched along the flow v at the cell's centre and carried by the two-phase
+// flow map. Rotating around the cell's own centre (not the world origin) keeps a small change of direction a small
+// change of pattern, so the streaks don't fan out or shear across a fall.
+// dx, dy: screen derivatives of x. The noise coordinates jump between cells, so the mip level comes from these.
+float streak_cell(vec2 x, vec2 dx, vec2 dy, vec2 centre, vec2 v, float p0, float p1, float w0) {
+	float speed = length(v);
+	vec2 dir = speed > 0.05 ? v / speed : vec2(0.0, 1.0), perp = vec2(-dir.y, dir.x);
+	vec2 drift = v * flow_drag * flow_cycle;
+	vec2 q0 = x - centre - drift * p0, q1 = x - centre - drift * p1;
+	// Each cell gets its own part of the noise, so neighbours don't repeat.
+	vec2 seed = hash2(centre);
+	vec2 a0 = vec2(dot(q0, perp), dot(q0, dir) / foam_streak) / whitewater_scale + seed;
+	vec2 a1 = vec2(dot(q1, perp), dot(q1, dir) / foam_streak) / whitewater_scale + seed + vec2(0.5, 0.21);
+	vec2 gx = vec2(dot(dx, perp), dot(dx, dir) / foam_streak) / whitewater_scale;
+	vec2 gy = vec2(dot(dy, perp), dot(dy, dir) / foam_streak) / whitewater_scale;
+	float s0 = textureGrad(foam_noise, a0, gx, gy).r * 0.65 + textureGrad(foam_noise, a0 * 2.3 + 0.37, gx * 2.3, gy * 2.3).r * 0.35;
+	float s1 = textureGrad(foam_noise, a1, gx, gy).r * 0.65 + textureGrad(foam_noise, a1 * 2.3 + 0.61, gx * 2.3, gy * 2.3).r * 0.35;
+	// Cross-fading two noises flattens them toward 0.5; stretch back so the streaks keep their contrast.
+	return (mix(s1, s0, w0) - 0.5) / mix(0.7, 1.0, abs(2.0 * w0 - 1.0));
 }
 
 // Soft toon steps: flat bands joined by short ramps.
@@ -243,6 +290,16 @@ void fragment() {
 	vec3 ground = view_at(SCREEN_UV, INV_PROJECTION_MATRIX);
 	vec3 ground_world = (INV_VIEW_MATRIX * vec4(ground, 1.0)).xyz;
 	float depth = max(world_pos.y - ground_world.y, 0.0);
+	// Far away, ground above the water is mostly the coarse terrain LOD cutting across a narrow stream or a fall (the
+	// water is drawn in front of it, see vertex()): trust the simulated depth there.
+	depth = max(depth, sim_depth * smoothstep(far_bias_start, far_bias_start * 1.5, dist));
+	// On sloped water (fast streams, falls) the ground right behind the surface is nearly level with it when seen
+	// side-on, so the screen depth reads ~0 however much water there is: trust the simulated depth there too.
+	depth = max(depth, sim_depth * smoothstep(0.05, 0.3, slope));
+	// Thin running water (a small stream) shows by what it carries, so it reads as one stream, not a string of pools.
+	float flux = sim_depth * speed;
+	float running = smoothstep(stream_flux.x, stream_flux.y, flux);
+	depth = max(depth, stream_depth * running);
 	float path = VERTEX.z > ground.z ? length(ground - VERTEX) : 0.0;
 
 	// Refracted view of the bed, unless that lands on something in front of the water.
@@ -277,7 +334,8 @@ void fragment() {
 
 	float alpha = smoothstep(0.0, shore_fade, depth);
 	// Lake shores keep their look (the bank vertex has depth 0 but the water beside it is deep); thin sheets fade out.
-	float film = smoothstep(film_fade.x, film_fade.y, sim_depth + step(0.5, depth) * film_fade.y);
+	// Running water (a fall, a small stream) is thin but carries a lot (depth × speed), so it counts as water too.
+	float film = max(smoothstep(film_fade.x, film_fade.y, sim_depth + flux * 0.1 + step(0.5, depth) * film_fade.y), running);
 	alpha *= film;
 
 	// --- Foam ---
@@ -290,34 +348,37 @@ void fragment() {
 	float line = sin(depth / foam_line_depth * 9.0 - TIME * foam_line_speed * 6.2831853 + n_foam * 4.0);
 	foam = max(foam, smoothstep(0.93, 0.97, line) * (1.0 - smoothstep(0.3, 1.0, depth / foam_line_depth))
 		* step(0.35, n_foam) * 0.9 * body);
-	// Rapids and falls: white water streaked along the flow.
-	vec2 dir = speed > 0.05 ? flow / speed : vec2(0.0, 1.0);
-	vec2 q0 = world_pos.xz - flow * flow_drag * flow_cycle * p0, q1 = world_pos.xz - flow * flow_drag * flow_cycle * p1;
-	vec2 perp = vec2(-dir.y, dir.x);
-	float streak = mix(
-		texture(foam_noise, vec2(dot(q1, perp), dot(q1, dir) / foam_streak) / (foam_scale * 0.5) + 0.5).r,
-		texture(foam_noise, vec2(dot(q0, perp), dot(q0, dir) / foam_streak) / (foam_scale * 0.5)).r, w0);
+	// Rapids and falls: milky aerated water with white streaks racing along the flow (a flow map, so they don't smear),
+	// never a solid sheet of white.
 	float rapid = max(smoothstep(foam_speed.x, foam_speed.y, speed),
 		smoothstep(foam_slope.x, foam_slope.y, slope) * smoothstep(0.5, 2.0, speed));
-	rapid *= smoothstep(0.05, 0.3, sim_depth);
-	foam = max(foam, smoothstep(0.5, 0.56, streak + rapid * 0.75 - 0.35) * step(0.01, rapid));
-	// Flow foam at ordinary river speeds: thin lanes of foam along the flow and broken crests across it, both carried
-	// downstream by the flow map, so the current reads at a glance.
-	float flowing = smoothstep(flow_foam_speed.x, flow_foam_speed.y, speed) * smoothstep(0.1, 0.4, sim_depth)
-		* flow_foam_strength * fade;
-	if (flowing > 0.001) {
-		vec2 a0 = vec2(dot(q0, perp), dot(q0, dir) / flow_foam_stretch) / flow_foam_scale;
-		vec2 a1 = vec2(dot(q1, perp), dot(q1, dir) / flow_foam_stretch) / flow_foam_scale + vec2(0.31, 0.57);
-		float lane = mix(texture(foam_noise, a1).r, texture(foam_noise, a0).r, w0);
-		float lanes = smoothstep(0.6, 0.65, lane) * (1.0 - smoothstep(0.72, 0.78, lane));
-		// Foam gathers in drifting patches, not evenly over the whole river.
-		lanes *= smoothstep(0.4, 0.6, texture(foam_noise, (world_pos.xz - flow * TIME * 0.5) / (flow_foam_scale * 5.0)).r);
-		// Crests: bands across the flow at the water's speed, broken up by noise so they read as ripples, not stripes.
-		float along = dot(world_pos.xz, dir) - TIME * speed * flow_drag;
-		float n_crest = texture(foam_noise, vec2(dot(world_pos.xz, perp), along * 0.5) / (flow_foam_scale * 1.7)).r;
-		float crest = smoothstep(0.9, 0.97, sin(along / flow_foam_crest_spacing * 6.2831853 + n_crest * 5.0))
-			* smoothstep(0.45, 0.6, n_crest) * flow_foam_crests;
-		foam = max(foam, max(lanes * 0.85, crest) * flowing * smoothstep(0.25, 0.4, n_foam));
+	rapid *= smoothstep(0.05, 0.3, sim_depth + flux * 0.3);
+	if (rapid > 0.001) {
+		// Four cells around the pixel, each rigid at the flow of its centre, cross-faded (see streak_cell).
+		vec2 page_origin = world_pos.xz - page_pos;
+		vec2 g = world_pos.xz / whitewater_cell - 0.5, gb = floor(g), gf = smoothstep(0.15, 0.85, fract(g));
+		vec2 dx = dFdx(world_pos.xz), dy = dFdy(world_pos.xz);
+		float streak = 0.0, wsq = 0.0;
+		for (int k = 0; k < 4; k++) {
+			vec2 o = vec2(float(k & 1), float(k >> 1));
+			vec2 centre = (gb + o + 0.5) * whitewater_cell;
+			vec4 c = cell(ivec2(round((centre - page_origin) / cell_size)));
+			// A dry or hidden centre (by a bank) borrows this pixel's flow.
+			vec2 v = c.g > 0.05 ? c.ba : flow;
+			vec2 wk = mix(1.0 - gf, gf, o);
+			float wt = wk.x * wk.y;
+			streak += wt * streak_cell(world_pos.xz, dx, dy, centre, v, p0, p1, w0);
+			wsq += wt * wt;
+		}
+		// Same contrast fix for the cell cross-fade.
+		streak = streak / sqrt(max(wsq, 0.25)) + 0.5;
+		float cut = 1.0 - whitewater_coverage * rapid;
+		float white = smoothstep(cut - 0.04, cut + 0.06, streak) * 0.95;
+		float milk = rapid * whitewater_tint;
+		water = mix(water, whitewater_color * mix(0.85, 1.05, streak), milk);
+		transmitted *= 1.0 - milk;
+		alpha = max(alpha, milk * film * smoothstep(0.0, 0.03, depth));
+		foam = max(foam, white);
 	}
 	// Breakers: crest lines along depth contours (so parallel to the shore), rolling toward it over calm shallows.
 	float crest = sin(sim_depth * breaker_frequency * 6.2831853 + TIME * breaker_speed * 6.2831853 + n_foam * 3.0);
@@ -339,7 +400,7 @@ void fragment() {
 	sparkle = smoothstep(1.0 - glint_density, 1.0 - glint_density * 0.8, sp) * (1.0 - foam) * fade;
 
 	vec2 to_edge = min(world_pos.xz, map_size - world_pos.xz);
-	alpha = max(alpha, foam * 0.95 * film) * smoothstep(0.0, edge_fade, min(to_edge.x, to_edge.y));
+	alpha = max(alpha, foam * 0.95 * film * smoothstep(0.0, 0.03, depth)) * smoothstep(0.0, edge_fade, min(to_edge.x, to_edge.y));
 
 	ALBEDO = mix(water, foam_color, foam);
 	EMISSION = transmitted * (1.0 - foam) + foam_color * foam * foam_glow;

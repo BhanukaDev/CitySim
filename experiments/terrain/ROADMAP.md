@@ -65,7 +65,7 @@ native/erosion/build.sh; native/water/build.sh                 # first checkout 
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
-# extra flags: --demo-sculpt / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
+# extra flags: --demo-sculpt / --demo-channel / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
 #   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups), --flat[=height] (empty map),
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
@@ -74,10 +74,11 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
 #   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
+#   --demo-falls (1.8 km made-up map: plateau, 20 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
-#   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: flow foam without arrows),
+#   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: no flow arrows),
 #   --preview-at=x,z,level (the Lake placement preview there),
-#   --pollute=kg/s (the --demo-water stream carries pollutant),
+#   --stream-flow=m³/s (the --demo-water stream's flow, default 40), --pollute=kg/s (the --demo-water stream carries pollutant),
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, then quits),
 #   --size=cells (8192 = 28.7 km)
@@ -248,6 +249,33 @@ Hides the map's hard edges and corners behind a fog bank. This is separate from 
 - Contours now show with no tool selected too (toggle with `C`).
 - `--demo-sculpt` stamps Ridged (45°) and Terraces on a levelled pad; `--demo-paint` paints Splatter and Streaks (30°).
 
+### 🔶 M2.1: Channel tool (implemented, waiting for the user to test)
+A sculpt tool (Terrain tab, after Slope) that cuts a cross-section along the drag: rivers, canals, ditches, road cuts.
+Named Channel, not River: it only shapes ground and never places water (the user places sources).
+- Engine-agnostic `ChannelOps` (`src/Terrain/Sculpt/`): `ChannelProfile` (shape, top width, depth), `ChannelPoint`
+  (position, reference height, profile). `CarveSegment` sweeps the profile along each path segment, turned across the
+  direction of travel, with reference and profile (shapes blended) interpolated along it. **Cut only**: keeps the lower of
+  ground and channel, so dips below the bed stay and a Graded stroke repeated changes nothing. Beyond the top edge, **banks**
+  rise at a set angle (15–85°, default 35°) up to 1.5 widths + 3 depths out, so a cut across a hillside isn't a cliff.
+- Shapes: **V** `\/`, **U** (parabolic, default), **Flat Bed** `\_/` (bed 40 % of the width), **Box** `|_|` (canal walls).
+  Width 4–400 m (`[ ]`/Shift+wheel), depth 0.5–60 m. Shape buttons use SVG icons (`assets/icons/channel_*.svg`, a green
+  box carved by the profile; the tool icon is the flat-bed one).
+- **Intensity** 10–100 % (Alt+wheel, default 100 %): at 100 % the profile is cut at once; lower pulls the ground toward it
+  by 1 − e^(−4·intensity·dt) per tick, re-cutting the segment to the cursor every tick, so holding still or dragging
+  slowly digs deeper (never past the profile).
+- **Follow Ground**: the reference is the ground from *before the stroke* (`UndoStack.StrokeOriginal`, so the cut doesn't feed
+  on itself), averaged across the channel and smoothed along the path over ~1 width. **Downhill Only** (default on): the
+  reference never rises along a stroke, so dragging downstream gives a bed that always descends and cuts through humps.
+  A second stroke over a channel follows the new, lower ground, so it deepens it.
+- **Graded** (like Slope): RMB sets the start point, LMB-press at the end point and drag the route; the grade is straight
+  start → end (progress = projection on start→end, so the drag may wind) and the profile changes from Start to End
+  shape/width/depth.
+- Path points closer than max(cell, width/8) are skipped (steadier direction). One stroke = one undo step.
+- `--demo-channel`: a winding downhill U river and a graded V → flat-bed channel through a hill; checks the bed never rises,
+  the cut reaches depth, a repeated graded stroke is a no-op, undo/redo, 30 % intensity digs gradually (prints `Demo channel: … ok`).
+- Next: user tests; maybe a path preview while dragging, a Fill option (embankments for graded canals across dips), editable
+  paths once roads/networks exist (canals as a network, see M7).
+
 ### 🔶 M3.3: Menus (implemented, waiting for the user to test)
 - `scenes/Menu.tscn` (`src/UI/MainMenu.cs`) is now the main scene: New Map, Load Map, Quit (see M4).
   Any command-line user flag (`--screenshot`, `--demo-*`, `--cam`, ...) skips it and loads `Main.tscn` directly.
@@ -309,7 +337,9 @@ Making terrain moved from the start menu into the Map Editor, with a preview of 
 - Presets: Rolling Hills (old default), Mountains, Flat Lowlands, Island, Coast, Archipelago. A preset fills the hills and
   shape settings, and keeps size, seed and image.
 - `GeneratorPanel` (right side, Map Editor only; bottom-bar **Generate**, Esc menu **Terrain Generator…**): 257² top-down
-  preview (hillshade, height tint, blue below sea level) redrawn on every change (4–12 ms); **Live** regenerates the 3D
+  preview (hillshade, height tint) redrawn on every change (4–12 ms). Since M2.1 it shows **ground only**, like the 3D map
+  (no water is placed): below sea level is seabed (sand → grey-brown with depth) with a blue **shore line** at sea level,
+  where a Sea source would fill to; hollows are no longer tinted as lakes (and aren't searched, so it's faster). **Live** regenerates the 3D
   terrain 0.3 s after the last change on a worker thread (newer runs supersede older ones), or **Apply**. All updates
   while the panel is open are **one undo step** (`TerrainToolController.ApplyGenerated` / `CommitGenerated`,
   `UndoStack.PushHeights`); painted ground is kept. A new size replaces the map (history and paint cleared).
@@ -489,7 +519,7 @@ The static M5.0 lakes (flat quads over every hollow) are gone: water is simulate
   sim-minute) dries unfed water; open map edges drain it (closed under sources, so a border river feeds the map).
 - **Sources** (`WaterSource`): **Stream** (constant m³/s), **River** (holds a level, water flows in or out; snaps to the
   border within radius + 30 m), **Lake** (fills to its level at up to Max Flow, never drains), **Sea** (holds every border
-  cell below sea level at sea level; one per map). A generated map with a sea shape gets a Sea source.
+  cell below sea level at sea level; one per map). *(Since M2.1 no source is placed automatically, see Decisions.)*
 - **C#** (`src/Water/`): `WaterSim` owns the handle and a worker thread (Speed × real time, backlog dropped when the CPU
   can't keep up, paused with the tree), queues main-thread changes (ground rects from `Terrain.MarkDirty`, sources,
   settings, fill/clear) and publishes a snapshot ~30×/s (display surface, depth, velocity per cell; dirty 256² pages).
@@ -574,8 +604,8 @@ comes from a source the user owns.
   (`LakeMap`, Erosion panel Min Depth/Area) gets a Lake source at its most open water (chamfer distance to the shore, deepest
   on a tie), radius ½ that distance (1.5 water cells … 150 m), level = spill height, Max Flow = max(volume / 600 s, 3 × area ×
   evaporation, 1 m³/s). Hollows that already hold a Lake/River source are skipped, so running it again adds only what's missing.
-  The planned lakes are filled at once (`WaterSim.RaiseTo`, only their cells) and the sea as before. New maps, pre-v4 files and
-  water sections without depths do this once the hollow search finishes; the Water panel's **Add Lake Sources** does it as one
+  The planned lakes are filled at once (`WaterSim.RaiseTo`, only their cells) and the sea as before. *(Since M2.1 new maps and
+  old files no longer do this automatically.)* The Water panel's **Add Lake Sources** does it as one
   undo step (`TerrainToolController.AddLakeSources`; undo removes the sources and drains their lakes).
 - **Deleting a Lake source drains its lake** (`cs_water_drain`): from the source's cells, every 4-connected wet cell below its
   level whose surface is within 0.3 m of the source's; rivers running out of it sit lower and are kept (they dry up). Undo puts
@@ -594,7 +624,7 @@ comes from a source the user owns.
 - **Flow arrows** (`src/Terrain/WaterFlowArrows.cs`): a MultiMesh of flat arrows on a grid around where the camera looks,
   spacing = camera distance / 20 (2 water cells … 200 m, ≤ 3600), refreshed 5×/s from the snapshot; length and colour (blue →
   yellow → red) by speed up to 3 m/s. On while a Water tool is out, or always with the Water panel's **Flow arrows** checkbox.
-- **Flow foam** (`shaders/water.gdshader`, group Flow_foam): foam lanes along the flow (two-phase flow map, stretched ×6, in
+- **Flow foam** (removed in M5.6) (`shaders/water.gdshader`, group Flow_foam): foam lanes along the flow (two-phase flow map, stretched ×6, in
   drifting patches) and broken crests across it moving at the water speed, from 0.1 m/s (full at 0.8) on water deeper than
   ~0.2 m. Rapids foam above 2 m/s is unchanged.
 - **Hover previews** (user asked mid-work): with a Lake/River/Sea tool, the area the source would flood is tinted
@@ -608,6 +638,49 @@ comes from a source the user owns.
 - Default map: 40 hollows → 39–40 lake sources in ~15 ms (after the 180 ms hollow search).
 - Not done / next: the flood preview is hidden under existing water when its level is lower; the demo's `RunFor` batches delay
   new lakes' fill until they finish (demo only); a River's preview uses the lake rule (its water really runs on downhill).
+
+### 🔶 M5.6: White water, far falls, flow foam removed (implemented, waiting for the user to test)
+The user found fast water a white blob, the M5.5 flow foam static and bug-like, and far falls sinking into the terrain.
+- **White water** (`shaders/water.gdshader`, group White_water): rapids and falls turn milky (`whitewater_color`,
+  `whitewater_tint`) with white streaks stretched along the flow (`foam_streak` 6) and carried by the two-phase flow map,
+  covering at most `whitewater_coverage` (0.5), never a solid sheet. Streak contrast is restored during the cross-fade.
+  Thin water pouring down a fall counts by its flux (depth × speed) for the film fade and the white-water gate, so a
+  cliff face shows a curtain instead of nothing.
+- **Flow foam removed** (user: not wanted). The M5.5 lanes/crests and the per-cell crests tried here are gone; the
+  flow reads from the white water, the breakers and the flow arrows. Lesson if it comes back: `dot(world, dir) − TIME × speed`
+  with a per-pixel dir and speed shears without bound as TIME grows; draw per cell with a rigid flow and cross-fade.
+- **Far falls**: past `far_bias_start` (250 m) the vertex shader pulls the water toward the camera along the view ray by
+  `far_bias` (1.2 %) of the distance (same pixel, nearer depth; the fragment keeps the true position), and there the
+  simulated depth stands in when the coarse ground LOD sits above the water. Coarse water tiles (step ≥ 2) take the
+  highest surface around each vertex, so the chord across a fall's lip doesn't cut into the ground.
+- **Close-up falls and streams** (user: falls and flowing water break up close, near first person). Three causes:
+  (1) a fall's sheet is a few cm thick, so up close it loses the depth test to the full-detail terrain triangles; now all
+  water is pulled `near_bias` (0.3 m) toward the camera along the view ray, on top of the far bias. (2) Seen side-on, the
+  ground right behind sloped water is level with it, so the screen depth read ~0 and the sheet faded out; sloped water
+  (surface slope 0.05 → 0.3) now also trusts the simulated depth. (3) The white-water streaks were rotated to each
+  pixel's flow around the world origin, so small direction changes fanned them into fine lines with seams; now per
+  `whitewater_cell` (8 m) cell, rigid at the cell centre's flow, cross-faded, with `textureGrad` so cell borders don't
+  draw mip hairlines. Also the camera (`CityCamera.RequiredLift`) now keeps itself above the water surface: under it
+  the one-sided water vanished and only the bed showed.
+- **Small streams no longer break into blobs** (user: a small shallow river shows as blobs and falls). The sim water was
+  continuous (a 1–5 cm sheet at ~1 m/s; checked with a depth debug colour), but the film fade (2–8 cm) and the shore
+  fade (screen depth, 12 cm) hid everything except the pools. Now water carrying `stream_flux` (depth × speed, 0.001 →
+  0.008 m²/s) shows anyway, coloured as if `stream_depth` (0.3 m) deep. Side effect: thin spread-out edges of bigger
+  streams show too (they were always simulated). What's left: small real gaps in the simulated sheet itself.
+  `--stream-flow=m³/s` sets the `--demo-water` stream's flow (default 40; try 2); `--demo-falls` has a small 2 m³/s
+  stream in a shallow channel at x = 300 too.
+- **Roll waves in shallow streams** (user: a staircase of crescent pools with white fronts). A real instability of
+  shallow-water flow with Manning friction above Froude ~1.5 (≈2 for Chezy; see Balmforth & Mandre 2004, "Dynamics of
+  roll waves"). With n = 0.03 everywhere a 3 cm sheet on a 10 % slope ran ~1 m/s, Froude ~1.9. Now shallow water is
+  rougher (`kSheetManning` 0.15 in `native/water/water.cpp`, as for overland/sheet flow in hydrology, full at 5 cm,
+  fading to `Manning` by 30 cm): the same sheet runs ~0.2 m/s, Froude ~0.4, and is ~2.5× deeper. All `--demo-water`
+  checks still pass. Rebuild the native lib (`native/water/build.sh`).
+- Not done: low water still fills a flat valley floor from bank to bank. It's the ground, not the water: nothing is
+  narrower than a 3.5 m cell, so a small stream has no channel to stay in. Fix would be on the terrain side (carve or
+  erode a bed under running water), not in the sim.
+- `--demo-falls`: test scene for all of this. FPS at the demo stream close-up: 30 before, 32 after (noise).
+- Known, not from this change: a cross-hatch on thin sheets running down slopes (water and terrain triangles crossing).
+  Caustics still shear the same way (`flow × TIME`); barely visible.
 
 ### ⬜ M5.3: Water events and structures (next)
 - Waterfalls: curtain mesh + mist where flux crosses a big drop; foam already appears on steep/fast water.
@@ -740,6 +813,11 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - Cell size changed from 4 m to 2 m (1024×1024 cells, still a 2,048 m map), so small brushes have
   enough vertices to look round. The extra cost is accepted until LOD/performance work in M6.
 - Level with no picked height uses the "dominant" height (weighted histogram), not the plain average.
+- M2.1 (user's call): **no water is placed automatically**. New and generated maps start dry, even with a sea shape; old
+  files without saved depths aren't given Lake sources. The map maker places every source (the Sea tool defaults to the
+  generator's sea level; Add Lake Sources is a button). The Channel tool shapes ground only and adds no source.
+- M2.1: channels are a **sculpt tool dragged freehand with a profile**, not a spline object (user's choice); canals as a
+  built network (cost, demolish, fill from connected water) belong with roads later.
 - M3: stylized, not photoreal. Textures are only a detail source, and colour comes from per-layer tints in the
   material. Ground textures are downloaded by a script, not committed (about 150 MB). Painted layers are
   stored per vertex (2 m), and height blending adds sharper detail at the borders.

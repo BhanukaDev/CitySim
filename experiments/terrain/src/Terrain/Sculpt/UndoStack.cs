@@ -85,6 +85,19 @@ public sealed class UndoStack
             }
     }
 
+    /// <summary>
+    /// The height vertex (x, z) had when the current stroke began: from the stroke's saved tile if it was touched, else
+    /// the map's (untouched, so unchanged). Only for height strokes.
+    /// </summary>
+    public float StrokeOriginal(int x, int z)
+    {
+        var map = _map ?? throw new InvalidOperationException("Not in a height stroke.");
+        int key = z / TileSize * ((map.Width + TileSize - 1) / TileSize) + x / TileSize;
+        if (_inStroke && _strokeTiles.TryGetValue(key, out var tile) && tile.Heights is { } h)
+            return h[(z - tile.Rect.MinZ) * tile.Rect.Width + (x - tile.Rect.MinX)];
+        return map[x, z];
+    }
+
     public void EndStroke()
     {
         if (_inStroke && _strokeTiles.Count > 0)

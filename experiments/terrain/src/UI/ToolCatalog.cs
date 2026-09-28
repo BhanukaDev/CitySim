@@ -33,6 +33,7 @@ public static class ToolCatalog
             new ToolDef("Level", "Level: right-click picks a height, left-drag levels to it\n(no height picked: levels to the most common height under the brush)", TerrainTool.Level, Icon("level")),
             new ToolDef("Smooth", "Smooth: left-drag softens bumps and creases", TerrainTool.Smooth, Icon("smooth")),
             new ToolDef("Slope", "Slope: right-click sets the start point, left-drag builds a ramp to where you pressed", TerrainTool.Slope, Icon("slope")),
+            new ToolDef("Channel", "Channel: left-drag cuts a V, U, flat-bed or box cross-section along the drag (rivers, canals, ditches).\nFollow Ground: follows the ground under the drag · Graded: right-click sets the start point, left-drag cuts a straight grade to where you pressed", TerrainTool.Channel, Icon("channel")),
         ]),
         new ToolTab("Paint", [], EditorOnly: true, PaintTab: true),
         new ToolTab("Water",

@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Godot;
 using CitySim.TerrainSystem;
-using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
 using CitySim.Tools;
 
@@ -73,7 +72,7 @@ public partial class GeneratorPanel : PanelContainer
             CustomMinimumSize = new Vector2(0, 300),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            TooltipText = "Top-down preview, north up. Blue: lakes, and below sea level.",
+            TooltipText = "Top-down preview, north up. Ground only (no water is placed); the blue line is the shore at sea level.",
         };
         col.AddChild(_preview);
 
@@ -209,7 +208,7 @@ public partial class GeneratorPanel : PanelContainer
         Slider(grid, "Gentle Shores", 0, 1, 0.01, "{0:0%}", () => _s.GentleShores, v => _s = _s with { GentleShores = v }, _shapeRows,
             "Share of sea shores that are gentle beaches; the rest are steep banks");
         Slider(grid, "Sea Level", -50, 200, 1, "{0:0} m", () => _s.SeaLevel, v => _s = _s with { SeaLevel = v }, _shapeRows,
-            "Height the shore blends down to (no water yet; sand shows below ~9 m)");
+            "Height the shore blends down to. No water is added: place a Sea source (Water tab), which defaults to this level");
         Slider(grid, "Sea Depth", 0, 200, 1, "{0:0} m", () => _s.Shape.SeaDepth, v => _s = _s with { Shape = _s.Shape with { SeaDepth = v } }, _shapeRows,
             "How far below sea level the sea floor is");
     }
@@ -329,14 +328,17 @@ public partial class GeneratorPanel : PanelContainer
 
     // --- Preview and apply ---
 
-    /// <summary>Redraws the top-down preview: hillshade over a height tint, with ground below sea level in blue when a shape is on.</summary>
+    /// <summary>
+    /// Redraws the top-down preview: hillshade over a height tint. Like the 3D map it shows ground only, since the
+    /// generator places no water; with a shape on, ground below sea level is seabed and a line marks the shore a Sea source
+    /// would fill to.
+    /// </summary>
     private void UpdatePreview()
     {
         var sw = Stopwatch.StartNew();
         var map = TerrainGen.Preview(_s, PreviewVerts);
         var (min, max) = map.GetRange();
         bool sea = _s.Shape.Kind != ShapeKind.None;
-        var lakes = PreviewLakes(map, sea);
         float landMin = sea ? MathF.Max(min, _s.SeaLevel) : min;
         float span = MathF.Max(max - landMin, 1f);
         var light = System.Numerics.Vector3.Normalize(new(-1f, 1.4f, -1f));
@@ -348,18 +350,16 @@ public partial class GeneratorPanel : PanelContainer
                 var n = map.GetNormal(x, z);
                 float shade = 0.55f + 0.6f * MathF.Max(0f, System.Numerics.Vector3.Dot(n, light));
                 Color c;
-                float lake = lakes?.LevelAt(x, z) ?? float.NaN;
-                if (!float.IsNaN(lake))
+                if (sea && h < _s.SeaLevel && IsShore(map, x, z))
                 {
-                    float depth = Mathf.Clamp((lake - h) / 6f, 0f, 1f);
-                    c = new Color(0.36f, 0.62f, 0.66f).Lerp(new Color(0.10f, 0.28f, 0.42f), depth);
-                    shade = 0.9f + 0.1f * shade;
+                    c = new Color(0.16f, 0.36f, 0.62f);
+                    shade = 1f;
                 }
                 else if (sea && h < _s.SeaLevel)
                 {
+                    // Seabed: sand fading to a darker grey-brown with depth.
                     float depth = Mathf.Clamp((_s.SeaLevel - h) / MathF.Max(_s.Shape.SeaDepth, 1f), 0f, 1f);
-                    c = new Color(0.38f, 0.66f, 0.78f).Lerp(new Color(0.12f, 0.28f, 0.48f), depth);
-                    shade = 0.85f + 0.15f * shade;
+                    c = new Color(0.80f, 0.74f, 0.56f).Lerp(new Color(0.42f, 0.40f, 0.36f), depth);
                 }
                 else
                 {
@@ -386,26 +386,19 @@ public partial class GeneratorPanel : PanelContainer
             _previewImage.SetData(PreviewVerts, PreviewVerts, false, Image.Format.Rgb8, bytes);
             _previewTexture!.Update(_previewImage);
         }
-        _preview.TooltipText = $"Top-down preview, north up. {min:0}–{max:0} m" + (sea ? ", blue below sea level" : "") +
-                               (lakes is null ? "" : $", {lakes.Count} lakes") + $" ({sw.ElapsedMilliseconds} ms)";
+        _preview.TooltipText = $"Top-down preview, north up. {min:0}–{max:0} m. Ground only: no water is placed" +
+                               (sea ? $"; the blue line is the shore at sea level ({_s.SeaLevel:0} m)" : "") +
+                               $" ({sw.ElapsedMilliseconds} ms)";
     }
 
-    private bool _previewLakesFailed;
-
-    /// <summary>Lakes on the preview grid, with the terrain's lake settings (null if the erosion library is missing).</summary>
-    private LakeMap? PreviewLakes(HeightMap map, bool sea)
+    /// <summary>A vertex below sea level with a neighbour at or above it: the shoreline.</summary>
+    private bool IsShore(HeightMap map, int x, int z)
     {
-        if (_previewLakesFailed) return null;
-        try
-        {
-            return Lakes.Find(map, Tools?.Terrain?.LakeSettings ?? new LakeSettings(), sea ? _s.SeaLevel : null);
-        }
-        catch (DllNotFoundException e)
-        {
-            _previewLakesFailed = true;
-            GD.PushWarning($"Generator preview: no lakes ({e.Message})");
-            return null;
-        }
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+                if ((dx | dz) != 0 && map.InBounds(x + dx, z + dz) && map[x + dx, z + dz] >= _s.SeaLevel)
+                    return true;
+        return false;
     }
 
     /// <summary>Generates the full map on a worker thread and puts it on the terrain; a newer Apply supersedes an older one.</summary>

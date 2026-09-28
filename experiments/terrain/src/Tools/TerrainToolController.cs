@@ -8,7 +8,14 @@ using CitySim.WaterSystem;
 
 namespace CitySim.Tools;
 
-public enum TerrainTool { None, Shift, Level, Smooth, Slope, Paint, WaterStream, WaterRiver, WaterLake, WaterSea }
+public enum TerrainTool { None, Shift, Level, Smooth, Slope, Channel, Paint, WaterStream, WaterRiver, WaterLake, WaterSea }
+
+/// <summary>
+/// How the Channel tool sets the height its cross-section hangs from. Follow Ground: the ground along the drag
+/// (smoothed; with Downhill Only it never rises along the stroke). Graded: a straight grade from the start point to the
+/// end point, like the Slope tool, with the cross-section changing from the start profile to the end profile.
+/// </summary>
+public enum ChannelMode { FollowGround, Graded }
 
 /// <summary>How the brush angle is chosen: set by hand, rolled at random on each press, or turned along the drag.</summary>
 public enum BrushRotationMode { Fixed, Random, Follow }
@@ -18,7 +25,8 @@ public enum BrushRotationMode { Fixed, Random, Follow }
 ///
 /// Shift: LMB raise, RMB lower. Level: RMB picks the target height; with none picked, each stroke
 /// levels to the dominant height under the brush. Smooth: LMB. Slope: RMB sets the start point,
-/// LMB-drag builds a ramp from it to where you pressed. Paint: LMB paints <see cref="PaintLayer"/>,
+/// LMB-drag builds a ramp from it to where you pressed. Channel: LMB-drag cuts a cross-section (V, U, flat bed, box)
+/// along the drag, following the ground or (Graded) a grade from the RMB start point to where you pressed. Paint: LMB paints <see cref="PaintLayer"/>,
 /// RMB erases painting (the ground goes back to the automatic layers). Water tools (Stream, River, Lake, Sea) place
 /// and edit water sources; see <see cref="WaterSourceTool"/>.
 /// G toggles the grid, C the contour lines. Brush: [ / ] or Shift+wheel for size, Alt+wheel for strength,
@@ -53,6 +61,13 @@ public partial class TerrainToolController : Node
     private Vector2? _followFrom;
     /// <summary>Where the brush is held while Ctrl + mouse movement rotates it.</summary>
     private Vector3? _rotateHold;
+    private ChannelMode _channelMode;
+    private ChannelProfile _channelStart = new(ChannelShape.Rounded, 40f, 4f), _channelEnd = new(ChannelShape.Rounded, 60f, 5f);
+    private float _channelBank = ChannelOps.DefaultBankDegrees;
+    private bool _channelDownhill = true;
+    private float _channelIntensity = 1f;
+    /// <summary>The Channel stroke's last path point (null before its first tick).</summary>
+    private ChannelPoint? _channelLast;
 
     /// <summary>Degrees of brush rotation per pixel of sideways mouse movement while Ctrl is held.</summary>
     private const float RotateDegreesPerPixel = 0.5f;
@@ -148,6 +163,63 @@ public partial class TerrainToolController : Node
         set { _slopeAnchor = value; Changed(); }
     }
 
+    public ChannelMode ChannelMode
+    {
+        get => _channelMode;
+        set { _channelMode = value; Changed(); }
+    }
+
+    /// <summary>Channel cross-section; in Graded mode the one at the start point.</summary>
+    public ChannelProfile ChannelStart
+    {
+        get => _channelStart;
+        set { _channelStart = ClampProfile(value); Changed(); }
+    }
+
+    /// <summary>Channel cross-section at the end point (Graded mode).</summary>
+    public ChannelProfile ChannelEnd
+    {
+        get => _channelEnd;
+        set { _channelEnd = ClampProfile(value); Changed(); }
+    }
+
+    /// <summary>Angle the Channel's banks rise at beyond its top edge, in degrees.</summary>
+    public float ChannelBankDegrees
+    {
+        get => _channelBank;
+        set { _channelBank = Mathf.Clamp(value, 15f, 85f); Changed(); }
+    }
+
+    /// <summary>Follow Ground: the channel's reference height never rises along a stroke, so its bed runs downhill.</summary>
+    public bool ChannelDownhillOnly
+    {
+        get => _channelDownhill;
+        set { _channelDownhill = value; Changed(); }
+    }
+
+    /// <summary>
+    /// How fast the Channel cuts, 0.1 to 1: at 1 the full profile at once; lower pulls the ground toward it a little each
+    /// tick, so holding still or dragging slowly digs deeper (never past the profile).
+    /// </summary>
+    public float ChannelIntensity
+    {
+        get => _channelIntensity;
+        set { _channelIntensity = Mathf.Clamp(MathF.Round(value * 20f) / 20f, 0.1f, 1f); Changed(); }
+    }
+
+    /// <summary>Share of the way to the profile one tick of the Channel cuts.</summary>
+    private float ChannelAmount(float dt) =>
+        _channelIntensity >= 0.999f ? 1f : 1f - MathF.Exp(-ChannelRate * _channelIntensity * dt);
+
+    /// <summary>Channel cut rate per second, times the intensity (at 50 %: ~2/3 of the way in 0.5 s).</summary>
+    private const float ChannelRate = 4f;
+
+    private static ChannelProfile ClampProfile(ChannelProfile p) =>
+        p with { Width = Mathf.Clamp(p.Width, 4f, 400f), Depth = Mathf.Clamp(p.Depth, 0.5f, 60f) };
+
+    /// <summary>Whether the tool needs a start point set with RMB (Slope, and Channel in Graded mode).</summary>
+    public bool UsesStartPoint => _tool == TerrainTool.Slope || (_tool == TerrainTool.Channel && _channelMode == ChannelMode.Graded);
+
     /// <summary>Steepest angle the Shift tool will build, in degrees.</summary>
     public float MaxSlopeDegrees
     {
@@ -214,7 +286,7 @@ public partial class TerrainToolController : Node
         RotationMode = (BrushRotationMode)(((int)_rotationMode + 1) % Enum.GetValues<BrushRotationMode>().Length);
 
     /// <summary>Whether the current tool uses the brush shape and angle. Slope always uses a round brush.</summary>
-    public bool UsesBrushShape => _tool is not (TerrainTool.None or TerrainTool.Slope) && !IsWaterTool;
+    public bool UsesBrushShape => _tool is not (TerrainTool.None or TerrainTool.Slope or TerrainTool.Channel) && !IsWaterTool;
 
     /// <summary>Switches to a water tool without dropping the selected source (used when a source is selected).</summary>
     public void SelectWaterTool(WaterSourceKind kind)
@@ -267,6 +339,8 @@ public partial class TerrainToolController : Node
             Redo();
         else if (key.Keycode is Key.Bracketleft or Key.Bracketright && IsWaterTool)
             Water.Radius *= key.Keycode == Key.Bracketright ? 1.15f : 1f / 1.15f;
+        else if (key.Keycode is Key.Bracketleft or Key.Bracketright && _tool == TerrainTool.Channel)
+            ChannelStart = _channelStart with { Width = _channelStart.Width * (key.Keycode == Key.Bracketright ? 1.15f : 1f / 1.15f) };
         else if (key.Keycode == Key.Bracketleft && _tool != TerrainTool.None)
             BrushRadius /= 1.15f;
         else if (key.Keycode == Key.Bracketright && _tool != TerrainTool.None)
@@ -307,6 +381,9 @@ public partial class TerrainToolController : Node
             float dir = mb.ButtonIndex == MouseButton.WheelUp ? 1f : -1f;
             if (mb.ShiftPressed && IsWaterTool) Water.Radius *= Mathf.Pow(1.1f, dir);
             else if (IsWaterTool) return;
+            else if (mb.ShiftPressed && _tool == TerrainTool.Channel)
+                ChannelStart = _channelStart with { Width = _channelStart.Width * Mathf.Pow(1.1f, dir) };
+            else if (mb.AltPressed && _tool == TerrainTool.Channel) ChannelIntensity += 0.05f * dir;
             else if (mb.ShiftPressed) BrushRadius *= Mathf.Pow(1.1f, dir);
             else if (mb.AltPressed) BrushStrength += 0.05f * dir;
             else if (mb.CtrlPressed) BrushAngle += 5f * dir;
@@ -347,12 +424,16 @@ public partial class TerrainToolController : Node
                 BeginStroke(mb.ButtonIndex, left ? 1f : -1f);
                 break;
             case TerrainTool.Slope:
+            case TerrainTool.Channel when _channelMode == ChannelMode.Graded:
                 if (!left) SlopeAnchor = hit;
                 else if (_slopeAnchor.HasValue)
                 {
                     _slopeEnd = hit;
                     BeginStroke(mb.ButtonIndex);
                 }
+                break;
+            case TerrainTool.Channel:
+                if (left) BeginStroke(mb.ButtonIndex);
                 break;
         }
     }
@@ -395,10 +476,11 @@ public partial class TerrainToolController : Node
         {
             bool showBrush = _tool != TerrainTool.None && Cursor.HasValue;
             var shape = UsesBrushShape ? BrushLibrary.Get(_brushIndex) : null;
-            Terrain.SetBrush(Cursor ?? Vector3.Zero, _radius, showBrush, shape?.Mask is null ? null : shape.Texture,
+            float ring = _tool == TerrainTool.Channel ? _channelStart.Width * 0.5f : _radius;
+            Terrain.SetBrush(Cursor ?? Vector3.Zero, ring, showBrush, shape?.Mask is null ? null : shape.Texture,
                 Mathf.DegToRad(_brushAngle), UsesBrushShape);
         }
-        Terrain.SetAnchor(_tool == TerrainTool.Slope ? _slopeAnchor : null);
+        Terrain.SetAnchor(UsesStartPoint ? _slopeAnchor : null);
         Terrain.SetContours(_showContours, ContourInterval);
         Terrain.SetGrid(_showGrid);
     }
@@ -458,6 +540,7 @@ public partial class TerrainToolController : Node
         _strokeButton = button;
         _strokeSign = sign;
         _tickAccum = Tick; // apply the first tick immediately
+        _channelLast = null;
         if (_tool == TerrainTool.Level)
             _strokeLevelTarget = _levelTarget
                 ?? SculptOps.DominantHeight(map, ToLocal2(hit), CurrentBrush) + Terrain.GlobalPosition.Y;
@@ -488,6 +571,11 @@ public partial class TerrainToolController : Node
             Terrain.MarkSplatDirty(painted);
             return;
         }
+        if (_tool == TerrainTool.Channel)
+        {
+            CarveChannelTo(map, c, dt);
+            return;
+        }
         float oy = Terrain.GlobalPosition.Y;
         // Every sculpt op stays inside the brush's bounding square.
         History.Touch(map.CircleRect(c.X, c.Y, brush.Radius));
@@ -501,6 +589,65 @@ public partial class TerrainToolController : Node
             _ => VertexRect.Empty,
         };
         Terrain.MarkDirty(rect);
+    }
+
+    /// <summary>
+    /// Extends the Channel stroke's path to <paramref name="p"/> (local) and cuts the new segment; the first tick cuts a
+    /// single stamp. A point closer than an eighth of the width (or a cell) to the last one isn't added to the path (that
+    /// steadies the direction), but below full intensity the segment to it is still cut a little more each tick.
+    /// </summary>
+    private void CarveChannelTo(HeightMap map, System.Numerics.Vector2 p, float dt)
+    {
+        if (Terrain is null) return;
+        float amount = ChannelAmount(dt);
+        bool add = _channelLast is not { } last ||
+                   System.Numerics.Vector2.Distance(last.Position, p) >= MathF.Max(map.CellSize, _channelStart.Width * 0.125f);
+        if (!add && amount >= 1f) return; // already cut to the profile
+        var point = ChannelPointAt(map, p);
+        var from = _channelLast ?? point;
+        History.Touch(ChannelOps.Bounds(map, from, point));
+        Terrain.MarkDirty(ChannelOps.CarveSegment(map, from, point, _channelBank, amount));
+        if (add) _channelLast = point;
+    }
+
+    private ChannelPoint ChannelPointAt(HeightMap map, System.Numerics.Vector2 p)
+    {
+        float oy = Terrain?.GlobalPosition.Y ?? 0f;
+        if (_channelMode == ChannelMode.Graded && _slopeAnchor is { } anchor)
+        {
+            // Progress along start → end, like the Slope tool's ramp: the drag may wander, the grade stays straight.
+            var a = ToLocal2(anchor);
+            var ab = ToLocal2(_slopeEnd) - a;
+            float lenSq = ab.LengthSquared();
+            float t = lenSq > 1e-6f ? Math.Clamp(System.Numerics.Vector2.Dot(p - a, ab) / lenSq, 0f, 1f) : 1f;
+            float reference = anchor.Y + (_slopeEnd.Y - anchor.Y) * t - oy;
+            return new ChannelPoint(p, reference, ChannelProfile.Lerp(_channelStart, _channelEnd, t));
+        }
+
+        // The ground from before this stroke (so the cut doesn't feed on itself), averaged across the channel.
+        float q = _channelStart.Width * 0.25f;
+        float sample = (OriginalHeight(map, p.X, p.Y) + OriginalHeight(map, p.X - q, p.Y) + OriginalHeight(map, p.X + q, p.Y)
+                        + OriginalHeight(map, p.X, p.Y - q) + OriginalHeight(map, p.X, p.Y + q)) / 5f;
+        float refHeight = sample;
+        if (_channelLast is { } last)
+        {
+            // Smoothed along the path over about a channel width, so small bumps don't make a bumpy bed.
+            float seg = System.Numerics.Vector2.Distance(last.Position, p);
+            refHeight = last.Reference + (sample - last.Reference) * (seg / (seg + _channelStart.Width));
+            if (_channelDownhill) refHeight = MathF.Min(refHeight, last.Reference);
+        }
+        return new ChannelPoint(p, refHeight, _channelStart);
+    }
+
+    /// <summary>Bilinear height at local (x, z) as it was when the current stroke began.</summary>
+    private float OriginalHeight(HeightMap map, float x, float z)
+    {
+        float fx = Math.Clamp(x / map.CellSize, 0f, map.Width - 1), fz = Math.Clamp(z / map.CellSize, 0f, map.Depth - 1);
+        int x0 = Math.Min((int)fx, map.Width - 2), z0 = Math.Min((int)fz, map.Depth - 2);
+        float tx = fx - x0, tz = fz - z0;
+        float h00 = History.StrokeOriginal(x0, z0), h10 = History.StrokeOriginal(x0 + 1, z0);
+        float h01 = History.StrokeOriginal(x0, z0 + 1), h11 = History.StrokeOriginal(x0 + 1, z0 + 1);
+        return (h00 + (h10 - h00) * tx) * (1f - tz) + (h01 + (h11 - h01) * tx) * tz;
     }
 
     public void Undo() => ApplyHistory(History.Undo);
@@ -672,6 +819,118 @@ public partial class TerrainToolController : Node
         ShowContours = true;
         BrushRadius = 60f;
         var cursor = c + new Vector2(20, 120);
+        ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);
+    }
+
+    /// <summary>Runs one Channel stroke along <paramref name="path"/> (local points) and returns the path points it cut.</summary>
+    private System.Collections.Generic.List<ChannelPoint> DemoChannel(System.Collections.Generic.IEnumerable<Vector2> path)
+    {
+        var cut = new System.Collections.Generic.List<ChannelPoint>();
+        if (Terrain is null) return cut;
+        Tool = TerrainTool.Channel;
+        Vector3 At(Vector2 p) => new(p.X, Terrain.GetHeight(p.X, p.Y), p.Y);
+        bool first = true;
+        foreach (var p in path)
+        {
+            if (first)
+            {
+                ForcedCursor = At(p);
+                UpdateCursor();
+                BeginStroke(MouseButton.Left);
+                first = false;
+            }
+            ApplyTick(At(p), Tick);
+            if (_channelLast is { } last && (cut.Count == 0 || cut[^1] != last)) cut.Add(last);
+        }
+        EndStroke();
+        return cut;
+    }
+
+    /// <summary>
+    /// Cuts a winding downhill river (Follow Ground, U) and a graded V → flat-bed channel near the map centre, checks the
+    /// bed never rises, a graded stroke repeated changes nothing, and undo/redo.
+    /// </summary>
+    public void RunChannelDemo()
+    {
+        if (Terrain?.Map is not { } map) return;
+        _map = map;
+        var c = Terrain.Bounds.GetCenter();
+
+        // A winding river: 900 m west → east with two bends.
+        ChannelMode = ChannelMode.FollowGround;
+        ChannelDownhillOnly = true;
+        ChannelIntensity = 1f;
+        ChannelStart = new ChannelProfile(ChannelShape.Rounded, 36f, 4f);
+        var river = new System.Collections.Generic.List<Vector2>();
+        for (int i = 0; i <= 600; i++)
+        {
+            float t = i / 600f;
+            river.Add(c + new Vector2(-450f + 900f * t, 140f * Mathf.Sin(t * Mathf.Tau) - 150f));
+        }
+        var cut = DemoChannel(river);
+        bool downhill = true, reached = true;
+        for (int i = 0; i < cut.Count; i++)
+        {
+            if (i > 0 && cut[i].Reference > cut[i - 1].Reference + 1e-4f) downhill = false;
+            var p = cut[i].Position;
+            if (map.SampleHeight(p.X, p.Y) > cut[i].Reference - cut[i].Profile.Depth + 0.05f) reached = false;
+        }
+
+        // A graded channel: 20 m V at the start, 60 m flat bed at the end, 12 m below a straight grade.
+        ChannelMode = ChannelMode.Graded;
+        ChannelStart = new ChannelProfile(ChannelShape.V, 20f, 3f);
+        ChannelEnd = new ChannelProfile(ChannelShape.FlatBed, 60f, 8f);
+        var a = c + new Vector2(-350f, 250f);
+        var b = c + new Vector2(350f, 180f);
+        SlopeAnchor = new Vector3(a.X, Terrain.GetHeight(a.X, a.Y), a.Y);
+        _slopeEnd = new Vector3(b.X, Terrain.GetHeight(b.X, b.Y), b.Y);
+        var graded = new System.Collections.Generic.List<Vector2>();
+        for (int i = 0; i <= 400; i++)
+        {
+            float t = i / 400f;
+            graded.Add(b.Lerp(a, t) + new Vector2(0f, 60f * Mathf.Sin(t * Mathf.Pi)));
+        }
+        DemoChannel(graded);
+        var once = map.Snapshot();
+        DemoChannel(graded);
+        bool repeatSame = map.Snapshot().AsSpan().SequenceEqual(once);
+        Undo();
+
+        // Undo/redo self-check on an extra stroke.
+        ChannelMode = ChannelMode.FollowGround;
+        var before = map.Snapshot();
+        DemoChannel([c + new Vector2(-100f, 0f), c + new Vector2(0f, 20f), c + new Vector2(100f, 0f)]);
+        var after = map.Snapshot();
+        Undo();
+        bool undoOk = map.Snapshot().AsSpan().SequenceEqual(before);
+        Redo();
+        bool redoOk = map.Snapshot().AsSpan().SequenceEqual(after);
+        Undo();
+        // Intensity: at 30 % one tick digs part of the way, holding still reaches the profile.
+        ChannelIntensity = 0.3f;
+        var spot = c + new Vector2(300f, -450f);
+        var local = ToLocal2(new Vector3(spot.X, 0f, spot.Y));
+        float ground = map.SampleHeight(local.X, local.Y);
+        var tap = DemoChannel([spot]);
+        float oneTick = ground - map.SampleHeight(local.X, local.Y);
+        Undo();
+        var hold = DemoChannel(System.Linq.Enumerable.Repeat(spot, 240));
+        float held = ground - map.SampleHeight(local.X, local.Y);
+        Undo();
+        ChannelIntensity = 1f;
+        DemoChannel([spot]);
+        float full = ground - map.SampleHeight(local.X, local.Y);
+        Undo();
+        bool gradual = tap.Count == 1 && hold.Count == 1 && oneTick > 0.01f && oneTick < 0.2f * full && MathF.Abs(held - full) < 0.05f;
+        GD.Print($"Demo channel: {cut.Count} river points, bed downhill {(downhill ? "ok" : "FAILED")}, " +
+                 $"cut to depth {(reached ? "ok" : "FAILED")}, graded repeat unchanged {(repeatSame ? "ok" : "FAILED")}, " +
+                 $"undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}, " +
+                 $"intensity 30 % ({oneTick:0.00} m in a tick, {held:0.00} of {full:0.0} m held) {(gradual ? "ok" : "FAILED")}");
+        GD.Print($"Demo channel: river {c.X - 450f:0},{c.Y - 150f:0} → {c.X + 450f:0},{c.Y - 150f:0}, " +
+                 $"graded {a.X:0},{a.Y:0} → {b.X:0},{b.Y:0}");
+
+        ShowContours = true;
+        var cursor = c + new Vector2(0f, 400f);
         ForcedCursor = new Vector3(cursor.X, Terrain.GetHeight(cursor.X, cursor.Y), cursor.Y);
     }
 

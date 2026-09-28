@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using CitySim.TerrainSystem;
+using CitySim.TerrainSystem.Sculpt;
 using CitySim.Tools;
 using CitySim.WaterSystem;
 
@@ -31,6 +32,16 @@ public partial class ConfigPanel : PanelContainer
     private readonly Button _rotationMode = new() { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(64, 24) };
     private readonly Control[] _rotationRow;
     private readonly Control[] _sizeRow, _strengthRow;
+    // Channel tool.
+    private readonly Button _channelMode = new() { FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(110, 24),
+        TooltipText = "Follow Ground: the channel follows the ground under the drag\nGraded: a straight grade from the start point (right-click) to where you press, changing from the start to the end cross-section" };
+    private readonly Label _channelWidth = NewValueLabel(), _channelDepth = NewValueLabel(), _channelEndWidth = NewValueLabel(),
+        _channelEndDepth = NewValueLabel(), _channelBank = NewValueLabel(), _channelIntensity = NewValueLabel();
+    private readonly Button[] _channelShapes = new Button[4], _channelEndShapes = new Button[4];
+    private readonly CheckButton _channelDownhill = new() { Flat = true, FocusMode = FocusModeEnum.None,
+        TooltipText = "The channel bed never rises along a stroke: drag downstream, and humps are cut through" };
+    private readonly Control[] _channelModeRow, _channelShapeRow, _channelWidthRow, _channelDepthRow, _channelEndShapeRow,
+        _channelEndWidthRow, _channelEndDepthRow, _channelBankRow, _channelDownhillRow, _channelIntensityRow;
     // Water tools.
     private readonly Label _waterRadius = NewValueLabel(), _flowRate = NewValueLabel(), _pollution = NewValueLabel(), _waterDepth = NewValueLabel(),
         _targetLevel = NewValueLabel(), _maxFlow = NewValueLabel(), _seaLevel = NewValueLabel();
@@ -91,6 +102,35 @@ public partial class ConfigPanel : PanelContainer
         _slopeRow = AddRow(grid, "Start Point", ValueWithButton(_slopeAnchor, "Clear",
             "Clear the slope start point", () => Tools(t => t.SlopeAnchor = null)));
 
+        _channelMode.Pressed += () => Tools(t => t.ChannelMode = t.ChannelMode == ChannelMode.Graded ? ChannelMode.FollowGround : ChannelMode.Graded);
+        _channelModeRow = AddRow(grid, "Mode", _channelMode);
+        _channelIntensityRow = AddRow(grid, "Intensity", Stepper(_channelIntensity,
+            () => Tools(t => t.ChannelIntensity -= 0.1f),
+            () => Tools(t => t.ChannelIntensity += 0.1f)));
+        _channelIntensityRow[0].TooltipText = _channelIntensityRow[1].TooltipText =
+            "How fast the channel is cut: 100 % cuts the full profile at once; lower digs gradually while you hold or drag slowly";
+        _channelShapeRow = AddRow(grid, "Shape", ShapePicker(_channelShapes, (t, sh) => t.ChannelStart = t.ChannelStart with { Shape = sh }));
+        _channelWidthRow = AddRow(grid, "Width", Stepper(_channelWidth,
+            () => Tools(t => t.ChannelStart = t.ChannelStart with { Width = WidthStep(t.ChannelStart.Width, -1) }),
+            () => Tools(t => t.ChannelStart = t.ChannelStart with { Width = WidthStep(t.ChannelStart.Width, +1) })));
+        _channelDepthRow = AddRow(grid, "Depth", Stepper(_channelDepth,
+            () => Tools(t => t.ChannelStart = t.ChannelStart with { Depth = DepthStep(t.ChannelStart.Depth, -1) }),
+            () => Tools(t => t.ChannelStart = t.ChannelStart with { Depth = DepthStep(t.ChannelStart.Depth, +1) })));
+        _channelEndShapeRow = AddRow(grid, "End Shape", ShapePicker(_channelEndShapes, (t, sh) => t.ChannelEnd = t.ChannelEnd with { Shape = sh }));
+        _channelEndWidthRow = AddRow(grid, "End Width", Stepper(_channelEndWidth,
+            () => Tools(t => t.ChannelEnd = t.ChannelEnd with { Width = WidthStep(t.ChannelEnd.Width, -1) }),
+            () => Tools(t => t.ChannelEnd = t.ChannelEnd with { Width = WidthStep(t.ChannelEnd.Width, +1) })));
+        _channelEndDepthRow = AddRow(grid, "End Depth", Stepper(_channelEndDepth,
+            () => Tools(t => t.ChannelEnd = t.ChannelEnd with { Depth = DepthStep(t.ChannelEnd.Depth, -1) }),
+            () => Tools(t => t.ChannelEnd = t.ChannelEnd with { Depth = DepthStep(t.ChannelEnd.Depth, +1) })));
+        _channelBankRow = AddRow(grid, "Banks", Stepper(_channelBank,
+            () => Tools(t => t.ChannelBankDegrees -= 5f),
+            () => Tools(t => t.ChannelBankDegrees += 5f)));
+        _channelBankRow[0].TooltipText = _channelBankRow[1].TooltipText =
+            "Angle the ground rises at beyond the channel's top edge, where it cuts into higher ground";
+        _channelDownhill.Toggled += on => Tools(t => t.ChannelDownhillOnly = on);
+        _channelDownhillRow = AddRow(grid, "Downhill Only", _channelDownhill);
+
         _waterRadiusRow = AddRow(grid, "Radius", Stepper(_waterRadius,
             () => Tools(t => t.Water.Radius = SizeStep(t.Water.Radius, -1)),
             () => Tools(t => t.Water.Radius = SizeStep(t.Water.Radius, +1))));
@@ -135,8 +175,37 @@ public partial class ConfigPanel : PanelContainer
         _title.Text = tool == TerrainTool.Paint ? $"Paint: {_tools.PaintMaterial?.Label ?? "?"}"
             : water is { } k ? WaterSource.Label(k) + (w.SelectedSource is { } sel && sel.Kind == k ? $" #{sel.Id} (selected)" : "")
             : tool.ToString();
-        foreach (var c in _sizeRow) c.Visible = water is null;
-        foreach (var c in _strengthRow) c.Visible = water is null;
+        bool channel = tool == TerrainTool.Channel, graded = channel && _tools.ChannelMode == ChannelMode.Graded;
+        foreach (var c in _sizeRow) c.Visible = water is null && !channel;
+        foreach (var c in _strengthRow) c.Visible = water is null && !channel;
+        foreach (var c in _channelModeRow) c.Visible = channel;
+        foreach (var c in _channelShapeRow) c.Visible = channel;
+        foreach (var c in _channelIntensityRow) c.Visible = channel;
+        _channelIntensity.Text = $"{_tools.ChannelIntensity * 100f:0} %";
+        foreach (var c in _channelWidthRow) c.Visible = channel;
+        foreach (var c in _channelDepthRow) c.Visible = channel;
+        foreach (var c in _channelBankRow) c.Visible = channel;
+        foreach (var c in _channelEndShapeRow) c.Visible = graded;
+        foreach (var c in _channelEndWidthRow) c.Visible = graded;
+        foreach (var c in _channelEndDepthRow) c.Visible = graded;
+        foreach (var c in _channelDownhillRow) c.Visible = channel && !graded;
+        ((Label)_channelShapeRow[0]).Text = graded ? "Start Shape" : "Shape";
+        ((Label)_channelWidthRow[0]).Text = graded ? "Start Width" : "Width";
+        ((Label)_channelDepthRow[0]).Text = graded ? "Start Depth" : "Depth";
+        _channelMode.Text = graded ? "Graded" : "Follow Ground";
+        var cs = _tools.ChannelStart;
+        var ce = _tools.ChannelEnd;
+        for (int i = 0; i < _channelShapes.Length; i++)
+        {
+            _channelShapes[i].SetPressedNoSignal(i == (int)cs.Shape);
+            _channelEndShapes[i].SetPressedNoSignal(i == (int)ce.Shape);
+        }
+        _channelWidth.Text = $"{cs.Width:0.#} m";
+        _channelDepth.Text = $"{cs.Depth:0.#} m";
+        _channelEndWidth.Text = $"{ce.Width:0.#} m";
+        _channelEndDepth.Text = $"{ce.Depth:0.#} m";
+        _channelBank.Text = $"{_tools.ChannelBankDegrees:0}°";
+        _channelDownhill.SetPressedNoSignal(_tools.ChannelDownhillOnly);
         foreach (var c in _waterRadiusRow) c.Visible = water is not null and not WaterSourceKind.Sea;
         foreach (var c in _flowRateRow) c.Visible = water == WaterSourceKind.Stream;
         foreach (var c in _pollutionRow) c.Visible = water == WaterSourceKind.Stream;
@@ -176,7 +245,7 @@ public partial class ConfigPanel : PanelContainer
         foreach (var c in _levelRow) c.Visible = tool == TerrainTool.Level;
         _levelTarget.Text = _tools.LevelTarget is { } h ? $"{h:0.0} m" : "Auto";
 
-        foreach (var c in _slopeRow) c.Visible = tool == TerrainTool.Slope;
+        foreach (var c in _slopeRow) c.Visible = _tools.UsesStartPoint;
         _slopeAnchor.Text = _tools.SlopeAnchor is { } a ? $"{a.Y:0.0} m" : "Not set";
 
         _hint.Text = tool switch
@@ -188,6 +257,10 @@ public partial class ConfigPanel : PanelContainer
             TerrainTool.Slope => _tools.SlopeAnchor.HasValue
                 ? "Left-press at the end point and drag along the ramp · Right-click: move start"
                 : "Right-click to set the start point",
+            TerrainTool.Channel when graded => _tools.SlopeAnchor.HasValue
+                ? "Left-press at the end point and drag along the route · Right-click: move start"
+                : "Right-click to set the start point",
+            TerrainTool.Channel => "Left-drag: cut a channel along the drag" + (_tools.ChannelDownhillOnly ? " (drag downstream)" : ""),
             TerrainTool.WaterStream => "Adds a constant flow of water.",
             TerrainTool.WaterRiver => "Holds a constant level; water flows in or out. Near the border it snaps onto it.",
             TerrainTool.WaterLake => "Fills to its level at up to Max Flow; never drains.",
@@ -197,6 +270,7 @@ public partial class ConfigPanel : PanelContainer
             ? "\nLeft-click: place · click a source: select, drag: move · Right-click a source: remove"
               + (water == WaterSourceKind.Stream ? "" : " · Right-click ground: pick elevation")
               + "\n[ ] or Shift+wheel: radius · Esc: deselect"
+            : channel ? "\n[ ] or Shift+wheel: width · Alt+wheel: intensity · Only cuts down, never fills"
             : "\n[ ] or Shift+wheel: size · Alt+wheel: strength")
           + (_tools.UsesBrushShape ? "\nCtrl+move mouse: rotate · Ctrl+Q/E: 15° steps" : "")
           + "\nC: contours · G: grid · Ctrl/Cmd+Z: undo";
@@ -223,6 +297,42 @@ public partial class ConfigPanel : PanelContainer
         float step = probe < 200f ? 10f : probe < 400f ? 20f : 50f;
         float snapped = dir > 0 ? Mathf.Floor(r / step + 1.001f) * step : Mathf.Ceil(r / step - 1.001f) * step;
         return snapped;
+    }
+
+    /// <summary>Channel width steps: 2 m up to 20 m, 5 m up to 50 m, 10 m up to 200 m, then 20 m.</summary>
+    private static float WidthStep(float w, int dir) => Snap(w, dir, w < 20f || (dir < 0 && w <= 20f) ? 2f
+        : w < 50f || (dir < 0 && w <= 50f) ? 5f : w < 200f || (dir < 0 && w <= 200f) ? 10f : 20f);
+
+    /// <summary>Channel depth steps: 0.5 m up to 5 m, 1 m up to 20 m, then 5 m.</summary>
+    private static float DepthStep(float d, int dir) => Snap(d, dir, d < 5f || (dir < 0 && d <= 5f) ? 0.5f
+        : d < 20f || (dir < 0 && d <= 20f) ? 1f : 5f);
+
+    private static float Snap(float v, int dir, float step) =>
+        dir > 0 ? Mathf.Floor(v / step + 1.001f) * step : Mathf.Ceil(v / step - 1.001f) * step;
+
+    /// <summary>One toggle per <see cref="ChannelShape"/>, drawn as its cross-section.</summary>
+    private Control ShapePicker(Button[] buttons, Action<TerrainToolController, ChannelShape> pick)
+    {
+        (string Icon, string Tip)[] shapes =
+        [
+            ("channel_v", "V: straight sides meeting at the bottom"),
+            ("channel_rounded", "U: a rounded bed, like a natural river"),
+            ("channel_flatbed", "Flat bed: a flat bottom with sloped sides"),
+            ("channel_box", "Box: a flat bottom with vertical walls, like a canal"),
+        ];
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 4);
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var shape = (ChannelShape)i;
+            var b = new Button { ToggleMode = true, FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(44, 32),
+                Icon = GD.Load<Texture2D>($"res://assets/icons/{shapes[i].Icon}.svg"), ExpandIcon = true,
+                IconAlignment = HorizontalAlignment.Center, TooltipText = shapes[i].Tip };
+            b.Pressed += () => Tools(t => pick(t, shape));
+            buttons[i] = b;
+            row.AddChild(b);
+        }
+        return row;
     }
 
     /// <summary>A wrapping row of thumbnail toggles, one per <see cref="BrushLibrary"/> entry.</summary>

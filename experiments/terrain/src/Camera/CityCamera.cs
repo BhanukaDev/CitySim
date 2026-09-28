@@ -295,7 +295,8 @@ public partial class CityCamera : Node3D
 	}
 
 	/// <summary>
-	/// How far the camera must rise so every point on the line to the pivot clears the terrain.
+	/// How far the camera must rise so every point on the line to the pivot clears the terrain,
+	/// and the camera itself clears the water (under the surface the water isn't drawn, it's one-sided).
 	/// Raising the camera by L raises the point a fraction f along the line by L*f.
 	/// </summary>
 	private float RequiredLift(float horiz, float up, float clearance)
@@ -312,6 +313,8 @@ public partial class CityCamera : Node3D
 			float need = Terrain!.GetHeight(x, z) + clearance * f - (o.Y + up * f);
 			lift = Mathf.Max(lift, need / f);
 		}
+		if (Terrain!.GetWaterSurface(o.X + dir.X * horiz, o.Z + dir.Y * horiz) is { } surface)
+			lift = Mathf.Max(lift, surface + clearance - (o.Y + up));
 		return lift;
 	}
 
