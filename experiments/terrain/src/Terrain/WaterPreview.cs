@@ -128,7 +128,7 @@ public partial class WaterPreview : Node3D
         if (r is null)
         {
             _sheet.Visible = false;
-            y = (_terrain?.GetHeight(source.X, source.Z) ?? 0f) + 6f;
+            y = (_terrain?.GetHeightAtMap(source.X, source.Z) ?? 0f) + 6f;
             _label.Text = source.Kind == WaterSourceKind.Sea
                 ? $"Sea at {source.Level:0.0} m: no ground below it at the map edge"
                 : $"{kind} at {source.Level:0.0} m\nNo hollow here: the water runs downhill";
@@ -155,7 +155,6 @@ public partial class WaterPreview : Node3D
         _label.Position = at;
         _label.Modulate = r is { Spills: true } ? new Color(1f, 0.85f, 0.6f) : Colors.White;
         _label.Visible = true;
-        Position = _terrain?.GlobalPosition ?? Vector3.Zero;
     }
 
     public static string Area(float m2) => m2 >= 1e6f ? $"{m2 / 1e6f:0.##} km²" : $"{m2 / 1e4f:0.##} ha";

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "terrain_tool", "label": "Terrain Tool", "type": "Tool", "source_file": "experiments/terrain/assets/icons/terrain.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Generic terrain sculpting and visualization tool"}], "edges": [], "hyperedges": []}

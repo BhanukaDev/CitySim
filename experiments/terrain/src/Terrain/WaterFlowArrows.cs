@@ -92,7 +92,6 @@ public partial class WaterFlowArrows : Node3D
                 count++;
             }
         _multi.VisibleInstanceCount = count;
-        _node.Position = origin;
     }
 
     /// <summary>Blue (slow) through yellow to red (<see cref="FullSpeed"/> and faster).</summary>

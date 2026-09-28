@@ -1,0 +1,1 @@
+{"nodes": [{"id": "texture_spray_tool", "label": "Texture Spray Tool", "type": "Tool", "source_file": "experiments/terrain/addons/terrain_3d/icons/texture_spray.svg", "source_location": "line:149", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Spray/splatter tool for applying textures with randomized falloff pattern"}], "edges": [], "hyperedges": []}

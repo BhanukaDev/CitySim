@@ -1,0 +1,1 @@
+{"nodes": [{"id": "channel_variant_v", "label": "V-Channel Variant", "type": "Component", "source_file": "experiments/terrain/assets/icons/channel_v.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "V-shaped angular channel cross-section variant for steep water flow"}], "edges": [], "hyperedges": []}

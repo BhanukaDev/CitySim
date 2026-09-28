@@ -1,0 +1,1 @@
+{"nodes": [{"id": "hills_brush", "label": "Hills Brush", "type": "Tool", "source_file": "experiments/terrain/assets/brushes/hills.png", "source_location": "line:1", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Brush shape with soft rounded gradient falloff for creating gentle rolling hills"}], "edges": [], "hyperedges": []}

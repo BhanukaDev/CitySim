@@ -12,7 +12,8 @@ namespace CitySim.TerrainSystem;
 /// <see cref="HeightMap"/> and <see cref="SplatMap"/> stay the source of truth; this copies them in once and then pushes
 /// only edited rectangles. Terrain3D's colour map carries our ground masks (<see cref="Erosion.LakeMap.Ground"/>), not colours. Terrain3D regions are square powers of two, so the copy covers the first <c>cells</c>²
 /// vertices: the last row and column of the heightmap are not drawn. Pixels past the map (when the size isn't a
-/// multiple of the region size) are holes.
+/// multiple of the region size) are holes. The regions are centred on the world origin (<see cref="Origin"/>), which halves
+/// the float error at the far edges of big maps; the <c>Terrain</c> node sits at that origin.
 /// </summary>
 public sealed class Terrain3DBridge
 {
@@ -28,6 +29,8 @@ public sealed class Terrain3DBridge
     private readonly GodotObject _material;
     private readonly int _region;
     private readonly int _regionsX, _regionsZ;
+    // Region location of the map's first region: negative, so the map is centred on the world origin.
+    private readonly Vector2I _location;
     // Per region (row-major): the Terrain3DRegion and its height/control/colour Images, edited in place.
     private readonly GodotObject[] _regions;
     private readonly Image[] _heightImages, _controlImages, _colorImages;
@@ -49,6 +52,7 @@ public sealed class Terrain3DBridge
         RenderedZ = renderedZ;
         _regionsX = (renderedX + region - 1) / region;
         _regionsZ = (renderedZ + region - 1) / region;
+        _location = new Vector2I(-(_regionsX / 2), -(_regionsZ / 2));
         _regions = new GodotObject[_regionsX * _regionsZ];
         _heightImages = new Image[_regions.Length];
         _controlImages = new Image[_regions.Length];
@@ -67,13 +71,12 @@ public sealed class Terrain3DBridge
             if (child.Name == NodeName) child.Free();
 
         int cellsX = map.Width - 1, cellsZ = map.Depth - 1;
-        // An edit re-uploads each touched region's whole map, so regions are as small as Terrain3D allows: region locations
-        // run -16..15, so at most 16 regions per side from the origin. 256² up to 4k maps, 512² for the 28.7 km build area.
-        int side = (int)System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(cellsX, cellsZ));
-        int region = Math.Clamp(side / MaxRegionsPerSide, MinRegionSize, 2048);
+        int region = RegionSize(cellsX, cellsZ);
 
         var node = (Node3D)ClassDB.Instantiate("Terrain3D").AsGodotObject();
         node.Name = NodeName;
+        // Terrain3D places regions in world space by their location; keep the node itself out of the parent's transform.
+        node.TopLevel = true;
         node.Set("collision_mode", 0); // DISABLED: queries and raycasts run on HeightMap
         node.Set("vertex_spacing", map.CellSize);
         parent.AddChild(node);
@@ -89,6 +92,28 @@ public sealed class Terrain3DBridge
         bridge._material.Call("enable_shader_override", true);
         bridge.AddRegions(map, splat);
         return bridge;
+    }
+
+    /// <summary>
+    /// Region side in vertices. An edit re-uploads each touched region's whole map, so regions are as small as Terrain3D
+    /// allows: 16 per side fit its region locations (-16..15) once centred with room to spare. 256² up to 4k maps, 512²
+    /// for the 28.7 km build area.
+    /// </summary>
+    private static int RegionSize(int cellsX, int cellsZ)
+    {
+        int side = (int)System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(cellsX, cellsZ));
+        return Math.Clamp(side / MaxRegionsPerSide, MinRegionSize, 2048);
+    }
+
+    /// <summary>
+    /// World XZ of the map's (0, 0) corner: the map is centred on the world origin, on whole regions (Terrain3D draws a
+    /// region at location × region size). The <c>Terrain</c> node goes here, so map and world differ by this offset only.
+    /// </summary>
+    public static Vector2 Origin(HeightMap map)
+    {
+        int cellsX = map.Width - 1, cellsZ = map.Depth - 1, region = RegionSize(cellsX, cellsZ);
+        int regionsX = (cellsX + region - 1) / region, regionsZ = (cellsZ + region - 1) / region;
+        return new Vector2(-(regionsX / 2), -(regionsZ / 2)) * (region * map.CellSize);
     }
 
     /// <summary>Removes the Terrain3D node.</summary>
@@ -126,7 +151,7 @@ public sealed class Terrain3DBridge
                 var region = ClassDB.Instantiate("Terrain3DRegion").AsGodotObject();
                 region.Call("set_region_size", r);
                 region.Call("set_vertex_spacing", map.CellSize);
-                region.Call("set_location", new Vector2I(rx, rz));
+                region.Call("set_location", _location + new Vector2I(rx, rz));
                 region.Call("set_height_map", FloatImage(r, r, MemoryMarshal.AsBytes(heights.AsSpan())));
                 if (painted)
                 {
@@ -289,10 +314,10 @@ public sealed class Terrain3DBridge
     /// <summary>
     /// Points the clipmap at the viewport's camera (call every frame; only calls through when it changes), and gives it
     /// enough LOD levels to reach the farthest ground the camera can see: whichever is nearer, its far plane or the
-    /// farthest map corner. Each level doubles the clipmap's reach and adds a ring of triangles, so the default 7 levels
-    /// (~28 km at 3.5 m cells) are only raised for the whole-map views of big maps.
+    /// farthest map corner (<paramref name="bounds"/>: the map in world XZ). Each level doubles the clipmap's reach and adds
+    /// a ring of triangles, so the default 7 levels (~28 km at 3.5 m cells) are only raised for the whole-map views of big maps.
     /// </summary>
-    public void FollowCamera(Camera3D? camera, Vector2 mapSize)
+    public void FollowCamera(Camera3D? camera, Rect2 bounds)
     {
         if (camera is null) return;
         if (camera != _camera)
@@ -303,7 +328,8 @@ public sealed class Terrain3DBridge
             _cellSize = (float)_node.Get("vertex_spacing").AsDouble();
         }
         var c = camera.GlobalPosition;
-        float dx = Math.Max(Math.Abs(c.X), Math.Abs(c.X - mapSize.X)), dz = Math.Max(Math.Abs(c.Z), Math.Abs(c.Z - mapSize.Y));
+        float dx = Math.Max(Math.Abs(c.X - bounds.Position.X), Math.Abs(c.X - bounds.End.X));
+        float dz = Math.Max(Math.Abs(c.Z - bounds.Position.Y), Math.Abs(c.Z - bounds.End.Y));
         float reach = Math.Min(camera.Far, MathF.Sqrt(dx * dx + dz * dz));
         // Measured reach of the clipmap: about 1.3 × mesh_size × 2^lods vertices from the camera.
         float verts = reach / _cellSize / (1.3f * Math.Max(_meshSize, 8));

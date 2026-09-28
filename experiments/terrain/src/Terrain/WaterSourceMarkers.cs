@@ -65,7 +65,7 @@ public partial class WaterSourceMarkers : Node3D
             _label.Visible = false;
             return;
         }
-        float ground = _terrain.GetHeight(s.X, s.Z);
+        float ground = _terrain.GetHeightAtMap(s.X, s.Z);
         float top = s.Kind == WaterSourceKind.Stream ? ground : Mathf.Max(ground, s.Level);
         var lines = new List<string> { WaterSource.Label(s.Kind) };
         switch (s.Kind)
@@ -102,7 +102,7 @@ public partial class WaterSourceMarkers : Node3D
         foreach (var s in _sim.Sources)
         {
             float radius = s.Kind == WaterSourceKind.Sea ? SeaMarkerRadius : s.Radius;
-            float ground = _terrain.GetHeight(s.X, s.Z);
+            float ground = _terrain.GetHeightAtMap(s.X, s.Z);
             float top = s.Kind == WaterSourceKind.Stream ? ground : Mathf.Max(ground, s.Level);
             var material = new StandardMaterial3D
             {

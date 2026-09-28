@@ -25,6 +25,8 @@ uniform sampler2D pollution : hint_default_black, filter_linear, repeat_disable;
 uniform float cell_size = 3.5;
 /// Map size in metres (set by WaterSurface): the water fades out toward the border, into the terrain's edge fog.
 uniform vec2 map_size = vec2(3584.0);
+/// World XZ of the map's (0, 0) corner (set by WaterSurface): the map is centred on the world origin.
+uniform vec2 map_origin = vec2(0.0);
 uniform float edge_fade = 250.0;
 instance uniform vec2 tile_offset;
 /// Grid spacing of this tile's mesh, in cells (0.5 = two vertices per cell).
@@ -398,7 +400,8 @@ void fragment() {
 	float sp = texture(foam_noise, world_pos.xz / (foam_scale * 0.15) + s * 2.0 + vec2(TIME * 0.11, -TIME * 0.07)).r;
 	sparkle = smoothstep(1.0 - glint_density, 1.0 - glint_density * 0.8, sp) * (1.0 - foam) * fade;
 
-	vec2 to_edge = min(world_pos.xz, map_size - world_pos.xz);
+	vec2 map_xz = world_pos.xz - map_origin;
+	vec2 to_edge = min(map_xz, map_size - map_xz);
 	alpha = max(alpha, foam * 0.95 * film * smoothstep(0.0, 0.03, depth)) * smoothstep(0.0, edge_fade, min(to_edge.x, to_edge.y));
 
 	ALBEDO = mix(water, foam_color, foam);

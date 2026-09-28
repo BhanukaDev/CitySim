@@ -1,0 +1,1 @@
+{"nodes": [{"id": "channel_variant_flatbed", "label": "Flatbed Channel Variant", "type": "Component", "source_file": "experiments/terrain/assets/icons/channel_flatbed.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Trapezoidal flatbed channel cross-section variant with flat bottom"}], "edges": [], "hyperedges": []}

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "plateau_brush", "label": "Plateau Brush", "type": "Tool", "source_file": "experiments/terrain/assets/brushes/plateau.png", "source_location": "line:1", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Brush with flat center and soft edges for creating elevated flat terrain areas"}], "edges": [], "hyperedges": []}

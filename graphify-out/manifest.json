@@ -1,0 +1,668 @@
+{
+  ".vscode/extensions.json": {
+    "mtime": 1790444870.4950173,
+    "seen": 1790634792.932718,
+    "ast_hash": "63b4883612ecd7d31f087434d62d1d44",
+    "semantic_hash": "63b4883612ecd7d31f087434d62d1d44"
+  },
+  ".vscode/launch.json": {
+    "mtime": 1790444870.4410977,
+    "seen": 1790634792.9327202,
+    "ast_hash": "34efc4bb71070e9645700fbaa164b01f",
+    "semantic_hash": "34efc4bb71070e9645700fbaa164b01f"
+  },
+  ".vscode/settings.json": {
+    "mtime": 1790444879.214619,
+    "seen": 1790634792.932721,
+    "ast_hash": "a5f89e4aa21072c49fedaa875a30dbfc",
+    "semantic_hash": "a5f89e4aa21072c49fedaa875a30dbfc"
+  },
+  ".vscode/tasks.json": {
+    "mtime": 1790505963.7276247,
+    "seen": 1790634792.9327219,
+    "ast_hash": "7a2d88cca03ab8b60b20848bcbbc55ea",
+    "semantic_hash": "7a2d88cca03ab8b60b20848bcbbc55ea"
+  },
+  "experiments/terrain/TerrainExp.csproj": {
+    "mtime": 1790470890.767439,
+    "seen": 1790634792.932723,
+    "ast_hash": "38d38d4220a7f125b72aed70c920d13e",
+    "semantic_hash": "38d38d4220a7f125b72aed70c920d13e"
+  },
+  "experiments/terrain/TerrainExp.sln": {
+    "mtime": 1790435589.1719294,
+    "seen": 1790634792.932723,
+    "ast_hash": "1f6f03fde554f9f979a60c35c6d54a57",
+    "semantic_hash": "1f6f03fde554f9f979a60c35c6d54a57"
+  },
+  "experiments/terrain/addons/citysim_themes/ThemeToolsPlugin.cs": {
+    "mtime": 1790505908.7934391,
+    "seen": 1790634792.932724,
+    "ast_hash": "2849ce4bbee7c97db56a4665aa2a20e1",
+    "semantic_hash": "2849ce4bbee7c97db56a4665aa2a20e1"
+  },
+  "experiments/terrain/native/common/parallel.h": {
+    "mtime": 1790511928.1590407,
+    "seen": 1790634792.932724,
+    "ast_hash": "703780a1c1e6210c536632f71bb8ecf8",
+    "semantic_hash": "703780a1c1e6210c536632f71bb8ecf8"
+  },
+  "experiments/terrain/native/erosion/build.sh": {
+    "mtime": 1790470799.9870896,
+    "seen": 1790634792.932725,
+    "ast_hash": "1dc364e245a21d4c555151a97a4de4a7",
+    "semantic_hash": "1dc364e245a21d4c555151a97a4de4a7"
+  },
+  "experiments/terrain/native/erosion/erosion.cpp": {
+    "mtime": 1790521468.1279633,
+    "seen": 1790634792.932726,
+    "ast_hash": "36d697fb1bf5d554da6a417392b3d609",
+    "semantic_hash": "36d697fb1bf5d554da6a417392b3d609"
+  },
+  "experiments/terrain/native/erosion/erosion.h": {
+    "mtime": 1790521468.1285193,
+    "seen": 1790634792.932726,
+    "ast_hash": "3ea7343f7016984c0075427335490dfe",
+    "semantic_hash": "3ea7343f7016984c0075427335490dfe"
+  },
+  "experiments/terrain/native/water/build.sh": {
+    "mtime": 1790516036.8541605,
+    "seen": 1790634792.932727,
+    "ast_hash": "759aeecf5607d2c4c32fa0aba750f949",
+    "semantic_hash": "759aeecf5607d2c4c32fa0aba750f949"
+  },
+  "experiments/terrain/native/water/water.cpp": {
+    "mtime": 1790615226.3946922,
+    "seen": 1790634792.932727,
+    "ast_hash": "baffda914dced75377c798c9f7ad625c",
+    "semantic_hash": "baffda914dced75377c798c9f7ad625c"
+  },
+  "experiments/terrain/native/water/water.h": {
+    "mtime": 1790615242.073518,
+    "seen": 1790634792.932728,
+    "ast_hash": "8dfa7da9fd7c45be83d172bf39d94d95",
+    "semantic_hash": "8dfa7da9fd7c45be83d172bf39d94d95"
+  },
+  "experiments/terrain/src/App/MapSession.cs": {
+    "mtime": 1790511725.580604,
+    "seen": 1790634792.932728,
+    "ast_hash": "89de6869ceedce4c52bb680b38397609",
+    "semantic_hash": "89de6869ceedce4c52bb680b38397609"
+  },
+  "experiments/terrain/src/Camera/CityCamera.cs": {
+    "mtime": 1790630047.991662,
+    "seen": 1790634792.932729,
+    "ast_hash": "e1a685ce4669510d900136d021a8620c",
+    "semantic_hash": "e1a685ce4669510d900136d021a8620c"
+  },
+  "experiments/terrain/src/Debug/DebugOverlay.cs": {
+    "mtime": 1790630047.9924653,
+    "seen": 1790634792.932729,
+    "ast_hash": "fbdfcc7de6810719260628a6ecb602f4",
+    "semantic_hash": "fbdfcc7de6810719260628a6ecb602f4"
+  },
+  "experiments/terrain/src/Debug/ScaleDemo.cs": {
+    "mtime": 1790615276.3700478,
+    "seen": 1790634792.9327302,
+    "ast_hash": "660a63a244e7f51db4b4f9b392d9c5f9",
+    "semantic_hash": "660a63a244e7f51db4b4f9b392d9c5f9"
+  },
+  "experiments/terrain/src/Debug/Terrain3DSpike.cs": {
+    "mtime": 1790462233.1159835,
+    "seen": 1790634792.9327302,
+    "ast_hash": "3592ae1fe500719e7e2f549065b87792",
+    "semantic_hash": "3592ae1fe500719e7e2f549065b87792"
+  },
+  "experiments/terrain/src/Debug/TextureBaker.cs": {
+    "mtime": 1790505157.8372061,
+    "seen": 1790634792.932731,
+    "ast_hash": "b2101b689db298bffc6e2713decb523e",
+    "semantic_hash": "b2101b689db298bffc6e2713decb523e"
+  },
+  "experiments/terrain/src/Debug/WaterDemo.cs": {
+    "mtime": 1790615143.1014993,
+    "seen": 1790634792.932731,
+    "ast_hash": "2915feaf6f296c6c6cef14848687e87d",
+    "semantic_hash": "2915feaf6f296c6c6cef14848687e87d"
+  },
+  "experiments/terrain/src/Terrain/Erosion/ErosionSettings.cs": {
+    "mtime": 1790476346.0663564,
+    "seen": 1790634792.9327319,
+    "ast_hash": "94986527903626e8ec182215dd69d5f2",
+    "semantic_hash": "94986527903626e8ec182215dd69d5f2"
+  },
+  "experiments/terrain/src/Terrain/Erosion/ErosionSim.cs": {
+    "mtime": 1790471561.0203364,
+    "seen": 1790634792.9327328,
+    "ast_hash": "f25189443ed0719e49f858f519fa593a",
+    "semantic_hash": "f25189443ed0719e49f858f519fa593a"
+  },
+  "experiments/terrain/src/Terrain/Erosion/Lakes.cs": {
+    "mtime": 1790476131.734896,
+    "seen": 1790634792.9327328,
+    "ast_hash": "c3bf6ee8188032ee39c389fd60836e97",
+    "semantic_hash": "c3bf6ee8188032ee39c389fd60836e97"
+  },
+  "experiments/terrain/src/Terrain/Erosion/Native.cs": {
+    "mtime": 1790476131.734296,
+    "seen": 1790634792.932734,
+    "ast_hash": "b7071333a14b353fdd3c95bce43c815f",
+    "semantic_hash": "b7071333a14b353fdd3c95bce43c815f"
+  },
+  "experiments/terrain/src/Terrain/Generation/FastNoiseLite.cs": {
+    "mtime": 1790463651.4752307,
+    "seen": 1790634792.932734,
+    "ast_hash": "e30d298e1518c2217d0eb3cefa22bd70",
+    "semantic_hash": "e30d298e1518c2217d0eb3cefa22bd70"
+  },
+  "experiments/terrain/src/Terrain/Generation/GenPresets.cs": {
+    "mtime": 1790476371.9162264,
+    "seen": 1790634792.932735,
+    "ast_hash": "e14e944249246362f845294f893258ef",
+    "semantic_hash": "e14e944249246362f845294f893258ef"
+  },
+  "experiments/terrain/src/Terrain/Generation/GenSettings.cs": {
+    "mtime": 1790630047.9928935,
+    "seen": 1790634792.932735,
+    "ast_hash": "87fb582c8df286ea5e44a45df4ab6484",
+    "semantic_hash": "87fb582c8df286ea5e44a45df4ab6484"
+  },
+  "experiments/terrain/src/Terrain/Generation/HeightmapSampler.cs": {
+    "mtime": 1790459660.0253758,
+    "seen": 1790634792.932736,
+    "ast_hash": "4340fe0730c21ad81d23a55d753828ad",
+    "semantic_hash": "4340fe0730c21ad81d23a55d753828ad"
+  },
+  "experiments/terrain/src/Terrain/Generation/ShapeMask.cs": {
+    "mtime": 1790469552.3793628,
+    "seen": 1790634792.932736,
+    "ast_hash": "8b3c7cb52db5cdbe8317ed7e886ed57e",
+    "semantic_hash": "8b3c7cb52db5cdbe8317ed7e886ed57e"
+  },
+  "experiments/terrain/src/Terrain/Generation/TerrainGen.cs": {
+    "mtime": 1790470582.962598,
+    "seen": 1790634792.932737,
+    "ast_hash": "71e1ee1f8591481e34013de73425780a",
+    "semantic_hash": "71e1ee1f8591481e34013de73425780a"
+  },
+  "experiments/terrain/src/Terrain/HeightMap.cs": {
+    "mtime": 1790613942.307099,
+    "seen": 1790634792.932737,
+    "ast_hash": "0ee2d3da8e9017ff2338c4e56a76899d",
+    "semantic_hash": "0ee2d3da8e9017ff2338c4e56a76899d"
+  },
+  "experiments/terrain/src/Terrain/HeightmapImage.cs": {
+    "mtime": 1790459513.9907131,
+    "seen": 1790634792.932738,
+    "ast_hash": "767fdbd9529268392c4e90ea398d565f",
+    "semantic_hash": "767fdbd9529268392c4e90ea398d565f"
+  },
+  "experiments/terrain/src/Terrain/MapFile.cs": {
+    "mtime": 1790511725.5831254,
+    "seen": 1790634792.932739,
+    "ast_hash": "426a043668e3fee4adff19416f9e3472",
+    "semantic_hash": "426a043668e3fee4adff19416f9e3472"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/Brush.cs": {
+    "mtime": 1790453865.3124833,
+    "seen": 1790634792.932739,
+    "ast_hash": "1f2ff267b9b7e5935c0bff08a52a52e2",
+    "semantic_hash": "1f2ff267b9b7e5935c0bff08a52a52e2"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/BrushMask.cs": {
+    "mtime": 1790453865.2853,
+    "seen": 1790634792.9327402,
+    "ast_hash": "08659c886a7bd4a6be397cd399257b79",
+    "semantic_hash": "08659c886a7bd4a6be397cd399257b79"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/ChannelOps.cs": {
+    "mtime": 1790619065.896076,
+    "seen": 1790634792.9327402,
+    "ast_hash": "58f7efa0358d08e2cb2c0e7487e327bd",
+    "semantic_hash": "58f7efa0358d08e2cb2c0e7487e327bd"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/PaintOps.cs": {
+    "mtime": 1790463248.5752928,
+    "seen": 1790634792.9327412,
+    "ast_hash": "af78f13ea8d86d2268677d590bdf6845",
+    "semantic_hash": "af78f13ea8d86d2268677d590bdf6845"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/SculptOps.cs": {
+    "mtime": 1790454222.7386518,
+    "seen": 1790634792.9327412,
+    "ast_hash": "17e87cd3fef70382b511db8d32d5e554",
+    "semantic_hash": "17e87cd3fef70382b511db8d32d5e554"
+  },
+  "experiments/terrain/src/Terrain/Sculpt/UndoStack.cs": {
+    "mtime": 1790600455.4286594,
+    "seen": 1790634792.9327419,
+    "ast_hash": "6488804c570f31fe641cac090729148d",
+    "semantic_hash": "6488804c570f31fe641cac090729148d"
+  },
+  "experiments/terrain/src/Terrain/SplatMap.cs": {
+    "mtime": 1790505350.8440545,
+    "seen": 1790634792.9327419,
+    "ast_hash": "83fd35cb72a37d30d5d939206582952f",
+    "semantic_hash": "83fd35cb72a37d30d5d939206582952f"
+  },
+  "experiments/terrain/src/Terrain/Terrain.cs": {
+    "mtime": 1790630047.993288,
+    "seen": 1790634792.9327428,
+    "ast_hash": "2c43a51231a17b557d7e7c22d1728005",
+    "semantic_hash": "2c43a51231a17b557d7e7c22d1728005"
+  },
+  "experiments/terrain/src/Terrain/Terrain3DBridge.cs": {
+    "mtime": 1790630047.9947867,
+    "seen": 1790634792.9327428,
+    "ast_hash": "4acbe76bdeb3093ec8c6ebf2c0ac3691",
+    "semantic_hash": "4acbe76bdeb3093ec8c6ebf2c0ac3691"
+  },
+  "experiments/terrain/src/Terrain/TerrainSkirt.cs": {
+    "mtime": 1790630047.9954526,
+    "seen": 1790634792.932744,
+    "ast_hash": "1339764e4bdba5e5f3f6690a6d06d66e",
+    "semantic_hash": "1339764e4bdba5e5f3f6690a6d06d66e"
+  },
+  "experiments/terrain/src/Terrain/Themes/ErosionSlot.cs": {
+    "mtime": 1790521523.8929632,
+    "seen": 1790634792.932744,
+    "ast_hash": "2c4dbbf518956d9f8c37906ae5e8f31e",
+    "semantic_hash": "2c4dbbf518956d9f8c37906ae5e8f31e"
+  },
+  "experiments/terrain/src/Terrain/Themes/TerrainMaterial.cs": {
+    "mtime": 1790505055.6637921,
+    "seen": 1790634792.932745,
+    "ast_hash": "0700e3288fa03221c300d4489186e221",
+    "semantic_hash": "0700e3288fa03221c300d4489186e221"
+  },
+  "experiments/terrain/src/Terrain/Themes/TerrainTheme.cs": {
+    "mtime": 1790521523.8933764,
+    "seen": 1790634792.932745,
+    "ast_hash": "036deaa2ad1a9ab91280063fd8a0ea9a",
+    "semantic_hash": "036deaa2ad1a9ab91280063fd8a0ea9a"
+  },
+  "experiments/terrain/src/Terrain/Themes/ThemeBaker.cs": {
+    "mtime": 1790505134.4049714,
+    "seen": 1790634792.932746,
+    "ast_hash": "d4e4d0c3a6a4dfd351813073d6a17fcc",
+    "semantic_hash": "d4e4d0c3a6a4dfd351813073d6a17fcc"
+  },
+  "experiments/terrain/src/Terrain/Themes/ThemeLibrary.cs": {
+    "mtime": 1790506765.5962813,
+    "seen": 1790634792.932746,
+    "ast_hash": "8c2ad53c04b0d6127030823081fa22fe",
+    "semantic_hash": "8c2ad53c04b0d6127030823081fa22fe"
+  },
+  "experiments/terrain/src/Terrain/VertexRect.cs": {
+    "mtime": 1790443532.9376998,
+    "seen": 1790634792.9327471,
+    "ast_hash": "f515188c7281e228ff09f88e80c9fe46",
+    "semantic_hash": "f515188c7281e228ff09f88e80c9fe46"
+  },
+  "experiments/terrain/src/Terrain/WaterFlowArrows.cs": {
+    "mtime": 1790521578.5752816,
+    "seen": 1790634792.9327471,
+    "ast_hash": "554345167f6f9d4600107028097f247e",
+    "semantic_hash": "554345167f6f9d4600107028097f247e"
+  },
+  "experiments/terrain/src/Terrain/WaterPreview.cs": {
+    "mtime": 1790614259.494263,
+    "seen": 1790634792.932748,
+    "ast_hash": "0c25bc9841ae92153acde30ce7c5979d",
+    "semantic_hash": "0c25bc9841ae92153acde30ce7c5979d"
+  },
+  "experiments/terrain/src/Terrain/WaterSourceMarkers.cs": {
+    "mtime": 1790521712.6450772,
+    "seen": 1790634792.932748,
+    "ast_hash": "88421f8efd9cf2e1b2aa458da2709e61",
+    "semantic_hash": "88421f8efd9cf2e1b2aa458da2709e61"
+  },
+  "experiments/terrain/src/Terrain/WaterSurface.cs": {
+    "mtime": 1790614327.341202,
+    "seen": 1790634792.932749,
+    "ast_hash": "54e332decf53b9fbb296eae8e15f77fb",
+    "semantic_hash": "54e332decf53b9fbb296eae8e15f77fb"
+  },
+  "experiments/terrain/src/Tools/BrushLibrary.cs": {
+    "mtime": 1790454117.7780738,
+    "seen": 1790634792.93275,
+    "ast_hash": "4d06522c8c96e2ee9c213d1f3351ffef",
+    "semantic_hash": "4d06522c8c96e2ee9c213d1f3351ffef"
+  },
+  "experiments/terrain/src/Tools/TerrainToolController.cs": {
+    "mtime": 1790619307.3668745,
+    "seen": 1790634792.93275,
+    "ast_hash": "4594b0e91218bc7242c25a0189b9a4d5",
+    "semantic_hash": "4594b0e91218bc7242c25a0189b9a4d5"
+  },
+  "experiments/terrain/src/Tools/WaterSourceTool.cs": {
+    "mtime": 1790614251.9604769,
+    "seen": 1790634792.9327512,
+    "ast_hash": "703c18e69fc2d1a96ea59c4711379256",
+    "semantic_hash": "703c18e69fc2d1a96ea59c4711379256"
+  },
+  "experiments/terrain/src/UI/BottomBar.cs": {
+    "mtime": 1790459831.7247736,
+    "seen": 1790634792.9327512,
+    "ast_hash": "a0668e61657892585b8844613e5b1c17",
+    "semantic_hash": "a0668e61657892585b8844613e5b1c17"
+  },
+  "experiments/terrain/src/UI/ConfigPanel.cs": {
+    "mtime": 1790619255.7469172,
+    "seen": 1790634792.932752,
+    "ast_hash": "87d222f7789725442a0b83a899652bfc",
+    "semantic_hash": "87d222f7789725442a0b83a899652bfc"
+  },
+  "experiments/terrain/src/UI/ErosionPanel.cs": {
+    "mtime": 1790521451.1072345,
+    "seen": 1790634792.932752,
+    "ast_hash": "ca0a31618221b86d334c6565263e0e0e",
+    "semantic_hash": "ca0a31618221b86d334c6565263e0e0e"
+  },
+  "experiments/terrain/src/UI/GameUi.cs": {
+    "mtime": 1790630047.9957745,
+    "seen": 1790634792.9327528,
+    "ast_hash": "92483e4f3b1e41a736dbaab6eaebb836",
+    "semantic_hash": "92483e4f3b1e41a736dbaab6eaebb836"
+  },
+  "experiments/terrain/src/UI/GeneratorPanel.cs": {
+    "mtime": 1790604484.451311,
+    "seen": 1790634792.9327528,
+    "ast_hash": "b3005ba985f6cd3b3c9ff03620496a16",
+    "semantic_hash": "b3005ba985f6cd3b3c9ff03620496a16"
+  },
+  "experiments/terrain/src/UI/MainMenu.cs": {
+    "mtime": 1790615437.1375067,
+    "seen": 1790634792.9327538,
+    "ast_hash": "8353bc9f6e278f201f4b71af7debb5d6",
+    "semantic_hash": "8353bc9f6e278f201f4b71af7debb5d6"
+  },
+  "experiments/terrain/src/UI/MapFiles.cs": {
+    "mtime": 1790511725.5857801,
+    "seen": 1790634792.9327538,
+    "ast_hash": "2294a6eaba06b901685d5442a770336b",
+    "semantic_hash": "2294a6eaba06b901685d5442a770336b"
+  },
+  "experiments/terrain/src/UI/PauseMenu.cs": {
+    "mtime": 1790511725.5883782,
+    "seen": 1790634792.932755,
+    "ast_hash": "d443df2e68cf14b7586d0e4f99172d79",
+    "semantic_hash": "d443df2e68cf14b7586d0e4f99172d79"
+  },
+  "experiments/terrain/src/UI/ThemePanel.cs": {
+    "mtime": 1790505828.100949,
+    "seen": 1790634792.932755,
+    "ast_hash": "a94a9f242477abdf8c322cde0943ed59",
+    "semantic_hash": "a94a9f242477abdf8c322cde0943ed59"
+  },
+  "experiments/terrain/src/UI/ToolCatalog.cs": {
+    "mtime": 1790619267.1947255,
+    "seen": 1790634792.932756,
+    "ast_hash": "6f27af8117cf8c526b709ef1fffd0a3d",
+    "semantic_hash": "6f27af8117cf8c526b709ef1fffd0a3d"
+  },
+  "experiments/terrain/src/UI/ToolPanel.cs": {
+    "mtime": 1790444164.8387172,
+    "seen": 1790634792.932756,
+    "ast_hash": "97f8d96c2d78be89e92ef336bee578be",
+    "semantic_hash": "97f8d96c2d78be89e92ef336bee578be"
+  },
+  "experiments/terrain/src/UI/UiTheme.cs": {
+    "mtime": 1790447396.269259,
+    "seen": 1790634792.932757,
+    "ast_hash": "0c2ab01f9d324d50179c9e9ee72f1efa",
+    "semantic_hash": "0c2ab01f9d324d50179c9e9ee72f1efa"
+  },
+  "experiments/terrain/src/UI/WaterPanel.cs": {
+    "mtime": 1790614266.7508936,
+    "seen": 1790634792.932757,
+    "ast_hash": "f38221b33fe15e8c71d2a382a1b3b93d",
+    "semantic_hash": "f38221b33fe15e8c71d2a382a1b3b93d"
+  },
+  "experiments/terrain/src/Water/LakeSources.cs": {
+    "mtime": 1790521398.9814014,
+    "seen": 1790634792.932758,
+    "ast_hash": "9e4af46743ba949723db99d3aefc19e7",
+    "semantic_hash": "9e4af46743ba949723db99d3aefc19e7"
+  },
+  "experiments/terrain/src/Water/WaterFile.cs": {
+    "mtime": 1790614033.5215156,
+    "seen": 1790634792.932758,
+    "ast_hash": "4c3c4102666dc01f3364f1323a8260bf",
+    "semantic_hash": "4c3c4102666dc01f3364f1323a8260bf"
+  },
+  "experiments/terrain/src/Water/WaterFlood.cs": {
+    "mtime": 1790521664.9599671,
+    "seen": 1790634792.932759,
+    "ast_hash": "44a91357cd89109590e24cbc4ca3c7e8",
+    "semantic_hash": "44a91357cd89109590e24cbc4ca3c7e8"
+  },
+  "experiments/terrain/src/Water/WaterGrid.cs": {
+    "mtime": 1790613935.531317,
+    "seen": 1790634792.93276,
+    "ast_hash": "ece3474f719b3386552e204e6a840cd4",
+    "semantic_hash": "ece3474f719b3386552e204e6a840cd4"
+  },
+  "experiments/terrain/src/Water/WaterNative.cs": {
+    "mtime": 1790613881.689002,
+    "seen": 1790634792.93276,
+    "ast_hash": "f4d3ab0bd67462e331a4d9519514070c",
+    "semantic_hash": "f4d3ab0bd67462e331a4d9519514070c"
+  },
+  "experiments/terrain/src/Water/WaterSim.cs": {
+    "mtime": 1790615437.1379342,
+    "seen": 1790634792.9327612,
+    "ast_hash": "80ada13a8681eecf1b698203e56ca15a",
+    "semantic_hash": "80ada13a8681eecf1b698203e56ca15a"
+  },
+  "experiments/terrain/src/Water/WaterSource.cs": {
+    "mtime": 1790521249.9231286,
+    "seen": 1790634792.9327612,
+    "ast_hash": "ffc7f9c748223645d1eb87fc25eaa856",
+    "semantic_hash": "ffc7f9c748223645d1eb87fc25eaa856"
+  },
+  "experiments/terrain/tools/fetch_brushes.sh": {
+    "mtime": 1790453961.4062786,
+    "seen": 1790634792.9327621,
+    "ast_hash": "ae0c3ae6794c9ae2b13c86f416c500a7",
+    "semantic_hash": "ae0c3ae6794c9ae2b13c86f416c500a7"
+  },
+  "experiments/terrain/tools/fetch_textures.sh": {
+    "mtime": 1790505647.5445485,
+    "seen": 1790634792.9327621,
+    "ast_hash": "9e5a152f5218d0a70356f8c173fd5812",
+    "semantic_hash": "9e5a152f5218d0a70356f8c173fd5812"
+  },
+  "CLAUDE.md": {
+    "mtime": 1790438213.0907989,
+    "seen": 1790634792.9327629,
+    "ast_hash": "70102e7de2d3e1f5d0e690b707632c46",
+    "semantic_hash": "70102e7de2d3e1f5d0e690b707632c46"
+  },
+  "experiments/terrain/README.md": {
+    "mtime": 1790512797.8377628,
+    "seen": 1790634792.9327629,
+    "ast_hash": "a9a4bb7029e77faa552e849e96f4da26",
+    "semantic_hash": "a9a4bb7029e77faa552e849e96f4da26"
+  },
+  "experiments/terrain/ROADMAP.md": {
+    "mtime": 1790630348.4965792,
+    "seen": 1790634792.9327638,
+    "ast_hash": "a80c2b6c3e97e2e28dca6a7021dd2d30",
+    "semantic_hash": "a80c2b6c3e97e2e28dca6a7021dd2d30"
+  },
+  "experiments/terrain/addons/terrain_3d/README.md": {
+    "mtime": 1790461821.4292324,
+    "seen": 1790634792.9327638,
+    "ast_hash": "5e987aa5e40b8471ba8f30d89209f5bb",
+    "semantic_hash": "5e987aa5e40b8471ba8f30d89209f5bb"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/autoshader.svg": {
+    "mtime": 1790461821.433673,
+    "seen": 1790634792.932765,
+    "ast_hash": "4ac6c5aa595cd99c1b2c63791f6fee23",
+    "semantic_hash": "4ac6c5aa595cd99c1b2c63791f6fee23"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/color_paint.svg": {
+    "mtime": 1790461821.4382203,
+    "seen": 1790634792.932765,
+    "ast_hash": "32f3539514d3b6f8fc4853bb2b7ca765",
+    "semantic_hash": "32f3539514d3b6f8fc4853bb2b7ca765"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_add.svg": {
+    "mtime": 1790461821.4350467,
+    "seen": 1790634792.932766,
+    "ast_hash": "46ad497dcdd9bec95775f76a20dd8cfd",
+    "semantic_hash": "46ad497dcdd9bec95775f76a20dd8cfd"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_div.svg": {
+    "mtime": 1790461821.434152,
+    "seen": 1790634792.932767,
+    "ast_hash": "8c182bf278a3c5fbe65325deb363f4e4",
+    "semantic_hash": "8c182bf278a3c5fbe65325deb363f4e4"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_mul.svg": {
+    "mtime": 1790461821.4405723,
+    "seen": 1790634792.932768,
+    "ast_hash": "1387064caead92b85ac98bf4751812cc",
+    "semantic_hash": "1387064caead92b85ac98bf4751812cc"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_slope.svg": {
+    "mtime": 1790461821.4343631,
+    "seen": 1790634792.932768,
+    "ast_hash": "a3f5762362ede8388b8b6b7af03a411d",
+    "semantic_hash": "a3f5762362ede8388b8b6b7af03a411d"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_smooth.svg": {
+    "mtime": 1790461821.436936,
+    "seen": 1790634792.932769,
+    "ast_hash": "eb34746f6147566ebae24613b4b91618",
+    "semantic_hash": "eb34746f6147566ebae24613b4b91618"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/height_sub.svg": {
+    "mtime": 1790461821.436749,
+    "seen": 1790634792.932769,
+    "ast_hash": "52786a95339cd11476bf861998f44749",
+    "semantic_hash": "52786a95339cd11476bf861998f44749"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/holes.svg": {
+    "mtime": 1790461821.4400527,
+    "seen": 1790634792.93277,
+    "ast_hash": "9660e9aab6d0d308a6c209a1d8f76fac",
+    "semantic_hash": "9660e9aab6d0d308a6c209a1d8f76fac"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/layers.svg": {
+    "mtime": 1790461821.4361513,
+    "seen": 1790634792.93277,
+    "ast_hash": "b2ee2ac0975c764a2a4ee521b3d2b0c8",
+    "semantic_hash": "b2ee2ac0975c764a2a4ee521b3d2b0c8"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/multimesh.svg": {
+    "mtime": 1790461821.4354205,
+    "seen": 1790634792.932771,
+    "ast_hash": "876bc64d9b73d53ae2f3b84bbf529ede",
+    "semantic_hash": "876bc64d9b73d53ae2f3b84bbf529ede"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/navigation.svg": {
+    "mtime": 1790461821.437656,
+    "seen": 1790634792.9327722,
+    "ast_hash": "c7c685c450d765f5b067ca3dbc0df26b",
+    "semantic_hash": "c7c685c450d765f5b067ca3dbc0df26b"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/picker_checked.svg": {
+    "mtime": 1790461821.4372866,
+    "seen": 1790634792.9327722,
+    "ast_hash": "6f1d358e254b4c894b12da7065012f8b",
+    "semantic_hash": "6f1d358e254b4c894b12da7065012f8b"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/region_add.svg": {
+    "mtime": 1790461821.4348722,
+    "seen": 1790634792.932773,
+    "ast_hash": "a5af9d7f72c3780ddac49ad1fd278942",
+    "semantic_hash": "a5af9d7f72c3780ddac49ad1fd278942"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/region_remove.svg": {
+    "mtime": 1790461821.4403946,
+    "seen": 1790634792.932773,
+    "ast_hash": "6aa1b6e0322bb922fcf2be27c15dc79a",
+    "semantic_hash": "6aa1b6e0322bb922fcf2be27c15dc79a"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/texture_paint.svg": {
+    "mtime": 1790461821.430526,
+    "seen": 1790634792.9327738,
+    "ast_hash": "c2299bbbe95c84c24fe5fe9b03325d01",
+    "semantic_hash": "c2299bbbe95c84c24fe5fe9b03325d01"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/texture_spray.svg": {
+    "mtime": 1790461821.4390957,
+    "seen": 1790634792.9327738,
+    "ast_hash": "d0ceffa2af176132189afaf1d54f7c12",
+    "semantic_hash": "d0ceffa2af176132189afaf1d54f7c12"
+  },
+  "experiments/terrain/addons/terrain_3d/icons/wetness.svg": {
+    "mtime": 1790461821.4365556,
+    "seen": 1790634792.932775,
+    "ast_hash": "4d20e82bfdddb52aac090167c1210fa1",
+    "semantic_hash": "4d20e82bfdddb52aac090167c1210fa1"
+  },
+  "experiments/terrain/assets/brushes/hills.png": {
+    "mtime": 1790453976.4358187,
+    "seen": 1790634792.932775,
+    "ast_hash": "2d7b5c9d9341800c3f9317b93b5ccf52",
+    "semantic_hash": "2d7b5c9d9341800c3f9317b93b5ccf52"
+  },
+  "experiments/terrain/assets/brushes/noise.png": {
+    "mtime": 1790453976.773864,
+    "seen": 1790634792.932776,
+    "ast_hash": "8118ff74777e8e56da9d08e6d6a6b8f0",
+    "semantic_hash": "8118ff74777e8e56da9d08e6d6a6b8f0"
+  },
+  "experiments/terrain/assets/brushes/plateau.png": {
+    "mtime": 1790453976.5901792,
+    "seen": 1790634792.932776,
+    "ast_hash": "f72bfee9c6950679fd00f15bc437acf0",
+    "semantic_hash": "f72bfee9c6950679fd00f15bc437acf0"
+  },
+  "experiments/terrain/assets/brushes/talus.png": {
+    "mtime": 1790453976.6768165,
+    "seen": 1790634792.932777,
+    "ast_hash": "1fbfc13c4e7f8d72252531f570f971e9",
+    "semantic_hash": "1fbfc13c4e7f8d72252531f570f971e9"
+  },
+  "experiments/terrain/assets/brushes/terrace.png": {
+    "mtime": 1790453976.76168,
+    "seen": 1790634792.932777,
+    "ast_hash": "80d49652633939aa4f3dca660ade7c03",
+    "semantic_hash": "80d49652633939aa4f3dca660ade7c03"
+  },
+  "experiments/terrain/assets/icons/channel_box.svg": {
+    "mtime": 1790603640.7655137,
+    "seen": 1790634792.932778,
+    "ast_hash": "c940ae3938570d744f78021bcf9a6ce2",
+    "semantic_hash": "c940ae3938570d744f78021bcf9a6ce2"
+  },
+  "experiments/terrain/assets/icons/channel_flatbed.svg": {
+    "mtime": 1790603640.7637954,
+    "seen": 1790634792.932778,
+    "ast_hash": "09b7696fb104844039e9b36e108f182f",
+    "semantic_hash": "09b7696fb104844039e9b36e108f182f"
+  },
+  "experiments/terrain/assets/icons/channel_rounded.svg": {
+    "mtime": 1790603640.761921,
+    "seen": 1790634792.932779,
+    "ast_hash": "e656083ff458adf7202c20e2fbdf0a9f",
+    "semantic_hash": "e656083ff458adf7202c20e2fbdf0a9f"
+  },
+  "experiments/terrain/assets/icons/channel_v.svg": {
+    "mtime": 1790603640.7601235,
+    "seen": 1790634792.93278,
+    "ast_hash": "30b1e8ff637349abd40782c9d543bb5c",
+    "semantic_hash": "30b1e8ff637349abd40782c9d543bb5c"
+  },
+  "experiments/terrain/assets/icons/terrain.svg": {
+    "mtime": 1790447639.212762,
+    "seen": 1790634792.93278,
+    "ast_hash": "86e3d8b60b2c2e128c7527a09e6859a1",
+    "semantic_hash": "86e3d8b60b2c2e128c7527a09e6859a1"
+  }
+}

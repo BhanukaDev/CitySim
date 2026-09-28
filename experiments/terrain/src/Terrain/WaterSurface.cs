@@ -40,7 +40,7 @@ public partial class WaterSurface : Node3D
     private Page?[] _pages = [];
     private ShaderMaterial? _baseMaterial;
     private Aabb _tileAabb;
-    private Vector2 _mapSize;
+    private Vector2 _mapSize, _mapOrigin;
     private ArrayMesh[] _meshes = [];
     private float[] _scratch = [], _pollutionScratch = [];
     private byte[] _bytes = [], _pollutionBytes = [];
@@ -71,6 +71,8 @@ public partial class WaterSurface : Node3D
         float tileMetres = sim.TileSize * sim.CellSize;
         _tileAabb = new Aabb(new Vector3(0, min - 50f, 0), new Vector3(tileMetres, max - min + 250f, tileMetres));
         _mapSize = new Vector2(ground.SizeX, ground.SizeZ);
+        // A child of the Terrain node, which sits at the map's (0, 0) corner.
+        _mapOrigin = new Vector2(GlobalPosition.X, GlobalPosition.Z);
         _pages = new Page?[sim.PagesX * sim.PagesZ];
         Upload(force: true);
     }
@@ -83,6 +85,7 @@ public partial class WaterSurface : Node3D
         mat.SetShaderParameter("blend", 1f);
         mat.SetShaderParameter("cell_size", sim.CellSize);
         mat.SetShaderParameter("map_size", _mapSize);
+        mat.SetShaderParameter("map_origin", _mapOrigin);
         var tiles = new MeshInstance3D?[_tilesPerPage * _tilesPerPage];
         for (int tz = 0; tz < _tilesPerPage; tz++)
             for (int tx = 0; tx < _tilesPerPage; tx++)

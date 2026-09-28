@@ -1,0 +1,1 @@
+{"nodes": [{"id": "channel_variant_rounded", "label": "Rounded Channel Variant", "type": "Component", "source_file": "experiments/terrain/assets/icons/channel_rounded.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "U-shaped smooth rounded channel cross-section variant"}], "edges": [], "hyperedges": []}

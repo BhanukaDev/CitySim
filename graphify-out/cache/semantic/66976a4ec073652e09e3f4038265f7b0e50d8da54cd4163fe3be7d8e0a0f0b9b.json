@@ -1,0 +1,1 @@
+{"nodes": [{"id": "channel_variant_box", "label": "Box Channel Variant", "type": "Component", "source_file": "experiments/terrain/assets/icons/channel_box.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Rectangular cross-section channel shape variant"}], "edges": [], "hyperedges": []}

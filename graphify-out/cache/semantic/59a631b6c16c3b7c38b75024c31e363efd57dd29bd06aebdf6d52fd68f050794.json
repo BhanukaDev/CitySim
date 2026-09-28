@@ -1,0 +1,1 @@
+{"nodes": [{"id": "layer_system", "label": "Layer System", "type": "Component", "source_file": "experiments/terrain/addons/terrain_3d/icons/layers.svg", "source_location": "line:94", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Material and texture layering system showing stacked terrain surfaces"}], "edges": [], "hyperedges": []}

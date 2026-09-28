@@ -68,7 +68,8 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 # --screenshot-zoom=60,120,250 (with --cam): more shots from the same pivot at those distances in one run, sim paused
 #   (out_<distance>.png), for checking how things look as the camera zooms
 # extra flags: --demo-sculpt / --demo-channel / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
-#   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups), --flat[=height] (empty map),
+#   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups; x, z in map metres from the
+#   map's corner, as the HUD pivot shows: the world origin is the map's centre), --flat[=height] (empty map),
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
@@ -79,7 +80,7 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --demo-falls (1.8 km made-up map: plateau sloping 5 %, 25 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
 #   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: no flow arrows),
-#   --preview-at=x,z,level (the Lake placement preview there),
+#   --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, e.g. far out),
 #   --stream-flow=m³/s (the --demo-water stream's flow, default 40), --pollute=kg/s (the --demo-water stream carries pollutant),
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, water memory/speed, then quits),
@@ -753,7 +754,7 @@ User: shallow water (streams, small rivers) changed colour and shape a lot with 
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
 - ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
-### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3d, 3f, 3h done; next 3b)
+### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3b, 3d, 3f, 3h done; next 3c)
 Target (user, revised 2026-09-28): the map **stops at 28,672 m** (8192 cells × 3.5 m, an "8k" heightmap), sculptable and
 buildable, on an 8 GB M1. **No 70 km background**: 28.7 km is already ~2× CS2's buildable side (4096 × 3.5 m ≈ 14.3 km),
 4× its area. The effort goes into quality and performance at 28.7 km instead (phase 3). Why 28.7 km: 3.5 m is CS2's
@@ -802,7 +803,8 @@ Phases (tick off as they land):
     `TerrainChunk` is gone, and so are the splat `ImageTexture`s: the shader reads `SplatMap`'s u32s from Terrain3D's control map.
   - **Region size**: an edit re-uploads each touched region's whole map in `update_maps`, and that upload is most of the push
     cost (1024² regions: 3–10 ms for one brush). Terrain3D's region locations run -16..15, so regions are as small as 16 per
-    side allows: 256² up to 4k maps, 512² at 28.7 km. The map sits at location (0, 0), so the `Terrain` node must stay at the origin.
+    side allows: 256² up to 4k maps, 512² at 28.7 km. *(Since phase 3b the map is centred on the world origin: regions start at
+    location -n/2 and the `Terrain` node moves itself to the map's corner.)*
   - Push (`Terrain._Process`, priority 100): `MarkDirty`/`MarkSplatDirty` union into one rect each. Per touched region a
     sub-rect `Rf` image is `BlitRect`ed into the region's own Image (edited in place), `update_heights` widens its height
     range, then one `update_maps` per map type and `set_edited(false)`. `ReplaceHeights` pushes everything and then
@@ -839,14 +841,31 @@ Phases (tick off as they land):
     `edge_line_pixels` 2 px wide at any distance; new SDK uniforms). Map Editor bottom bar: **Edge Fog** toggle to preview.
     `edge_fog_enabled` is a runtime param, so a theme can't turn it back on. Check: `--cam=260,260,450,30,45` with and
     without `--game`.
-  - [ ] **3b. Float precision check, then centre the map.** No dynamic floating origin (decided, see log). First look:
-    screenshots close up (15–50 m) at the far corner (~28,000, 28,000) vs near (0, 0), terrain and water. Suspects are
-    world-space UVs, not vertices: `water.gdshader` rebuilds `world_pos` from `INV_VIEW_MATRIX` and samples detail normals /
-    foam at `world_pos.xz / scale`. Fix locally (wrap UVs by a period) if it shows. Then centre the map on the world origin
-    (a static shift: Terrain3D locations -4..3 at 512² regions, within its -16..15), which halves the float error (≈2 mm →
-    ≈1 mm at the edge). `HeightMap` and sim data stay map-local; only the map ↔ world conversion gains a half-size offset.
-    Touches: the "`Terrain` node must stay at the origin" rule from phase 2, `terrain_origin` uniforms, water tile offsets,
-    brushes, raycasts, camera bounds, `--cam` coordinates.
+  - [x] **3b. Float precision check, then centre the map** (implemented, waiting for the user to test). No dynamic
+    floating origin (decided, see log).
+    - **Check** (before centring, 28.7 km Rolling Hills): close-ups at 15 m and 40 m of the terrain at (500, 500) and
+      (28200, 28200), magnified crops of the nearest ground, and a 30 m³/s stream (`--stream-at`) seen from 25 m and 120 m
+      at (28150, 28150) vs (600, 600). **Nothing visible**: texture sharpness, white-water streaks and shorelines match. The
+      angular shallow-sheet shorelines show near the origin too (7 m water cells), so they aren't precision. No UV wrapping
+      needed. Expected: a float at 28 km is ≈2 mm; a 1024² texture over a few metres is a few mm per texel.
+    - **Centred**: `Terrain3DBridge.Origin(map)` = −(regions / 2) × region size per axis (28.7 km: −14,336 m, locations
+      −8..7; 3.6 km: −1,792 m). `Terrain.SetMap` moves the node there; the Terrain3D child is `TopLevel` (it places regions
+      by location). `HeightMap`, `SplatMap`, the water sim, sources and map files stay in **map metres** from the map's
+      (0, 0) corner, so files are unchanged. Error at the far edge ≈2 mm → ≈1 mm.
+    - New API: `Terrain.MapToWorld(x, z, y)`, `WorldToMap(world)`, `GetHeightAtMap(x, z)`. Most code already went through
+      `GlobalPosition`/`Bounds`; what didn't, and was only right while the map sat at the origin: water source markers,
+      the placement preview and its brush ring (fed map metres to world queries), the flow arrows and the flood preview
+      (added the terrain's position again under a node that already has it), the water shader's border fade (new
+      `map_origin` uniform), the clipmap LOD reach (now from `Bounds`), and the water demo's tool check.
+    - **`--cam` and the HUD pivot are in map metres** (converted in `DebugOverlay`), so every `--cam=` in this file still
+      frames the same view. New debug flag `--stream-at=x,z,flow` (a Stream source there, map metres).
+    - Checked: `--demo-sculpt`, `--demo-paint`, `--demo-channel`, `--demo-themes`, `--demo-water` (all ok, incl. the tool's
+      border snap); `--demo-camera` same as before (its three first-person checks fail headless, as noted in phase 1);
+      screenshots: whole map in game mode, the water demo with the River tool (markers, arrows, preview), and the far-corner
+      stream (same view as before centring). Known, not new: `--demo-mapfile` throws `ObjectDisposedException` in
+      `Terrain.SetMap` when reloading into the running scene (same on the previous commit).
+    - Side effect: world-space noise (grass patches, edge noise, ripples) now lines up with a different world position,
+      so the same map shows a different but equivalent pattern of patches.
   - [ ] **3c. Performance** (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
     across frames (~10 ms at region corners); overlap the Terrain3D copy with generation/load (> 2 s now); peak footprint
     3.96 GB → < 2.5 GB, leaving room for city systems.
@@ -1005,6 +1024,9 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - 2026-09-28: **optional visual effects get a graphics-settings switch** (user). Features are tried in the experiment,
   then exposed in the game's Graphics settings so players can turn them off. Every new optional effect is built
   switchable from the start (uniform or shader variant, off still looks fine). List: "Graphics settings" above M5.
+- 2026-09-29 (M6 phase 3b): the map is **centred on the world origin** (static, on whole Terrain3D regions); gameplay data
+  (heights, paint, water, sources, files) stays in map metres from the map's corner, and `Terrain.MapToWorld`/`WorldToMap`
+  convert. `--cam` and the HUD use map metres. The precision check at 28 km showed nothing, so no UV wrapping.
 - 2026-09-28 (M6 phase 3f): **looks and feel over physical accuracy** (user: "this is a game not a water sim"). Sim
   changes are judged by close-up screenshots and what players notice, e.g. water cell ground halfway between the
   mean and the lowest vertex, chosen because streams stay in their beds.

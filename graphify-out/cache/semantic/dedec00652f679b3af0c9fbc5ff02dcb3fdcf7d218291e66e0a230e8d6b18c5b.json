@@ -1,0 +1,1 @@
+{"nodes": [{"id": "icon_autoshader", "label": "Autoshader Icon", "type": "Component", "source_file": "experiments/terrain/addons/terrain_3d/icons/autoshader.svg", "source_location": "line:184", "confidence": "MEDIUM", "source_kind": "EXTRACTED", "description": "SVG icon for terrain material/shader with terrain shapes"}], "edges": [], "hyperedges": []}

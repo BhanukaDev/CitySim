@@ -1,0 +1,1 @@
+{"nodes": [{"id": "height_slope_tool", "label": "Height Slope Tool", "type": "Tool", "source_file": "experiments/terrain/addons/terrain_3d/icons/height_slope.svg", "source_location": "line:98", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Tool for creating slope angles and directional terrain modifications"}], "edges": [], "hyperedges": []}

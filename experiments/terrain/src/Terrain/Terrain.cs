@@ -120,10 +120,19 @@ public partial class Terrain : Node3D
     /// <summary>Painted ground layers, one weight set per heightmap vertex.</summary>
     public SplatMap? Splat { get; private set; }
 
-    /// <summary>World-space XZ rectangle covered by the terrain.</summary>
+    /// <summary>World-space XZ rectangle covered by the terrain. The map is centred on the world origin.</summary>
     public Rect2 Bounds => Map is null
         ? new Rect2()
         : new Rect2(GlobalPosition.X, GlobalPosition.Z, Map.SizeX, Map.SizeZ);
+
+    /// <summary>
+    /// World position of a point given in map metres from the map's (0, 0) corner, the space <see cref="HeightMap"/>, the water
+    /// sim and water sources use. The node sits at that corner (<see cref="Terrain3DBridge.Origin"/>), so it's a plain offset.
+    /// </summary>
+    public Vector3 MapToWorld(float x, float z, float y = 0f) => GlobalPosition + new Vector3(x, y, z);
+
+    /// <summary>Map metres (x, z) from the map's (0, 0) corner of a world position.</summary>
+    public Vector2 WorldToMap(Vector3 world) => new(world.X - GlobalPosition.X, world.Z - GlobalPosition.Z);
 
     /// <summary>Time spent pushing edits to Terrain3D in the last frame that had edits.</summary>
     public double LastPushMs { get; private set; }
@@ -243,7 +252,7 @@ public partial class Terrain : Node3D
     public override void _Process(double delta)
     {
         if (_render is null) return;
-        _render.FollowCamera(GetViewport().GetCamera3D(), new Vector2(Bounds.Size.X, Bounds.Size.Y));
+        _render.FollowCamera(GetViewport().GetCamera3D(), Bounds);
         // In the editor, pick up uniforms tuned in the inspector.
         if (Engine.IsEditorHint() && (_paramCopyTimer += delta) > 0.5)
         {
@@ -585,8 +594,9 @@ public partial class Terrain : Node3D
             GD.PushError($"Terrain: no usable terrain theme in {ThemeLibrary.Root} (each needs theme.tres with a shader).");
             return;
         }
-        if (!GlobalPosition.IsZeroApprox())
-            GD.PushWarning("Terrain: Terrain3D draws at the world origin; move the Terrain node to (0, 0, 0).");
+        // Centred on the world origin (halves the float error at the far edges), where Terrain3D draws the regions.
+        var origin = Terrain3DBridge.Origin(map);
+        GlobalPosition = new Vector3(origin.X, 0f, origin.Y);
 
         // Free the old render copy and skirt, including ones left over from an editor script reload.
         _render?.Free();
@@ -636,6 +646,9 @@ public partial class Terrain : Node3D
         var o = GlobalPosition;
         return Map.SampleHeight(worldX - o.X, worldZ - o.Z) + o.Y;
     }
+
+    /// <summary>World height of the ground at a point in map metres (see <see cref="MapToWorld"/>).</summary>
+    public float GetHeightAtMap(float x, float z) => Map is null ? GlobalPosition.Y : Map.SampleHeight(x, z) + GlobalPosition.Y;
 
     public Vector3 GetNormal(float worldX, float worldZ)
     {

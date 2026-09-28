@@ -1,0 +1,2575 @@
+{
+  "nodes": [
+    {
+      "id": "citysim",
+      "label": "CitySim",
+      "type": "Concept",
+      "source_file": "CLAUDE.md",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "City builder in the style of Cities: Skylines, built feature-by-feature with each feature starting as a standalone Godot project under experiments/"
+    },
+    {
+      "id": "terrain_system",
+      "label": "Terrain System",
+      "type": "Feature",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Standalone Godot project for prototyping terrain system including heightmap, rendering, sculpting tools, texturing, and placement queries"
+    },
+    {
+      "id": "heightmap",
+      "label": "HeightMap",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:27",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic height grid with sampling, normal and slope queries using System.Numerics"
+    },
+    {
+      "id": "splatmap",
+      "label": "SplatMap",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:43",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic painted materials with sparse Terrain3D-style control values, theme id and material palette"
+    },
+    {
+      "id": "water_simulation",
+      "label": "Water Simulation",
+      "type": "Feature",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:39",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "C++ water simulation using virtual pipes shallow water with persistent thread pool and C# worker thread integration"
+    },
+    {
+      "id": "water_grid",
+      "label": "WaterGrid",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:39",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Grid-based water data structure for water simulation and queries"
+    },
+    {
+      "id": "water_sim_csharp",
+      "label": "WaterSim",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:39",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "C# worker thread managing water simulation, snapshot queries, and continuous stepping"
+    },
+    {
+      "id": "erosion_system",
+      "label": "Erosion System",
+      "type": "Feature",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:33",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "C++ library for droplet and thermal erosion, draining hollows and finding lakes using Priority-Flood algorithm"
+    },
+    {
+      "id": "lake_map",
+      "label": "LakeMap",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:35",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Computed water depth and underwater queries for detected lakes"
+    },
+    {
+      "id": "terrain_3d",
+      "label": "Terrain3D",
+      "type": "Tool",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:30",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "MIT-licensed GDExtension addon for high-performance terrain rendering in Godot 4"
+    },
+    {
+      "id": "terrain_3d_bridge",
+      "label": "Terrain3DBridge",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:30",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "The only file calling Terrain3D, serving as render copy bridge for HeightMap and SplatMap"
+    },
+    {
+      "id": "city_camera",
+      "label": "CityCamera",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:42",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "City-builder orbit camera system with zoom-dependent behavior, smoothing and edge margin clamp"
+    },
+    {
+      "id": "terrain_theme",
+      "label": "TerrainTheme",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:49",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Theme resource bundling shader, materials and erosion slots, made in Godot editor"
+    },
+    {
+      "id": "theme_library",
+      "label": "ThemeLibrary",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:49",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Finds and manages available terrain themes"
+    },
+    {
+      "id": "theme_baker",
+      "label": "ThemeBaker",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:49",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Bakes texture arrays, previews and shader includes for themes"
+    },
+    {
+      "id": "terrain_material",
+      "label": "TerrainMaterial",
+      "type": "Component",
+      "source_file": "terrain_sdk/README.md",
+      "source_location": "line:19",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Material with texture paths, tint, tiling, triplanar option and detail/normal factors"
+    },
+    {
+      "id": "erosion_slot",
+      "label": "ErosionSlot",
+      "type": "Component",
+      "source_file": "terrain_sdk/README.md",
+      "source_location": "line:28",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Slot for erosion/water features with material, strength, edge, fade, noise and slope settings"
+    },
+    {
+      "id": "paint_ops",
+      "label": "PaintOps",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:45",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Paint and erase brush operations on the splat map"
+    },
+    {
+      "id": "sculpt_ops",
+      "label": "SculptOps",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:128",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic sculpting operations including Shift, Level, Smooth, Slope and DominantHeight"
+    },
+    {
+      "id": "channel_ops",
+      "label": "ChannelOps",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:259",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic channel carving operations for rivers, canals and ditches"
+    },
+    {
+      "id": "brush_mask",
+      "label": "BrushMask",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:247",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic brush mask system with rotation support"
+    },
+    {
+      "id": "brush_library",
+      "label": "BrushLibrary",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:241",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "9 brushes: Soft Round, Ridged, Plateau variants and generated paint alphas"
+    },
+    {
+      "id": "shift_tool",
+      "label": "Shift Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:146",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for raising (LMB) and lowering (RMB) ground with max-slope limit"
+    },
+    {
+      "id": "level_tool",
+      "label": "Level Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:149",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for leveling to target height with falloff-weighted dominant height"
+    },
+    {
+      "id": "smooth_tool",
+      "label": "Smooth Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:150",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for smoothing ground"
+    },
+    {
+      "id": "slope_tool",
+      "label": "Slope Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:150",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for creating ramps between two points"
+    },
+    {
+      "id": "channel_tool",
+      "label": "Channel Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:255",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for cutting channels (rivers, canals) with various profiles (V, U, Flat, Box)"
+    },
+    {
+      "id": "paint_tool",
+      "label": "Paint Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:200",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Texture painting tool with layer buttons, undo-integrated with sculpting"
+    },
+    {
+      "id": "water_source_tool",
+      "label": "Water Source Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:40",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Tool for placing and editing water sources (Stream, River, Lake, Sea)"
+    },
+    {
+      "id": "water_source",
+      "label": "WaterSource",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:573",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water source types: Stream (constant flow), River (holds level), Lake (fills to level), Sea (border control)"
+    },
+    {
+      "id": "stream_source",
+      "label": "Stream Source",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:573",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water source with constant m³/s flow rate"
+    },
+    {
+      "id": "river_source",
+      "label": "River Source",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:573",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water source that holds a level with inflow/outflow capability"
+    },
+    {
+      "id": "lake_source",
+      "label": "Lake Source",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:573",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water source that fills to its level at max flow rate, never drains"
+    },
+    {
+      "id": "sea_source",
+      "label": "Sea Source",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:573",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water source holding every border cell below sea level at sea level"
+    },
+    {
+      "id": "map_file",
+      "label": "MapFile",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:298",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic .csmap file format for saving/loading maps with heights and splat weights"
+    },
+    {
+      "id": "map_session",
+      "label": "MapSession",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:302",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic session management for map requests and mode (MapEditor/Game)"
+    },
+    {
+      "id": "terrain_generator",
+      "label": "TerrainGenerator",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:28",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic generator with noise, flat buildable lowlands, heightmap images and shape presets"
+    },
+    {
+      "id": "gen_settings",
+      "label": "GenSettings",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:337",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Generator configuration records for terrain creation with presets"
+    },
+    {
+      "id": "gen_presets",
+      "label": "GenPresets",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:338",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Preset configurations: Rolling Hills, Mountains, Flat Lowlands, Island, Coast, Archipelago"
+    },
+    {
+      "id": "terrain_skirt",
+      "label": "TerrainSkirt",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:32",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Fog ring mesh hiding map edge with inner loop at terrain border"
+    },
+    {
+      "id": "water_surface",
+      "label": "WaterSurface",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:40",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Renders water surface with displacement, depth tint and shore fade"
+    },
+    {
+      "id": "water_flow_arrows",
+      "label": "WaterFlowArrows",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:676",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "MultiMesh visualization of water flow velocity with color and direction coding"
+    },
+    {
+      "id": "terrain_pan_overlay",
+      "label": "Terrain Overlay",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:111",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "Debug overlay showing FPS and camera info with automated screenshot mode"
+    },
+    {
+      "id": "undo_stack",
+      "label": "UndoStack",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:129",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Unified undo/redo system for sculpting and painting operations"
+    },
+    {
+      "id": "heightmap_image",
+      "label": "HeightmapImage",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:319",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Engine-agnostic 16-bit PNG and RAW heightmap import/export with mapping and resampling"
+    },
+    {
+      "id": "erosion_native",
+      "label": "Erosion Native Library",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:33",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Plain C ABI library for droplet and thermal erosion with no Godot dependencies"
+    },
+    {
+      "id": "water_native",
+      "label": "Water Native Library",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:38",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "C++ water simulation with virtual pipes model and persistent thread pool"
+    },
+    {
+      "id": "godot_4_7_2",
+      "label": "Godot 4.7.2",
+      "type": "Tool",
+      "source_file": "CLAUDE.md",
+      "source_location": "line:7",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": ".NET-enabled Godot engine version with C# support"
+    },
+    {
+      "id": "csharp",
+      "label": "C#",
+      "type": "Concept",
+      "source_file": "CLAUDE.md",
+      "source_location": "line:7",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Primary programming language for CitySim using .NET 9"
+    },
+    {
+      "id": "gdextension",
+      "label": "GDExtension",
+      "type": "Concept",
+      "source_file": "CLAUDE.md",
+      "source_location": "line:7",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Godot plugin system for C++ integration, used for profiled hot paths only"
+    },
+    {
+      "id": "gdshader",
+      "label": "GDShader",
+      "type": "Concept",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:32",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Godot's shading language for terrain rendering, including terrain_skirt and water"
+    },
+    {
+      "id": "terrain_sdk",
+      "label": "Terrain SDK",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:47",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Shader SDK with core includes and contract for theme development"
+    },
+    {
+      "id": "fastnoiselite",
+      "label": "FastNoiseLite",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:338",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Vendored C# noise library (MIT) for terrain generation"
+    },
+    {
+      "id": "default_theme",
+      "label": "Default Theme",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:48",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Built-in terrain theme with grass, dirt, sand, gravel, rock and snow layers"
+    },
+    {
+      "id": "winter_theme",
+      "label": "Winter Theme",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:511",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Demo theme with snow base, drifted snow, frozen grass and ice features"
+    },
+    {
+      "id": "brush_soft_round",
+      "label": "Soft Round Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:241",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Default brush with smoothstep falloff and plateau variant"
+    },
+    {
+      "id": "brush_ridged",
+      "label": "Ridged Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:241",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain stamp brush from Roland09/Terrain-Stamps"
+    },
+    {
+      "id": "brush_plateau",
+      "label": "Plateau Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:241",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain stamp brush for plateau shapes"
+    },
+    {
+      "id": "brush_splatter",
+      "label": "Splatter Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:243",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Generated paint alpha brush with splatter pattern"
+    },
+    {
+      "id": "brush_noise",
+      "label": "Noise Patch Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:243",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Generated paint alpha brush with noise pattern"
+    },
+    {
+      "id": "brush_streaks",
+      "label": "Streaks Brush",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:243",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Generated paint alpha brush with streak pattern"
+    },
+    {
+      "id": "icon_height_add",
+      "label": "Height Add Icon",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_add.svg",
+      "source_location": "line:27",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "SVG icon for raising terrain (red/pink color with mountain and plus symbol)"
+    },
+    {
+      "id": "icon_color_paint",
+      "label": "Color Paint Icon",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/color_paint.svg",
+      "source_location": "line:172",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "SVG icon for color painting with gradient (red-green-blue)"
+    },
+    {
+      "id": "icon_height_smooth",
+      "label": "Height Smooth Icon",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_smooth.svg",
+      "source_location": "line:11",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "SVG icon for smoothing terrain with curved wave pattern"
+    },
+    {
+      "id": "icon_autoshader",
+      "label": "Autoshader Icon",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/autoshader.svg",
+      "source_location": "line:184",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "SVG icon for terrain material/shader with terrain shapes"
+    },
+    {
+      "id": "icon_holes",
+      "label": "Holes Icon",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/holes.svg",
+      "source_location": "line:8",
+      "confidence": "MEDIUM",
+      "source_kind": "EXTRACTED",
+      "description": "SVG icon for creating holes in terrain"
+    },
+    {
+      "id": "ambientcg",
+      "label": "ambientCG",
+      "type": "Tool",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:9",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "CC0 source of 2K ground textures used for terrain materials"
+    },
+    {
+      "id": "terrain_stamps",
+      "label": "Terrain Stamps",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:241",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "MIT-licensed brush textures from Roland09 created with World Creator 2"
+    },
+    {
+      "id": "priority_flood",
+      "label": "Priority-Flood Algorithm",
+      "type": "Concept",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:400",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Optimal depression-filling and watershed-labeling algorithm (Barnes 2014) for finding lakes"
+    },
+    {
+      "id": "hydraulic_erosion",
+      "label": "Hydraulic Erosion",
+      "type": "Concept",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:384",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Droplet erosion simulation based on Beyer 2015 and Sebastian Lague's implementation"
+    },
+    {
+      "id": "virtual_pipes",
+      "label": "Virtual Pipes Shallow Water",
+      "type": "Concept",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:568",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water simulation model from O'Brien & Hodgins 1995 and Mei et al. 2007"
+    },
+    {
+      "id": "erosion_panel",
+      "label": "Erosion Panel",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:36",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "UI panel for configuring and running erosion simulation with lake settings"
+    },
+    {
+      "id": "water_panel",
+      "label": "Water Panel",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:41",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "UI panel for water simulation control with speed, evaporation and source management"
+    },
+    {
+      "id": "generator_panel",
+      "label": "Generator Panel",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:349",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "UI panel for terrain generation with live preview and preset selection"
+    },
+    {
+      "id": "theme_panel",
+      "label": "Theme Panel",
+      "type": "Component",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:51",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "UI panel for selecting and managing terrain themes in Map Editor"
+    },
+    {
+      "id": "menu_scene",
+      "label": "Menu Scene",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:290",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Main menu scene with New Map, Load Map and Quit options"
+    },
+    {
+      "id": "pause_menu",
+      "label": "Pause Menu",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:292",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "In-game pause menu with Save, Load and Quit options"
+    },
+    {
+      "id": "net9",
+      "label": ".NET 9",
+      "type": "Tool",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:21",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Runtime framework for C# code with System.Numerics support"
+    },
+    {
+      "id": "sebastian_lague",
+      "label": "Sebastian Lague",
+      "type": "Concept",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:384",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Author of Hydraulic-Erosion reference implementation (MIT) used in erosion system"
+    },
+    {
+      "id": "cory_petkovsek",
+      "label": "Cory Petkovsek",
+      "type": "Concept",
+      "source_file": "experiments/terrain/addons/terrain_3d/README.md",
+      "source_location": "line:37",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Developer of Terrain3D addon (Tokisan Games)"
+    },
+    {
+      "id": "roope_palmroos",
+      "label": "Roope Palmroos",
+      "type": "Concept",
+      "source_file": "experiments/terrain/addons/terrain_3d/README.md",
+      "source_location": "line:40",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Co-developer of Terrain3D addon (Outobugi Games)"
+    },
+    {
+      "id": "citysim_themes_plugin",
+      "label": "CitySim Themes Plugin",
+      "type": "Tool",
+      "source_file": "experiments/terrain/README.md",
+      "source_location": "line:50",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Godot editor plugin for baking and validating themes"
+    },
+    {
+      "id": "terrain_tool_controller",
+      "label": "TerrainToolController",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:129",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Main controller for terrain editing with 60 Hz tick, strokes and undo/redo"
+    },
+    {
+      "id": "water_source_markers",
+      "label": "WaterSourceMarkers",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:591",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Visual markers and preview information for water sources"
+    },
+    {
+      "id": "erosion_preset_light",
+      "label": "Light Erosion Preset",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:414",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Erosion preset with light intensity settings"
+    },
+    {
+      "id": "erosion_preset_medium",
+      "label": "Medium Erosion Preset",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:414",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Erosion preset with medium intensity settings"
+    },
+    {
+      "id": "erosion_preset_heavy",
+      "label": "Heavy Erosion Preset",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:414",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Erosion preset with heavy intensity settings"
+    },
+    {
+      "id": "map_editor_mode",
+      "label": "Map Editor Mode",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:310",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Editor mode for creating and modifying terrain maps"
+    },
+    {
+      "id": "game_mode",
+      "label": "Game Mode",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:310",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Gameplay mode for testing and playing completed maps"
+    },
+    {
+      "id": "terrain_layers",
+      "label": "Terrain Layers",
+      "type": "Component",
+      "source_file": "experiments/terrain/ROADMAP.md",
+      "source_location": "line:179",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "8 paintable terrain layers: grass, grass_dry, grass_dirt, dirt, gravel, sand, rock, snow"
+    },
+    {
+      "id": "terrain_system",
+      "label": "Terrain System",
+      "type": "Feature",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/terrain3d.svg",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Main terrain 3D system for the editor, representing the core terrain feature with layered landscape visualization"
+    },
+    {
+      "id": "height_map",
+      "label": "Height Map",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons",
+      "source_location": "height_add.svg, height_sub.svg, height_mul.svg, height_div.svg",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Data structure representing terrain elevation values that height tools operate upon"
+    },
+    {
+      "id": "splat_map",
+      "label": "Splat Map",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons",
+      "source_location": "layers.svg, texture_paint.svg",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Texture and material layer mapping system for terrain surfaces"
+    },
+    {
+      "id": "water_grid",
+      "label": "Water Grid",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/wetness.svg",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Water simulation grid for tracking water presence and flow on terrain"
+    },
+    {
+      "id": "height_add_tool",
+      "label": "Height Add Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_add.svg",
+      "source_location": "line:27",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Sculpting tool that raises/increases terrain elevation with arrow pointing upward"
+    },
+    {
+      "id": "height_subtract_tool",
+      "label": "Height Subtract Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_sub.svg",
+      "source_location": "line:24",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Sculpting tool that lowers/decreases terrain elevation"
+    },
+    {
+      "id": "height_multiply_tool",
+      "label": "Height Multiply Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_mul.svg",
+      "source_location": "line:163",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for scaling/multiplying height values"
+    },
+    {
+      "id": "height_divide_tool",
+      "label": "Height Divide Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_div.svg",
+      "source_location": "line:163",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for dividing/distributing height values"
+    },
+    {
+      "id": "height_smooth_tool",
+      "label": "Height Smooth Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_smooth.svg",
+      "source_location": "line:11",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Smoothing tool that blends terrain elevations for gradual transitions"
+    },
+    {
+      "id": "height_slope_tool",
+      "label": "Height Slope Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/height_slope.svg",
+      "source_location": "line:98",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Tool for creating slope angles and directional terrain modifications"
+    },
+    {
+      "id": "color_paint_tool",
+      "label": "Color Paint Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/color_paint.svg",
+      "source_location": "line:172",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Painting tool for applying color to terrain surfaces with gradient brush"
+    },
+    {
+      "id": "texture_paint_tool",
+      "label": "Texture Paint Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/texture_paint.svg",
+      "source_location": "line:132",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Tool for painting textures/materials onto terrain surfaces"
+    },
+    {
+      "id": "texture_spray_tool",
+      "label": "Texture Spray Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/texture_spray.svg",
+      "source_location": "line:149",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Spray/splatter tool for applying textures with randomized falloff pattern"
+    },
+    {
+      "id": "region_add_tool",
+      "label": "Region Add Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/region_add.svg",
+      "source_location": "line:95",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Tool for adding or creating new terrain regions with plus symbol"
+    },
+    {
+      "id": "region_remove_tool",
+      "label": "Region Remove Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/region_remove.svg",
+      "source_location": "line:95",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Tool for removing terrain regions with minus symbol"
+    },
+    {
+      "id": "color_picker_tool",
+      "label": "Color Picker Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/picker_checked.svg",
+      "source_location": "line:36",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Eyedropper/picker tool for sampling colors from terrain with checkmark validation"
+    },
+    {
+      "id": "navigation_tool",
+      "label": "Navigation Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/navigation.svg",
+      "source_location": "line:8",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Compass-based navigation control for camera orientation in the 3D viewport"
+    },
+    {
+      "id": "layer_system",
+      "label": "Layer System",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/layers.svg",
+      "source_location": "line:94",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Material and texture layering system showing stacked terrain surfaces"
+    },
+    {
+      "id": "multimesh_rendering",
+      "label": "Multimesh Rendering",
+      "type": "Component",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/multimesh.svg",
+      "source_location": "line:38",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Godot multimesh-based rendering system for efficient terrain mesh instance rendering"
+    },
+    {
+      "id": "wetness_property",
+      "label": "Wetness Property",
+      "type": "Feature",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons/wetness.svg",
+      "source_location": "line:11",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Water saturation/wetness property for terrain surfaces affecting visual appearance"
+    },
+    {
+      "id": "hills_brush",
+      "label": "Hills Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/hills.png",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Brush shape with soft rounded gradient falloff for creating gentle rolling hills"
+    },
+    {
+      "id": "noise_brush",
+      "label": "Noise Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/noise.png",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Brush with random noise pattern for creating irregular, fractured terrain features"
+    },
+    {
+      "id": "plateau_brush",
+      "label": "Plateau Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/plateau.png",
+      "source_location": "line:1",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Brush with flat center and soft edges for creating elevated flat terrain areas"
+    },
+    {
+      "id": "sculpting_tools_category",
+      "label": "Sculpting Tools",
+      "type": "Concept",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons",
+      "source_location": "multiple files",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Collection of tools for terrain elevation and shape modification"
+    },
+    {
+      "id": "painting_tools_category",
+      "label": "Painting Tools",
+      "type": "Concept",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons",
+      "source_location": "color_paint.svg, texture_paint.svg, texture_spray.svg",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Collection of tools for applying colors and textures to terrain surfaces"
+    },
+    {
+      "id": "terrain_editing_workflow",
+      "label": "Terrain Editing Workflow",
+      "type": "Concept",
+      "source_file": "experiments/terrain/addons/terrain_3d/icons",
+      "source_location": "multiple files",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "description": "Complete workflow combining sculpting, texturing, and water simulation tools"
+    },
+    {
+      "id": "brush_ridged",
+      "label": "Ridged Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/ridged.png",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Sculpting brush with angular ridged pattern for creating sharp terrain features"
+    },
+    {
+      "id": "brush_splatter",
+      "label": "Splatter Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/splatter.png",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Scattered particle brush pattern for random terrain variation and noise"
+    },
+    {
+      "id": "brush_streaks",
+      "label": "Streaks Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/streaks.png",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Directional brush with horizontal streaks for terrain flow and erosion patterns"
+    },
+    {
+      "id": "brush_talus",
+      "label": "Talus Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/talus.png",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Loose rock debris brush simulating natural scree and rockfall accumulation"
+    },
+    {
+      "id": "brush_terrace",
+      "label": "Terrace Brush",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/brushes/terrace.png",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Step-like terrain brush creating terraced/stepped elevation patterns"
+    },
+    {
+      "id": "channel_tool",
+      "label": "Channel Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/channel.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for creating water channels and erosion patterns"
+    },
+    {
+      "id": "channel_variant_box",
+      "label": "Box Channel Variant",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons/channel_box.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Rectangular cross-section channel shape variant"
+    },
+    {
+      "id": "channel_variant_flatbed",
+      "label": "Flatbed Channel Variant",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons/channel_flatbed.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Trapezoidal flatbed channel cross-section variant with flat bottom"
+    },
+    {
+      "id": "channel_variant_rounded",
+      "label": "Rounded Channel Variant",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons/channel_rounded.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "U-shaped smooth rounded channel cross-section variant"
+    },
+    {
+      "id": "channel_variant_v",
+      "label": "V-Channel Variant",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons/channel_v.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "V-shaped angular channel cross-section variant for steep water flow"
+    },
+    {
+      "id": "level_tool",
+      "label": "Level Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/level.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool that creates flat level surfaces"
+    },
+    {
+      "id": "shift_tool",
+      "label": "Shift Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/shift.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for adjusting and shifting elevation heights"
+    },
+    {
+      "id": "slope_tool",
+      "label": "Slope Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/slope.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for creating sloped and inclined surfaces"
+    },
+    {
+      "id": "smooth_tool",
+      "label": "Smooth Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/smooth.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Terrain sculpting tool for smoothing and blending terrain surfaces"
+    },
+    {
+      "id": "terrain_tool",
+      "label": "Terrain Tool",
+      "type": "Tool",
+      "source_file": "experiments/terrain/assets/icons/terrain.svg",
+      "source_location": "file",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "description": "Generic terrain sculpting and visualization tool"
+    },
+    {
+      "id": "terrain_sculpting_system",
+      "label": "Terrain Sculpting System",
+      "type": "Feature",
+      "source_file": "experiments/terrain",
+      "source_location": "asset_collection",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Collection of tools and brushes for interactive terrain modification and shaping"
+    },
+    {
+      "id": "brush_system",
+      "label": "Brush System",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/brushes",
+      "source_location": "directory",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Collection of brush patterns for terrain painting and sculpting operations"
+    },
+    {
+      "id": "channel_system",
+      "label": "Channel System",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons/channel*.svg",
+      "source_location": "file_group",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Water channel creation tool with multiple cross-section shape variants"
+    },
+    {
+      "id": "terrain_ui_icons",
+      "label": "Terrain UI Icons",
+      "type": "Component",
+      "source_file": "experiments/terrain/assets/icons",
+      "source_location": "directory",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "description": "Visual icon set for terrain sculpting tool UI and user interface elements"
+    }
+  ],
+  "edges": [
+    {
+      "source": "citysim",
+      "target": "terrain_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "heightmap",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "splatmap",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "water_simulation",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "erosion_system",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "terrain_3d",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "city_camera",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_simulation",
+      "target": "water_grid",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_simulation",
+      "target": "water_sim_csharp",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_simulation",
+      "target": "water_native",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_simulation",
+      "target": "virtual_pipes",
+      "relation": "implements",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_system",
+      "target": "erosion_native",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_system",
+      "target": "lake_map",
+      "relation": "produces",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_system",
+      "target": "hydraulic_erosion",
+      "relation": "implements",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_system",
+      "target": "priority_flood",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_native",
+      "target": "hydraulic_erosion",
+      "relation": "implements",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_native",
+      "target": "priority_flood",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_3d_bridge",
+      "target": "terrain_3d",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_3d_bridge",
+      "target": "heightmap",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_3d_bridge",
+      "target": "splatmap",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_theme",
+      "target": "terrain_material",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_theme",
+      "target": "erosion_slot",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_theme",
+      "target": "terrain_sdk",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "theme_baker",
+      "target": "terrain_theme",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "paint_ops",
+      "target": "splatmap",
+      "relation": "modifies",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpt_ops",
+      "target": "heightmap",
+      "relation": "modifies",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_ops",
+      "target": "heightmap",
+      "relation": "modifies",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "shift_tool",
+      "target": "sculpt_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "level_tool",
+      "target": "sculpt_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "smooth_tool",
+      "target": "sculpt_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "slope_tool",
+      "target": "sculpt_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_tool",
+      "target": "channel_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "paint_tool",
+      "target": "paint_ops",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source_tool",
+      "target": "water_source",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source",
+      "target": "stream_source",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source",
+      "target": "river_source",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source",
+      "target": "lake_source",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source",
+      "target": "sea_source",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_soft_round",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_ridged",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_plateau",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_splatter",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_noise",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_library",
+      "target": "brush_streaks",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpt_ops",
+      "target": "brush_mask",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "paint_ops",
+      "target": "brush_mask",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "shift_tool",
+      "target": "brush_library",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "paint_tool",
+      "target": "brush_library",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_tool",
+      "target": "brush_library",
+      "relation": "related_to",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.5
+    },
+    {
+      "source": "default_theme",
+      "target": "terrain_layers",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "winter_theme",
+      "target": "terrain_layers",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "water_panel",
+      "target": "water_source_tool",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_panel",
+      "target": "water_sim_csharp",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_panel",
+      "target": "water_flow_arrows",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "erosion_panel",
+      "target": "erosion_system",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "generator_panel",
+      "target": "terrain_generator",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "theme_panel",
+      "target": "terrain_theme",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool_controller",
+      "target": "undo_stack",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool_controller",
+      "target": "shift_tool",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool_controller",
+      "target": "level_tool",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool_controller",
+      "target": "paint_tool",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool_controller",
+      "target": "water_source_tool",
+      "relation": "controls",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_surface",
+      "target": "water_grid",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_surface",
+      "target": "gdshader",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_generator",
+      "target": "fastnoiselite",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_generator",
+      "target": "gen_presets",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_generator",
+      "target": "heightmap_image",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "csharp",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "godot_4_7_2",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_3d",
+      "target": "gdextension",
+      "relation": "implements",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_skirt",
+      "target": "gdshader",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_flow_arrows",
+      "target": "water_sim_csharp",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "citysim_themes_plugin",
+      "target": "theme_baker",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_material",
+      "target": "ambientcg",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "brush_ridged",
+      "target": "terrain_stamps",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_plateau",
+      "target": "terrain_stamps",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_sdk",
+      "target": "gdshader",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "water_source_markers",
+      "target": "water_source",
+      "relation": "visualizes",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "undo_stack",
+      "target": "heightmap",
+      "relation": "manages",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "undo_stack",
+      "target": "splatmap",
+      "relation": "manages",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "map_file",
+      "target": "heightmap",
+      "relation": "serializes",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "map_file",
+      "target": "splatmap",
+      "relation": "serializes",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "map_file",
+      "target": "water_source",
+      "relation": "serializes",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "heightmap_image",
+      "target": "heightmap",
+      "relation": "imports_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "cory_petkovsek",
+      "target": "terrain_3d",
+      "relation": "created",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "roope_palmroos",
+      "target": "terrain_3d",
+      "relation": "created",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "sebastian_lague",
+      "target": "hydraulic_erosion",
+      "relation": "created",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "lake_source",
+      "target": "lake_map",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "height_map",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "splat_map",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "water_grid",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "layer_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_system",
+      "target": "multimesh_rendering",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_add_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_subtract_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_multiply_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_divide_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_smooth_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_slope_tool",
+      "target": "height_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "color_paint_tool",
+      "target": "splat_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "texture_paint_tool",
+      "target": "splat_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "texture_spray_tool",
+      "target": "splat_map",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "region_add_tool",
+      "target": "terrain_system",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "region_remove_tool",
+      "target": "terrain_system",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "color_picker_tool",
+      "target": "splat_map",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "wetness_property",
+      "target": "water_grid",
+      "relation": "related_to",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "height_add_tool",
+      "target": "hills_brush",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.7
+    },
+    {
+      "source": "height_add_tool",
+      "target": "noise_brush",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.7
+    },
+    {
+      "source": "height_add_tool",
+      "target": "plateau_brush",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.7
+    },
+    {
+      "source": "height_smooth_tool",
+      "target": "hills_brush",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.7
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_add_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_subtract_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_multiply_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_divide_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_smooth_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "sculpting_tools_category",
+      "target": "height_slope_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "painting_tools_category",
+      "target": "color_paint_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "painting_tools_category",
+      "target": "texture_paint_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "painting_tools_category",
+      "target": "texture_spray_tool",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_editing_workflow",
+      "target": "sculpting_tools_category",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_editing_workflow",
+      "target": "painting_tools_category",
+      "relation": "uses",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_editing_workflow",
+      "target": "navigation_tool",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "layer_system",
+      "target": "splat_map",
+      "relation": "implements",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_ridged",
+      "target": "brush_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_splatter",
+      "target": "brush_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_streaks",
+      "target": "brush_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_talus",
+      "target": "brush_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_terrace",
+      "target": "brush_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_system",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_variant_box",
+      "target": "channel_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_variant_flatbed",
+      "target": "channel_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_variant_rounded",
+      "target": "channel_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_variant_v",
+      "target": "channel_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_tool",
+      "target": "channel_system",
+      "relation": "describes",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "level_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "shift_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "slope_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "smooth_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_tool",
+      "target": "terrain_ui_icons",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "EXTRACTED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_ui_icons",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "channel_system",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "level_tool",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "shift_tool",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "slope_tool",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "smooth_tool",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "terrain_tool",
+      "target": "terrain_sculpting_system",
+      "relation": "part_of",
+      "confidence": "HIGH",
+      "source_kind": "INFERRED",
+      "weight": 1.0
+    },
+    {
+      "source": "brush_ridged",
+      "target": "terrain_sculpting_system",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "brush_splatter",
+      "target": "terrain_sculpting_system",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "brush_streaks",
+      "target": "terrain_sculpting_system",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "brush_talus",
+      "target": "terrain_sculpting_system",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    },
+    {
+      "source": "brush_terrace",
+      "target": "terrain_sculpting_system",
+      "relation": "uses",
+      "confidence": "MEDIUM",
+      "source_kind": "INFERRED",
+      "weight": 0.8
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 187000,
+  "output_tokens": 0
+}

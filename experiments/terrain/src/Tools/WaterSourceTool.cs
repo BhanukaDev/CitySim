@@ -196,7 +196,7 @@ public sealed class WaterSourceTool
         var at = cursor is { } cur ? Local(cur) : Vector2.Zero;
         if (Kind == WaterSourceKind.River) at = Snapped(at, Radius);
         float r = Kind == WaterSourceKind.Sea ? WaterSourceMarkers.SeaMarkerRadius : Radius;
-        terrain.SetBrush(new Vector3(at.X, terrain.GetHeight(at.X, at.Y), at.Y), r, preview);
+        terrain.SetBrush(terrain.MapToWorld(at.X, at.Y, GroundAt(at.X, at.Y)), r, preview);
         terrain.PreviewSource(preview ? Candidate(at) : null);
     }
 
@@ -354,11 +354,7 @@ public sealed class WaterSourceTool
         return new Vector2(p.X, sz);
     }
 
-    private float GroundAt(float x, float z) => Terrain is { } t ? t.GetHeight(x + t.GlobalPosition.X, z + t.GlobalPosition.Z) : 0f;
+    private float GroundAt(float x, float z) => Terrain?.GetHeightAtMap(x, z) ?? 0f;
 
-    private Vector2 Local(Vector3 world)
-    {
-        var o = Terrain?.GlobalPosition ?? Vector3.Zero;
-        return new Vector2(world.X - o.X, world.Z - o.Z);
-    }
+    private Vector2 Local(Vector3 world) => Terrain?.WorldToMap(world) ?? new Vector2(world.X, world.Z);
 }

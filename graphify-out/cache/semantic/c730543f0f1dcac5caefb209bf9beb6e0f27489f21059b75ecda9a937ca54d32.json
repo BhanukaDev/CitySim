@@ -1,0 +1,1 @@
+{"nodes": [{"id": "channel_tool", "label": "Channel Tool", "type": "Tool", "source_file": "experiments/terrain/assets/icons/channel.svg", "source_location": "file", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Terrain sculpting tool for creating water channels and erosion patterns"}], "edges": [], "hyperedges": []}

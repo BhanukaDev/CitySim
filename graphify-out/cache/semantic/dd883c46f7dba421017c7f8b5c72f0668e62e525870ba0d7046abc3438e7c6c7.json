@@ -1,0 +1,1 @@
+{"nodes": [{"id": "region_remove_tool", "label": "Region Remove Tool", "type": "Tool", "source_file": "experiments/terrain/addons/terrain_3d/icons/region_remove.svg", "source_location": "line:95", "confidence": "HIGH", "source_kind": "EXTRACTED", "description": "Tool for removing terrain regions with minus symbol"}], "edges": [], "hyperedges": []}

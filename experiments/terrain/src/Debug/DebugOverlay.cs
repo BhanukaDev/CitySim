@@ -22,7 +22,7 @@ namespace CitySim.Debug;
 /// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
 /// --demo-falls (a made-up map with a cliff and two falls),
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
-/// --preview-at=x,z,level (the Lake placement preview there), --water-speed=n, --water-run=seconds (simulate that long right away),
+/// --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, map metres), --water-speed=n, --water-run=seconds (simulate that long right away),
 /// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path, --water-cells=n (water grid side cap; 2048 = old 14 m on 28.7 km),
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
@@ -66,12 +66,12 @@ public partial class DebugOverlay : CanvasLayer
                     _zoomShots.Enqueue(float.Parse(t, System.Globalization.CultureInfo.InvariantCulture));
             else if (arg.StartsWith("--cam=") && CityCamera is not null)
             {
-                // --cam=x,z,distance,pitch,yaw (world metres / degrees)
+                // --cam=x,z,distance,pitch,yaw (map metres from the map's (0, 0) corner, as the HUD's pivot shows / degrees)
                 var v = System.Array.ConvertAll(arg["--cam=".Length..].Split(','),
                     s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
                 if (v.Length == 5) _cam = v;
                 if (v.Length == 5)
-                    Callable.From(() => CityCamera.JumpTo(new Vector2(v[0], v[1]), v[2], v[3], v[4])).CallDeferred();
+                    Callable.From(() => CityCamera.JumpTo(CamPivot(v), v[2], v[3], v[4])).CallDeferred();
             }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
@@ -104,6 +104,16 @@ public partial class DebugOverlay : CanvasLayer
                 var v = arg["--preview-at=".Length..].Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
                 GetTree().CreateTimer(3.0).Timeout += () =>
                     Terrain?.PreviewSource(new WaterSource(0, WaterSourceKind.Lake, v[0], v[1], 40f, v[2], MaxFlow: 100f));
+            }
+            else if (arg.StartsWith("--stream-at="))
+            {
+                // --stream-at=x,z,flow: a Stream source at map metres (x, z) with that flow (m³/s), e.g. to check water far out.
+                var v = arg["--stream-at=".Length..].Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                Callable.From(() =>
+                {
+                    if (Terrain?.Water is not { } w) return;
+                    w.SetSources(w.Sources.Append(new WaterSource(w.NextSourceId(), WaterSourceKind.Stream, v[0], v[1], 20f, 0f, FlowRate: v[2])));
+                }).CallDeferred();
             }
             else if (arg == "--no-tool")
                 _demoNoTool = true;
@@ -176,6 +186,13 @@ public partial class DebugOverlay : CanvasLayer
         }
     }
 
+    /// <summary>World pivot for --cam's map-metre x, z.</summary>
+    private Vector2 CamPivot(float[] cam)
+    {
+        var w = Terrain?.MapToWorld(cam[0], cam[1]) ?? new Vector3(cam[0], 0f, cam[1]);
+        return new Vector2(w.X, w.Z);
+    }
+
     /// <summary>
     /// Water self-checks (<see cref="WaterDemo"/>), then puts a stream near the highest ground, a river on the west border
     /// and a lake in the lowest spot of this map, and simulates 15 minutes at once, for a screenshot.
@@ -198,13 +215,13 @@ public partial class DebugOverlay : CanvasLayer
         Tools.Tool = TerrainTool.WaterRiver;
         int count = water.Sources.Count;
         float pz = map.SizeZ * 0.3f;
-        Tools.Water.Press(true, new Vector3(20f, Terrain.GetHeight(20f, pz), pz));
+        Tools.Water.Press(true, Terrain.MapToWorld(20f, pz, Terrain.GetHeightAtMap(20f, pz)));
         bool placed = water.Sources.Count == count + 1 && water.Sources[^1] is { Kind: WaterSourceKind.River, X: 0f };
         Tools.Undo();
         bool undone = water.Sources.Count == count;
         Tools.Redo();
         bool redone = water.Sources.Count == count + 1;
-        Tools.Water.Press(false, new Vector3(5f, Terrain.GetHeight(5f, pz), pz));
+        Tools.Water.Press(false, Terrain.MapToWorld(5f, pz, Terrain.GetHeightAtMap(5f, pz)));
         bool removed = water.Sources.Count == count;
         bool toolOk = placed && undone && redone && removed;
         GD.Print($"Demo water: tool snaps to the border {placed}, undo {undone}, redo {redone}, right-click removes {removed}: " +
@@ -663,7 +680,7 @@ public partial class DebugOverlay : CanvasLayer
                 // Same pivot, next distance, with the sim paused so only the view changes; wait for the camera and the LODs to settle.
                 if (Terrain?.Water is { } sim) sim.Settings = sim.Settings with { Paused = true };
                 _cam[2] = _zoomShots.Dequeue();
-                CityCamera.JumpTo(new Vector2(_cam[0], _cam[1]), _cam[2], _cam[3], _cam[4]);
+                CityCamera.JumpTo(CamPivot(_cam), _cam[2], _cam[3], _cam[4]);
                 _screenshotFrames = 60;
                 _zoomWait = 2.0;
                 if (_zoomShots.Count == 0) _screenshotPath = System.IO.Path.ChangeExtension(_screenshotPath, null) + $"_{_cam[2]:0}.png";
@@ -684,7 +701,9 @@ public partial class DebugOverlay : CanvasLayer
         if (CityCamera is not null)
         {
             var p = CityCamera.Pivot;
-            text += $"\nPivot ({p.X:0}, {p.Y:0.0}, {p.Z:0})" +
+            // In map metres, like --cam (the world origin is the map's centre).
+            var pm = Terrain?.WorldToMap(p) ?? new Vector2(p.X, p.Z);
+            text += $"\nPivot ({pm.X:0}, {p.Y:0.0}, {pm.Y:0})" +
                     $"\nYaw {CityCamera.YawDegrees:0}°  Pitch {CityCamera.PitchDegrees:0}°  Distance {CityCamera.Distance:0} m";
             if (Terrain?.Map is not null)
                 text += $"\nSlope at pivot {Terrain.GetSlopeDegrees(p.X, p.Z):0.0}°";

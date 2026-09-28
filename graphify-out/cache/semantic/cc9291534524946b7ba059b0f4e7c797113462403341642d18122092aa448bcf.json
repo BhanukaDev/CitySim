@@ -1,0 +1,1 @@
+{"nodes": [{"id": "icon_holes", "label": "Holes Icon", "type": "Component", "source_file": "experiments/terrain/addons/terrain_3d/icons/holes.svg", "source_location": "line:8", "confidence": "MEDIUM", "source_kind": "EXTRACTED", "description": "SVG icon for creating holes in terrain"}], "edges": [], "hyperedges": []}
