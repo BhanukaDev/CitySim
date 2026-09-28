@@ -669,10 +669,13 @@ public partial class Terrain : Node3D
 
     /// <summary>
     /// Intersects a world-space ray with the terrain by ray-marching the heightmap, then refining
-    /// with a binary search. No physics bodies involved.
+    /// with a binary search. No physics bodies involved. <paramref name="heightAt"/> (world x, z → world height) replaces
+    /// the current ground, e.g. with the ground from before a stroke.
     /// </summary>
-    public bool Raycast(Vector3 origin, Vector3 direction, out Vector3 hit, float maxDistance = 8000f)
+    public bool Raycast(Vector3 origin, Vector3 direction, out Vector3 hit, float maxDistance = 8000f,
+        System.Func<float, float, float>? heightAt = null)
     {
+        heightAt ??= GetHeight;
         hit = default;
         if (Map is null || direction.IsZeroApprox()) return false;
         var dir = direction.Normalized();
@@ -703,7 +706,7 @@ public partial class Terrain : Node3D
                     if (Above(mid) > 0f) lo = mid; else hi = mid;
                 }
                 var p = origin + dir * hi;
-                hit = new Vector3(p.X, GetHeight(p.X, p.Z), p.Z);
+                hit = new Vector3(p.X, heightAt(p.X, p.Z), p.Z);
                 return true;
             }
             tPrev = tc;
@@ -714,7 +717,7 @@ public partial class Terrain : Node3D
         float Above(float t)
         {
             var p = origin + dir * t;
-            return p.Y - GetHeight(p.X, p.Z);
+            return p.Y - heightAt(p.X, p.Z);
         }
     }
 
@@ -773,11 +776,16 @@ public partial class Terrain : Node3D
     }
 
     /// <summary>Shows a marker at the slope tool's start point, with a guide line to the brush.</summary>
-    public void SetAnchor(Vector3? worldPos)
+    /// <summary>
+    /// Shows the start point marker and a guide line from it to the brush. A <paramref name="bandHalfWidth"/> above 0
+    /// draws the guide as a band that wide on each side (the Channel tool's corridor).
+    /// </summary>
+    public void SetAnchor(Vector3? worldPos, float bandHalfWidth = 0f)
     {
         if (_render is not { } r) return;
         r.SetParam("anchor_visible", worldPos.HasValue);
         if (worldPos.HasValue) r.SetParam("anchor_pos", worldPos.Value);
+        r.SetParam("anchor_band", bandHalfWidth);
     }
 
     /// <summary>Marks heights in the given inclusive vertex range as edited.</summary>

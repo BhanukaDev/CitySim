@@ -160,6 +160,8 @@ uniform float brush_angle = 0.0;
 uniform bool brush_show_angle = false;
 uniform bool anchor_visible = false;
 uniform vec3 anchor_pos = vec3(0.0);
+// Above 0: the guide from the anchor to the brush is a band this wide on each side (Channel corridor).
+uniform float anchor_band = 0.0;
 uniform vec3 brush_color : source_color = vec3(0.35, 0.85, 1.0);
 group_uniforms;
 

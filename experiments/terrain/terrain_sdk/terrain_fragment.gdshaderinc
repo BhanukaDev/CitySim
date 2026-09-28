@@ -294,6 +294,11 @@ void fragment() {
 			float dl = length(p - a - ab * hh);
 			float lw = max(fw * 1.5, 0.6);
 			line = 1.0 - smoothstep(lw, lw + fw, dl);
+			if (anchor_band > 0.0) {
+				// Channel corridor: its edges plus a faint fill, over the full width of the cut.
+				float edge = 1.0 - clamp(abs(dl - anchor_band) / (fw * 1.5), 0.0, 1.0);
+				line = max(max(line, edge), step(dl, anchor_band) * 0.25);
+			}
 		}
 		float mk = max(marker, line * 0.8);
 		col_out = mix(col_out, vec3(1.0, 0.75, 0.2), mk);

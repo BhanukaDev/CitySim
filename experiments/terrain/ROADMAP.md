@@ -254,28 +254,35 @@ Hides the map's hard edges and corners behind a fog bank. This is separate from 
 A sculpt tool (Terrain tab, after Slope) that cuts a cross-section along the drag: rivers, canals, ditches, road cuts.
 Named Channel, not River: it only shapes ground and never places water (the user places sources).
 - Engine-agnostic `ChannelOps` (`src/Terrain/Sculpt/`): `ChannelProfile` (shape, top width, depth), `ChannelPoint`
-  (position, reference height, profile). `CarveSegment` sweeps the profile along each path segment, turned across the
-  direction of travel, with reference and profile (shapes blended) interpolated along it. **Cut only**: keeps the lower of
-  ground and channel, so dips below the bed stay and a Graded stroke repeated changes nothing. Beyond the top edge, **banks**
-  rise at a set angle (15–85°, default 35°) up to 1.5 widths + 3 depths out, so a cut across a hillside isn't a cliff.
+  (position, reference height). `CarveSegment` sweeps one profile along each path segment, turned across the direction of
+  travel, with the reference interpolated along it. **Cut only** by default: keeps the lower of ground and channel, so dips
+  below the bed stay and a repeated cut changes nothing. Beyond the top edge, **banks** rise at a set angle (15–85°,
+  default 35°) up to 1.5 widths + 3 depths out, so a cut across a hillside isn't a cliff.
 - Shapes: **V** `\/`, **U** (parabolic, default), **Flat Bed** `\_/` (bed 40 % of the width), **Box** `|_|` (canal walls).
   Width 4–400 m (`[ ]`/Shift+wheel), depth 0.5–60 m. Shape buttons use SVG icons (`assets/icons/channel_*.svg`, a green
   box carved by the profile; the tool icon is the flat-bed one).
-- **Intensity** 10–100 % (Alt+wheel, default 100 %): at 100 % the profile is cut at once; lower pulls the ground toward it
-  by 1 − e^(−4·intensity·dt) per tick, re-cutting the segment to the cursor every tick, so holding still or dragging
-  slowly digs deeper (never past the profile).
-- **Follow Ground**: the reference is the ground from *before the stroke* (`UndoStack.StrokeOriginal`, so the cut doesn't feed
-  on itself), averaged across the channel and smoothed along the path over ~1 width. **Downhill Only** (default on): the
-  reference never rises along a stroke, so dragging downstream gives a bed that always descends and cuts through humps.
-  A second stroke over a channel follows the new, lower ground, so it deepens it.
-- **Graded** (like Slope): RMB sets the start point, LMB-press at the end point and drag the route; the grade is straight
-  start → end (progress = projection on start→end, so the drag may wind) and the profile changes from Start to End
-  shape/width/depth.
-- Path points closer than max(cell, width/8) are skipped (steadier direction). One stroke = one undo step.
-- `--demo-channel`: a winding downhill U river and a graded V → flat-bed channel through a hill; checks the bed never rises,
-  the cut reaches depth, a repeated graded stroke is a no-op, undo/redo, 30 % intensity digs gradually (prints `Demo channel: … ok`).
-- Next: user tests; maybe a path preview while dragging, a Fill option (embankments for graded canals across dips), editable
-  paths once roads/networks exist (canals as a network, see M7).
+- **Follow Ground** (drag): the reference is the ground from *before the stroke* (`UndoStack.StrokeOriginal`, so the cut
+  doesn't feed on itself), averaged across the channel and smoothed along the path over ~1 width. **Downhill Only**
+  (default on): the reference never rises along a stroke. **Intensity** 10–100 % (Alt+wheel): lower pulls the ground
+  toward the profile by 1 − e^(−4·intensity·dt) per tick. Path points closer than max(cell, width/8) are skipped.
+  A second stroke over a channel follows the new, lower ground, so it deepens it. One stroke = one undo step.
+- **Runaway fix** (user report: holes much bigger than the ring on a first stroke on flat ground): the cursor raycast hit
+  the *carved* ground, so a tilted view's ray passed over the lip onto the far wall, which was cut next, and so on while the
+  mouse stood still. During a Channel stroke the cursor now raycasts the pre-stroke ground (`Terrain.Raycast`'s
+  `heightAt`). The demo check measured 7.7 m of creep in 2 s at 30° pitch without the fix, 0 with it.
+- **Graded** (reworked; no more start/end profiles): LMB sets **A**, LMB sets **B**, LMB again or Enter cuts the straight
+  channel A→B on the grade between their ground heights, as one undo step. B then becomes the next A (chaining keeps a
+  bent canal on one grade). RMB/Esc steps back (clears B, then A). The preview draws the corridor at full width (shader
+  `anchor_band`), and the config panel shows **Points** and a live **Grade** readout: ↑/↓ %, length, rise, the deepest cut
+  and the highest wall (`ChannelOps.Measure`). Intensity and Downhill Only are hidden in Graded.
+- **Fill** (Graded only, default off): the bed is laid exactly (dips filled), walls with a flat crest (max(2 cells, 10 %
+  width)) stand at the grade, and embankments slope down from them at the Banks angle. Reach = crest + 2 × max fill /
+  tan(bank); past that an embankment on a steep hillside ends in a cliff.
+- `--demo-channel`: a winding downhill U river (bed never rises, reaches depth); a still tilted ray held 120 ticks (no creep);
+  a graded 30 m flat bed across the river: cut-only keeps the dip, Fill lays the bed on the grade (±5 cm) with walls up to it,
+  a repeat is a no-op, undo/redo; plus Follow Ground undo/redo and 30 % intensity (prints `Demo channel: … ok`). Ends in
+  Graded, previewing a next segment from B.
+- Next: user tests; editable paths once roads/networks exist (canals as a network, see M7).
 
 ### 🔶 M3.3: Menus (implemented, waiting for the user to test)
 - `scenes/Menu.tscn` (`src/UI/MainMenu.cs`) is now the main scene: New Map, Load Map, Quit (see M4).
