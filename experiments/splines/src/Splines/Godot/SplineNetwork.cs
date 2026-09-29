@@ -22,6 +22,7 @@ public partial class SplineNetwork : Node
     private readonly Stack<SplineGraph> _redo = new();
     private readonly Dictionary<string, SplineProfile> _profiles = new();
     private RibbonRenderer? _renderer;
+    private HashSet<int> _hidden = new();
 
     public SplineGraph Graph { get; private set; } = new();
     public IReadOnlyList<Issue> Issues { get; private set; } = Array.Empty<Issue>();
@@ -72,11 +73,22 @@ public partial class SplineNetwork : Node
         return true;
     }
 
+    /// <summary>Leaves these edges out of the visuals (a draw in progress continuing them shows them in its
+    /// preview instead). Redraws only when the set changes.</summary>
+    public void Hide(IEnumerable<int> edges)
+    {
+        var set = new HashSet<int>(edges);
+        if (set.SetEquals(_hidden)) return;
+        _hidden = set;
+        _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
+    }
+
     private void Refresh()
     {
         Footprints = Junctions.Footprints(Graph);
         Issues = Validation.Check(Graph);
-        _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf);
+        _hidden.RemoveWhere(id => !Graph.HasEdge(id));
+        _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
         Changed?.Invoke();
     }
 

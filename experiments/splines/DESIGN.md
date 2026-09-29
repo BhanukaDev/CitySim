@@ -275,6 +275,15 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
   arm's line within that angle). A square attempt shows red, and the tool offers the nearest legal turnout as a
   ghost: leaving along the line, curving at `MinRadius`, the arc starting at the switch. A click takes it.
 - `Join` kind: edges meet at a shared node with no footprint (fences, walls).
+- **Continuing a dead end**: a draw that starts or ends on a node with only one edge of the **same profile** doesn't
+  make a junction there. It extends that edge: the node becomes an ordinary corner (PI) of one longer edge, with the
+  draw's pending radius (Shift+wheel sizes it live, Alt makes it hard), so every corner rule applies as if it had been
+  drawn in one go: clamping (amber), `MinRadius` (red), reversals. The old edge's other corners keep their built
+  radius. The snap tag says `continue · <profile>`, and the preview shows the whole road it becomes. Clicking a dead
+  end after the first point also finishes the draw (hint `LMB Place and finish`), no double-click needed. A draw back onto
+  the other end of the same edge closes a loop instead. See `docs/dead-end-joins.html`.
+- Two arms meeting at an angle that can't be one edge (two profiles, or what a delete leaves) keep their node, and
+  the addon gives the **bend fill**: the outside of the bend, from one arm's side round to the other's.
 - An angle below `MinJunctionAngle` (the strictest Node arm's) is amber, and always buildable.
 - A crossing that isn't allowed by `ConnectsTo` is red, or becomes a bridge/tunnel if the vertical gap is enough
   (later milestone).

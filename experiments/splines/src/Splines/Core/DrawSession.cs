@@ -20,10 +20,15 @@ public sealed class DrawSession
     /// <summary>Radius offered to the next corner placed (Shift+wheel / <c>[</c> <c>]</c>).</summary>
     public float PendingRadius { get; private set; }
 
+    /// <summary>The draw continues a dead end: its first point is a corner of the road it continues, so it's the live
+    /// corner until the next point is placed. Set by the caller, which knows the graph.</summary>
+    public bool StartIsCorner { get; set; }
+
     /// <summary>Clears the draw and resets the pending radius to the profile's default.</summary>
     public void Reset(float defaultRadius)
     {
         _pis.Clear();
+        StartIsCorner = false;
         _redo.Clear();
         PendingRadius = defaultRadius;
     }
@@ -67,14 +72,14 @@ public sealed class DrawSession
     public void SetPendingRadius(float radius, float minRadius)
     {
         PendingRadius = MathF.Max(radius, minRadius);
-        if (_pis.Count >= 2 && !_pis[^1].Hard) _pis[^1] = _pis[^1] with { Radius = PendingRadius };
+        if ((_pis.Count >= 2 || StartIsCorner && _pis.Count == 1) && !_pis[^1].Hard) _pis[^1] = _pis[^1] with { Radius = PendingRadius };
     }
 
     /// <summary>The placed PIs plus a floating end point at <paramref name="cursor"/> (not yet committed) — for the
-    /// preview ribbon.</summary>
+    /// preview ribbon. The end point carries the pending radius, which it uses if it continues a dead end.</summary>
     public Alignment BuildPreview(Vector2 cursor)
     {
-        var pis = new List<Pi>(_pis) { new(cursor) };
+        var pis = new List<Pi>(_pis) { new(cursor, PendingRadius) };
         return new Alignment(pis);
     }
 

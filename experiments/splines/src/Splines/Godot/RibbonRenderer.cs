@@ -66,9 +66,10 @@ public sealed class RibbonRenderer
         _ghost.Mesh = mesh;
     }
 
-    /// <summary>Rebuilds every built edge and junction footprint (one mesh, a surface per colour and layer).</summary>
+    /// <summary>Rebuilds every built edge, junction footprint and bend fill (one mesh, a surface per colour and
+    /// layer). <paramref name="hidden"/> edges are left out (the ones a draw in progress is continuing).</summary>
     public void SetNetwork(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints,
-        IReadOnlyList<Issue> issues, Func<string, Color> colorOf)
+        IReadOnlyList<Issue> issues, Func<string, Color> colorOf, IReadOnlySet<int>? hidden = null)
     {
         Clear(ref _network);
         if (graph.EdgeCount == 0) return;
@@ -88,7 +89,7 @@ public sealed class RibbonRenderer
             var halo = NewStrip();
             int quads = 0;
             foreach (var e in graph.Edges)
-                if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev)
+                if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev && hidden?.Contains(e.Id) != true)
                     quads += Span(halo, e.Alignment.Curve, 0, e.Alignment.Length, e.Rules.Width + 5f, Lift * 0.5f);
             foreach (var n in graph.Nodes)
                 if (nodeWorst.TryGetValue(n.Id, out var w) && w == sev)
@@ -96,7 +97,7 @@ public sealed class RibbonRenderer
             if (quads > 0) AddSurface(mesh, halo, HaloOf(sev), opaque: false);
         }
 
-        foreach (var group in graph.Edges.GroupBy(e => e.Rules.Id))
+        foreach (var group in graph.Edges.Where(e => hidden?.Contains(e.Id) != true).GroupBy(e => e.Rules.Id))
         {
             var fill = NewStrip();
             var centre = NewStrip();
@@ -125,6 +126,20 @@ public sealed class RibbonRenderer
                 st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], Lift));
             }
             var widest = f.Cuts.Select(c => graph.Edge(c.EdgeId)).OrderByDescending(e => e.Rules.Width).First();
+            AddSurface(mesh, st, colorOf(widest.Rules.Id), opaque: true);
+        }
+
+        foreach (var n in graph.Nodes)
+        {
+            if (n.Edges.Any(e => hidden?.Contains(e) == true) || Junctions.BendFill(graph, n.Id) is not { } bend) continue;
+            var st = NewStrip();
+            for (int i = 0; i + 1 < bend.Count; i++)
+            {
+                st.AddVertex(Drape(n.Position, Lift));
+                st.AddVertex(Drape(bend[i], Lift));
+                st.AddVertex(Drape(bend[i + 1], Lift));
+            }
+            var widest = n.Edges.Select(graph.Edge).OrderByDescending(e => e.Rules.Width).First();
             AddSurface(mesh, st, colorOf(widest.Rules.Id), opaque: true);
         }
         _network.Mesh = mesh;

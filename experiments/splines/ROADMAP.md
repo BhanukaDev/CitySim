@@ -195,6 +195,25 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   - Curb radius is the narrower arm's `DefaultRadius` (per the storyboard), so street curbs are 16 m. A separate
     `CurbRadius` profile field is easy if that looks too big.
 - Still to do: play-test in Godot (T, 4-way, the rail turnout ghost, Anarchy, Del → merge, undo).
+- **Follow-up (2026-09-30): continuing a dead end** (`docs/dead-end-joins.html`, option C). Snapping onto a node with
+  one arm used to leave two butted ribbons (a notch outside, overlap inside), since 2-arm nodes had no shape or tag.
+  - `SplineGraph.DeadEndAt` + `AddSpline` take a same-profile dead-end edge into the drawn spline (start and/or end);
+    the node becomes a PI with the drawn end's radius / hard flag (a scripted end with radius 0 gets `DefaultRadius`),
+    the old corners are pinned (`AlignmentOps.Pinned`). `AddResult` gained `Alignment` (the whole added road) and
+    `Continued` (the edges taken). A draw back onto the same edge's other end closes a loop on one node.
+  - `Junctions.BendFill`: the outside of a 2-arm bend that stays a node (two profiles, or left by a delete), drawn by
+    `RibbonRenderer`.
+  - Draw tool: `continue · <profile>` snap tag; the ghost is the whole road it becomes and the old edge is hidden
+    (`SplineNetwork.Hide`); the overlay gets the old road's leg (half of it when it ends in a corner, to clamp the
+    same) so the joint has its `∡` and radius pills; `DrawSession.StartIsCorner` makes the start the live corner for
+    Shift+wheel. Straight-on corners get no pills. A click on a dead end after the first point places it and finishes
+    (`LMB Place and finish`); a refused finish leaves the draw open with the point placed.
+  - `--demo-junctions` (Continue: L, below MinRadius, clamp, old corner kept, hard joint, both ends, loop, T stem,
+    other profile + bend fill), `--demo-draw` (continue with Shift+wheel, undo), `--storyboard=continue |
+    continue-built | continue-both | continue-mix`. `length-node`'s mid-road node is now a T (two straight
+    same-profile streets end to end are one road).
+  - Open: in the user's screenshot, a road start sat near another road's end without joining. Check whether the node
+    snap missed there.
 
 ### ⬜ S5: Edit tool
 - Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.
@@ -308,5 +327,9 @@ version:
 - 2026-09-30 (S4): `ConnectsTo` is mutual (both profiles must accept each other); crossings that don't connect are
   left unsplit and reported Invalid (bridges/tunnels later). A node's kind is the strictest of its arms (Turnout >
   Node > Join); footprints only for Node junctions with 3+ arms. Merging happens on delete only, never on add.
+- 2026-09-30 (S4 follow-up, from the user): **a same-profile dead end is continued, not joined**. The node becomes
+  a corner of one edge and every drawing rule applies to it, with no special case for sharp angles (a 25° joint rounds
+  and clamps like a drawn 25° corner). This is the one case where edges merge on add. Different profiles keep the node
+  with a bend fill; width tapers come later.
 - 2026-09-30 (S4): undo is whole-graph snapshots in `SplineNetwork` (simple, and cheap because alignments are
   shared); S8's terrain shaping will join the same step. Revisit in S11 if memory matters.

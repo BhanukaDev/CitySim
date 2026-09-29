@@ -44,6 +44,7 @@ public partial class JunctionDemo : Node
         NotConnected();
         OverlapAndClamp();
         SplitMerge();
+        Continue();
         foreach (var f in _failures) GD.PrintErr($"Demo junctions: FAILED {f}");
         GD.Print($"Demo junctions: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
     }
@@ -199,13 +200,81 @@ public partial class JunctionDemo : Node
         Check("arc merge: corner PI", back.Pis[1].Position, V(100, 0));
         Check("arc merge: radius", back.EffectiveRadius(1), 40f);
 
-        // Not straight through: a corner node stays when the branch goes.
+        // Not straight through: a corner node stays when the branch goes, and its bend is filled.
         var k = new SplineGraph();
-        k.AddSpline(Line(V(0, 0), V(100, 0)), Street);
-        k.AddSpline(Line(V(100, 0), V(100, 100)), Street);
-        var third = k.AddSpline(Line(V(100, 0), V(200, 0)), Street);
-        k.RemoveEdge(third.Edges[0]);
+        k.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        var stem = k.AddSpline(Line(V(100, 0), V(100, 100)), Street);
+        k.RemoveEdge(k.Edges.First(e => Vector2.Distance(e.Alignment.Pis[^1].Position, V(200, 0)) < 0.01f).Id);
         Check("corner node stays", k.EdgeCount, 2);
+        Check("corner node: bend fill", Junctions.BendFill(k, stem.Nodes[0]) is not null);
+    }
+
+    /// <summary>Drawing on from a dead end of the same profile makes one road, the joint a corner with every drawn
+    /// corner's rules; a different profile keeps the node and fills the bend.</summary>
+    private void Continue()
+    {
+        // An L from a dead end: one edge, the joint rounded at the drawn radius.
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        var r = g.AddSpline(new Alignment(new[] { new Pi(V(100, 0), 16), new Pi(V(100, 100)) }), Street);
+        Check("continue: one edge", g.EdgeCount, 1);
+        Check("continue: two nodes", g.NodeCount, 2);
+        Check("continue: took the old edge", r.Continued.Count, 1);
+        var a = g.Edges.Single().Alignment;
+        Check("continue: corner at the old end", a.Pis.Count == 3 && Vector2.Distance(a.Pis[1].Position, V(100, 0)) < 0.01f);
+        Check("continue: radius", a.EffectiveRadius(1), 16f);
+        Check("continue: no issues", Validation.Check(g).Count, 0);
+
+        // A tighter radius than the profile allows is red, as a drawn corner is.
+        var tight = new SplineGraph();
+        tight.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        tight.AddSpline(new Alignment(new[] { new Pi(V(100, 0), 5), new Pi(V(100, 100)) }), Street);
+        Check("continue: below MinRadius is Invalid", Validation.Worst(Validation.Check(tight)) == Severity.Invalid);
+
+        // Legs too short for the radius clamp (amber), as a drawn corner does.
+        var clamp = new SplineGraph();
+        clamp.AddSpline(Line(V(0, 0), V(10, 0)), Street);
+        clamp.AddSpline(new Alignment(new[] { new Pi(V(10, 0), 60), new Pi(V(10, 10)) }), Street);
+        Check("continue: clamped", clamp.Edges.Single().Alignment.IsClamped(1));
+
+        // The old road's own corner keeps its built radius; Alt makes a hard joint.
+        var bent = new SplineGraph();
+        bent.AddSpline(new Alignment(new[] { new Pi(V(0, 100)), new Pi(V(0, 0), 20), new Pi(V(100, 0)) }), Street);
+        bent.AddSpline(new Alignment(new[] { new Pi(V(100, 0), Hard: true), new Pi(V(100, 100)) }), Street);
+        var ba = bent.Edges.Single().Alignment;
+        Check("continue: old corner kept", ba.EffectiveRadius(1), 20f);
+        Check("continue: hard joint", ba.Pis.Count == 4 && ba.Pis[2].Hard);
+
+        // Both ends on dead ends: three roads become one.
+        var both = new SplineGraph();
+        both.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        both.AddSpline(Line(V(200, 100), V(200, 200)), Street);
+        both.AddSpline(new Alignment(new[] { new Pi(V(100, 0), 16), new Pi(V(200, 0), 16), new Pi(V(200, 100), 16) }), Street);
+        Check("continue both ends: one edge", both.EdgeCount, 1);
+        Check("continue both ends: two nodes", both.NodeCount, 2);
+
+        // Back onto the other end of the same road: a loop on one node.
+        var loop = new SplineGraph();
+        loop.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        loop.AddSpline(new Alignment(new[] { new Pi(V(100, 0), 16), new Pi(V(50, 80), 16), new Pi(V(0, 0), 16) }), Street);
+        Check("continue loop: one edge", loop.EdgeCount, 1);
+        Check("continue loop: one node", loop.NodeCount, 1);
+
+        // Continuing a T's stem from its dead end: the stem grows, the T stays.
+        var t = new SplineGraph();
+        t.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        t.AddSpline(Line(V(100, 0), V(100, 100)), Street);
+        t.AddSpline(new Alignment(new[] { new Pi(V(100, 100), 16), new Pi(V(200, 100)) }), Street);
+        Check("continue stem: T kept", t.EdgeCount, 3);
+        Check("continue stem: label", Junctions.Label(t, t.NodeAt(V(100, 0))!.Value) ?? "", "T-junction · 90°");
+
+        // Another profile: the node stays, with a filled bend and no label.
+        var mix = new SplineGraph();
+        mix.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);
+        var m = mix.AddSpline(Line(V(100, 0), V(100, 100)), Street);
+        Check("continue other profile: node kept", mix.EdgeCount, 2);
+        Check("continue other profile: bend fill", Junctions.BendFill(mix, m.Nodes[0]) is { Count: > 0 });
+        Check("continue other profile: no label", Junctions.Label(mix, m.Nodes[0]) is null);
     }
 
     private void Check(string name, bool ok)

@@ -177,6 +177,33 @@ public static class Junctions
         return new JunctionFootprint(nodeId, centre, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), outline);
     }
 
+    /// <summary>
+    /// The fill for a bend where exactly two arms meet at an angle (two profiles that can't be one edge, or what a
+    /// delete leaves): the outside of the bend, where the arms' square ends leave a notch, as an arc from one arm's
+    /// outer side to the other's (its radius going from one half width to the other). A fan from the node fills it.
+    /// Null for other nodes and for two arms running straight through.
+    /// </summary>
+    public static IReadOnlyList<Vector2>? BendFill(SplineGraph g, int nodeId, int n = 12)
+    {
+        var arms = g.Arms(nodeId);
+        if (arms.Count != 2) return null;
+        var sorted = Sorted(arms);
+        int i = sorted[0].Gap >= sorted[1].Gap ? 0 : 1; // the outside is the wider gap
+        var (a, gap) = sorted[i];
+        var b = sorted[1 - i].Arm;
+        if (gap < 360f - StraightGapDegrees) return null;
+        var centre = g.Node(nodeId).Position;
+        float from = SplineMath.Angle(a.Direction) + MathF.PI / 2, sweep = (gap - 180f) * MathF.PI / 180f;
+        float ra = a.Rules.Width / 2, rb = b.Rules.Width / 2;
+        var pts = new List<Vector2>(n + 1);
+        for (int k = 0; k <= n; k++)
+        {
+            float t = (float)k / n;
+            pts.Add(centre + SplineMath.Direction(from + sweep * t) * (ra + (rb - ra) * t));
+        }
+        return pts;
+    }
+
     /// <summary>Every footprint in the graph, by node.</summary>
     public static Dictionary<int, JunctionFootprint> Footprints(SplineGraph g)
     {

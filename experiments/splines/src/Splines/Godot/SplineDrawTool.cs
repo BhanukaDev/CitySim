@@ -64,6 +64,8 @@ public partial class SplineDrawTool : Node
     /// <summary>Scripted-demo override: modifier keys treated as held (added to the real ones).</summary>
     public DrawModifiers ForcedModifiers { get; set; }
     public int BuiltCount => Network?.Graph.EdgeCount ?? 0;
+    /// <summary>A draw is in progress (at least one point placed).</summary>
+    public bool IsDrawing => !_session.IsEmpty;
 
     public override void _Ready()
     {
@@ -147,6 +149,7 @@ public partial class SplineDrawTool : Node
 
         if (Testbed.Mode != DrawMode.Draw || Testbed.Profile is not { } profile || Cursor is not { } cursor || Network is null)
         {
+            Network?.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
             _renderer.SetGhost(null, 0);
             _overlay.Show(null);
@@ -160,20 +163,30 @@ public partial class SplineDrawTool : Node
         var rules = profile.ToRules();
         var mods = Modifiers();
         _snap = SnapEngine.Evaluate(BuildSnapQuery(PlanOf(cursor), cursor, rules, mods));
+        bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
+        if (continues) _snap = _snap with { Tag = $"continue · {rules.Id}" };
 
-        Alignment? preview = null;
+        Alignment? preview = null, shown = null;
+        bool leadIn = false, leadOut = false;
         _trial = null;
         _suggestion = null;
         _deleteTarget = null;
         if (!_session.IsEmpty)
         {
-            preview = _session.BuildPreview(_snap.Position);
-            _trial = Try(preview, rules);
+            var drawn = _session.BuildPreview(_snap.Position);
+            _trial = Try(drawn, rules);
             _suggestion = TurnoutSuggestion(_trial, rules);
-            _renderer.SetPreview(preview, profile.Width, _trial?.Worst);
+            // Continuing a dead end: the ghost is the whole road it becomes, the old edge is hidden meanwhile, and the
+            // overlay gets the old road's last leg as the previous leg (so the joint has its angle and radius pills).
+            var continued = _trial?.Result.Continued ?? (IReadOnlyList<int>)Array.Empty<int>();
+            Network.Hide(continued);
+            shown = continued.Count > 0 ? _trial!.Result.Alignment : drawn;
+            (preview, leadIn, leadOut) = continued.Count > 0 ? WithLeads(drawn, rules) : (drawn, false, false);
+            _renderer.SetPreview(shown, profile.Width, _trial?.Worst);
         }
         else
         {
+            Network.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
             _deleteTarget = EdgeUnder(PlanOf(cursor));
         }
@@ -188,6 +201,9 @@ public partial class SplineDrawTool : Node
         {
             SessionPis = _session.Pis,
             Preview = preview,
+            LeadIn = leadIn,
+            LeadOut = leadOut,
+            ClickFinishes = continues && !_session.IsEmpty,
             Snap = _snap,
             StartHeading = _session.IsEmpty ? null : _startHeading,
             Rules = rules,
@@ -206,6 +222,43 @@ public partial class SplineDrawTool : Node
             DeleteTarget = _deleteTarget is { } d ? graph.Edge(d).Alignment.Curve : null,
             DeleteWidth = _deleteTarget is { } dw ? graph.Edge(dw).Rules.Width : 0,
         });
+    }
+
+    // --- Continuing a dead end ---
+
+    /// <summary>Whether a point is a dead end this draw would continue: not the draw's own start edge, which it
+    /// closes into a loop instead.</summary>
+    private bool ContinuesAt(NumVector2 p, ProfileRules rules)
+    {
+        if (Network?.Graph.DeadEndAt(p, rules) is not { } end) return false;
+        return _session.IsEmpty || Network.Graph.DeadEndAt(_session.Pis[0].Position, rules)?.EdgeId != end.EdgeId;
+    }
+
+    /// <summary>
+    /// The drawn alignment with the old road's leg added before a continued start and after a continued end, for the
+    /// overlay. The leg runs to the old road's next point, or halfway to it when that's a corner: a middle leg only
+    /// gives each corner half of it, so the joint's pill then clamps as the built road will.
+    /// </summary>
+    private (Alignment, bool LeadIn, bool LeadOut) WithLeads(Alignment drawn, ProfileRules rules)
+    {
+        var g = Network!.Graph;
+        var pis = drawn.Pis.ToList();
+        var start = g.DeadEndAt(pis[0].Position, rules);
+        bool leadIn = start is not null, leadOut = false;
+        if (start is { } s) pis.Insert(0, new Pi(Lead(g.Edge(s.EdgeId).Alignment, s.AtStart)));
+        if (g.DeadEndAt(pis[^1].Position, rules) is { } e && e.EdgeId != start?.EdgeId)
+        {
+            pis.Add(new Pi(Lead(g.Edge(e.EdgeId).Alignment, e.AtStart)));
+            leadOut = true;
+        }
+        return (new Alignment(pis), leadIn, leadOut);
+
+        static NumVector2 Lead(Alignment a, bool atStart)
+        {
+            var pis = a.Pis;
+            var (end, next) = atStart ? (pis[0].Position, pis[1].Position) : (pis[^1].Position, pis[^2].Position);
+            return pis.Count == 2 ? next : (end + next) / 2;
+        }
     }
 
     // --- The draw tried on the graph ---
@@ -368,9 +421,12 @@ public partial class SplineDrawTool : Node
         if (_ground.Raycast(origin, dir, out var hit)) Cursor = hit;
     }
 
+    /// <summary>Places a PI. A later point on a dead end the draw continues also finishes it: the road is complete
+    /// once it joins the other one (a refused finish leaves the draw open, the point placed).</summary>
     private void Place(NumVector2 position, bool hard)
     {
         if (Testbed?.Profile is not { } profile) return;
+        bool finishes = !_session.IsEmpty && ContinuesAt(position, profile.ToRules());
         if (_session.IsEmpty)
         {
             _sessionProfile = profile;
@@ -378,10 +434,12 @@ public partial class SplineDrawTool : Node
             // Starting on an edge makes it the soft-angle reference for the whole draw ("∡ 90° · square to edge").
             _startHeading = _snap is { Kind: SnapKind.Node or SnapKind.Edge or SnapKind.PerpendicularFoot } s &&
                             NumVector2.Distance(s.Position, position) < 1e-3f ? s.EdgeTangent : null;
+            _session.StartIsCorner = Network?.Graph.DeadEndAt(position, profile.ToRules()) is not null;
         }
         bool allowHard = hard && profile.AllowHardCorners;
         if (hard && !allowHard) _hardHintUntil = Time.GetTicksMsec() / 1000.0 + 1.2;
         _session.Place(position, allowHard);
+        if (finishes) Finish();
     }
 
     private void AdjustRadius(float factor)

@@ -78,6 +78,10 @@ public static class AlignmentOps
         return same ? candidate : merged;
     }
 
+    /// <summary>The same alignment with every corner pinned to the radius it was built with (for an edge that
+    /// becomes part of a longer one, so a clamped corner doesn't spring back when its legs change).</summary>
+    public static Alignment Pinned(Alignment a) => new(a.Pis.Select((q, k) => Built(a, k, q)));
+
     /// <summary>PI <paramref name="k"/> with its radius pinned to what was built (ends and sharp corners unchanged): for
     /// the corners next to a cut, whose leg changes.</summary>
     private static Pi Built(Alignment a, int k, Pi pi) =>

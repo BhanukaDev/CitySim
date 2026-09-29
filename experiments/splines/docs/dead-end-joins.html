@@ -1,0 +1,221 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dead-End Joins</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: same storyboard language as docs/spline-controls.html — top-down map frames in a grid, captions under. */
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --grid:#D6DED1; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
+  --asphalt:#57616B; --paint:#F4F1E6; --accent:#2463D1; --ghost:rgba(96,150,235,.55); --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
+  --pill:#1C2629; --pill-fg:#F4F1E6; --pill-key:#7FB0FF; --node:#FFFFFF;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px}
+main{max-width:1120px;margin:0 auto;padding-block:36px 64px;display:grid;gap:48px}
+header{display:grid;gap:10px;max-width:72ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 52px/0.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:70ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:18px}
+.sec-head{display:grid;gap:8px}
+.sec-head p{color:var(--muted)}
+.frames{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+figure.pick{border-color:var(--good);box-shadow:0 0 0 1px var(--good)}
+figure svg{display:block;width:100%;height:auto;background:var(--map)}
+figcaption{padding:10px 12px 12px;display:grid;gap:4px;align-content:start;font-size:13.5px;color:var(--muted)}
+figcaption h3{color:var(--ink)}
+.step{font:500 11px/1 var(--mono);color:var(--accent);letter-spacing:.06em}
+.step.good{color:var(--good)} .step.bad{color:var(--bad)}
+kbd{font:500 11.5px/1 var(--mono);padding:2px 5px 3px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--paper);color:var(--ink);white-space:nowrap}
+code{font:12.5px var(--mono)}
+.qs{display:grid;gap:12px;margin:0;padding-left:22px;max-width:80ch}
+.qs li{padding-left:4px}
+.qs b{font-weight:600}
+.note{font-size:13.5px;color:var(--muted);max-width:80ch}
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">Splines · S4 follow-up · for discussion</div>
+  <h1>Dead-end joins</h1>
+  <p class="lede">Snapping a new road onto the end of an existing road connects them in the graph, but nothing
+  shows it. This page shows why, three ways to fix it, and how the recommended one plays while drawing.</p>
+</header>
+
+<section>
+  <div class="sec-head">
+    <h2>What's happening now</h2>
+    <p>The two roads <b>do</b> share a node. But a node with only two arms gets no junction shape (footprints start at
+    3 arms), no label and no tag. So each road is drawn to the node and cut off square: a notch on the outside of the
+    bend, an overlap on the inside. That's the L and the V in your screenshot.</p>
+  </div>
+  <div class="frames" id="now"></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Three ways to fix it</h2>
+    <p>All three are for two arms meeting at a node. Green is the one we picked.</p>
+  </div>
+  <div class="frames" id="options"></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>How C plays while drawing</h2>
+    <p>It works like a corner you'd draw in one go, because after the build it is one. The same happens when a
+    draw <i>ends</i> on a dead end.</p>
+  </div>
+  <div class="frames" id="flow"></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Decisions (agreed 2026-09-30)</h2>
+  </div>
+  <ol class="qs">
+    <li><b>C: continue the road.</b> Snapping onto a same-profile dead end makes the join a normal corner of one road,
+      and every drawing rule applies to it: pending radius, Shift+wheel, clamping (amber), MinRadius (red unless
+      Anarchy), angle snaps against the old road's last leg, Alt for a hard corner, and a near-180° reversal builds hard.</li>
+    <li><b>Merging on add</b> happens only for this case (dead end, same profile). Crossings and T's still never merge.</li>
+    <li><b>No sharp-angle exception.</b> A 25° V rounds and clamps exactly like a 25° corner drawn in one go.</li>
+    <li><b>The old road keeps its shape.</b> Its earlier corners stay at their built radius; only the joined point changes.</li>
+    <li><b>Different profiles</b> (street → avenue) keep the node, and the bend is filled. Width tapers come later.</li>
+    <li><b>Open:</b> the middle road in the screenshot, whose start sits near the V's end but doesn't touch it. Check
+      whether the node snap missed there.</li>
+  </ol>
+  <p class="note">Where it goes: <code>SplineGraph.AddSpline</code> (continue a dead end instead of joining it), a
+  bend fill for 2-arm nodes in <code>Junctions</code> / <code>RibbonRenderer</code>, a <code>continue</code> tag in the
+  draw preview, and new cases in <code>--demo-junctions</code>.</p>
+</section>
+</main>
+
+<script>
+const S = 2.5; // px per metre
+const STREET = 12 * S, AVENUE = 24 * S, R16 = 16 * S;
+const V = (x, y) => ({ x, y });
+const add = (a, b) => V(a.x + b.x, a.y + b.y), sub = (a, b) => V(a.x - b.x, a.y - b.y), mul = (a, k) => V(a.x * k, a.y * k);
+const len = a => Math.hypot(a.x, a.y), norm = a => mul(a, 1 / len(a));
+const dot = (a, b) => a.x * b.x + a.y * b.y, cross = (a, b) => a.x * b.y - a.y * b.x;
+const rot = (a, deg) => { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return V(a.x * c - a.y * s, a.x * s + a.y * c); };
+const f = n => n.toFixed(1), pt = p => `${f(p.x)} ${f(p.y)}`, mid = (a, b) => mul(add(a, b), .5);
+
+// A polyline with each inner corner rounded at radius R (px); ends may use the whole leg, as in the addon.
+function rounded(P, R) {
+  let d = `M${pt(P[0])}`;
+  const corners = [];
+  for (let i = 1; i < P.length - 1; i++) {
+    const a = P[i - 1], b = P[i], c = P[i + 1];
+    const d1 = norm(sub(a, b)), d2 = norm(sub(c, b));
+    const turn = Math.PI - Math.acos(Math.max(-1, Math.min(1, dot(d1, d2))));
+    const lim = Math.min(i === 1 ? len(sub(a, b)) : len(sub(a, b)) / 2, i === P.length - 2 ? len(sub(c, b)) : len(sub(c, b)) / 2);
+    let t = R * Math.tan(turn / 2);
+    if (t > lim) t = lim;
+    const r = t / Math.tan(turn / 2), p1 = add(b, mul(d1, t)), p2 = add(b, mul(d2, t));
+    d += ` L${pt(p1)} A${f(r)} ${f(r)} 0 0 ${cross(sub(b, a), sub(c, b)) > 0 ? 1 : 0} ${pt(p2)}`;
+    corners.push({ p1, p2, b, r, t, apex: add(b, mul(norm(add(d1, d2)), r / Math.cos(turn / 2) - r)) });
+  }
+  return { d: d + ` L${pt(P[P.length - 1])}`, corners };
+}
+const poly = P => `M${P.map(pt).join(' L')}`;
+
+// Drawing pieces
+const road = (d, w, o = {}) =>
+  `<path d="${d}" fill="none" stroke="${o.color || 'var(--asphalt)'}" stroke-width="${w}" stroke-linecap="${o.cap || 'butt'}" stroke-linejoin="${o.join || 'miter'}" opacity="${o.op ?? 1}"/>` +
+  (o.noDash ? '' : `<path d="${d}" fill="none" stroke="var(--paint)" stroke-width="1.6" stroke-dasharray="7 7" stroke-linejoin="round" opacity="${o.op ?? 1}"/>`);
+const ghost = (d, w) => `<path d="${d}" fill="none" stroke="var(--ghost)" stroke-width="${w}" stroke-linejoin="round"/>` +
+  `<path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="9 6" stroke-linejoin="round"/>`;
+const halo = (d, w, c) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w + 12}" stroke-linejoin="round" stroke-linecap="round" opacity=".35"/>`;
+const node = (p, r = 4.5) => `<circle cx="${f(p.x)}" cy="${f(p.y)}" r="${r}" fill="var(--node)" stroke="var(--ink)" stroke-width="1.3"/>`;
+const ring = (p, c = 'var(--accent)') => `<circle cx="${f(p.x)}" cy="${f(p.y)}" r="15" fill="none" stroke="${c}" stroke-width="2.4" stroke-dasharray="5 4"/>`;
+const mark = (p, c) => `<circle cx="${f(p.x)}" cy="${f(p.y)}" r="19" fill="none" stroke="${c}" stroke-width="2"/>`;
+function pill(p, text, o = {}) {
+  const parts = Array.isArray(text) ? text : [[text]];
+  const w = parts.reduce((s, [t]) => s + t.length, 0) * 6.6 + 16 + (parts.length - 1) * 6;
+  const x = Math.max(4, Math.min(396 - w, p.x - (o.left ? w : o.right ? 0 : w / 2))), y = p.y - 10;
+  let tx = x + 8, spans = '';
+  for (const [t, key] of parts) { spans += `<tspan x="${f(tx)}" fill="${key ? 'var(--pill-key)' : o.fg || 'var(--pill-fg)'}">${t}</tspan>`; tx += t.length * 6.6 + 6; }
+  return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="20" rx="5" fill="${o.bg || 'var(--pill)'}"/>` +
+    `<text y="${f(y + 14)}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11">${spans}</text>`;
+}
+const cursor = p => `<path d="M${pt(p)} l0 16 l4.5 -4 l3 7 l3 -1.4 l-3 -6.8 l6 -.4 z" fill="#fff" stroke="#1C2629" stroke-width="1.2"/>`;
+function grid() {
+  let g = '';
+  for (let x = 25; x < 400; x += 25) g += `<line x1="${x}" y1="0" x2="${x}" y2="250" stroke="var(--grid)" stroke-width="1"/>`;
+  for (let y = 25; y < 250; y += 25) g += `<line x1="0" y1="${y}" x2="400" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+  return g;
+}
+const svg = inner => `<svg viewBox="0 0 400 250" role="img">${grid()}${inner}</svg>`;
+const fig = (inner, step, title, text, cls = '', stepCls = '') =>
+  `<figure class="${cls}">${svg(inner)}<figcaption><div class="step ${stepCls}">${step}</div><h3>${title}</h3><div>${text}</div></figcaption></figure>`;
+
+// Scenes. L: east along the bottom, then north. V: a 25° gap.
+const LA = V(30, 195), LN = V(250, 195), LB = V(250, 22);
+const VN = V(330, 215), VA = V(40, 40);
+const VB = add(VN, mul(rot(norm(sub(VA, VN)), -25), 250));
+// street -> avenue: avenue comes in from the left, street leaves north
+const MA = V(20, 180), MN = V(230, 180), MB = V(230, 18);
+
+document.getElementById('now').innerHTML = [
+  fig(road(poly([LA, LN]), STREET) + road(poly([LN, LB]), STREET) +
+      mark(add(LN, V(STREET / 2 - 2, STREET / 2 - 2)), 'var(--bad)') + node(LN) + node(LA) + node(LB) +
+      pill(V(LN.x + 30, LN.y + 26), 'notch', { right: 1, bg: 'var(--bad)' }),
+    'NOW · 90°', 'Butted ends', 'Both roads stop square at the shared node. The outer corner is missing and there is no tag saying they joined.', '', 'bad'),
+  fig(road(poly([VA, VN]), STREET) + road(poly([VN, VB]), STREET) + node(VN) + node(VA) + node(VB) +
+      pill(V(VN.x - 10, VN.y + 22), 'overlap + notch', { left: 1, bg: 'var(--bad)' }),
+    'NOW · 25°', 'Sharp V', 'Same thing at a sharp angle: the ribbons overlap on the inside and leave a wedge at the tip. The 25° is warned about, but only in the issue list.', '', 'bad'),
+].join('');
+
+const LR = rounded([LA, LN, LB], R16);
+const Lc = LR.corners[0];
+document.getElementById('options').innerHTML = [
+  fig(road(poly([LA, LN, LB]), STREET, { join: 'round' }) + node(LN) + node(LA) + node(LB),
+    'A · FILL THE KINK', 'Hard corner at the node', 'Keep the node and fill the bend round, like an Alt+click hard corner. Cheap, but every end-to-end join is a sharp kink, which is not what the goal says ("easy to get a nice rounded road").'),
+  fig(road(LR.d, STREET) + `<line x1="${f(Lc.apex.x)}" y1="${f(Lc.apex.y)}" x2="${f(LN.x)}" y2="${f(LN.y)}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3"/>` +
+      node(LN) + node(LA) + node(LB) + pill(V(LN.x + 12, LN.y - 40), 'node off the road', { right: 1 }),
+    'B · BEND SHAPE AT THE NODE', 'Rounded footprint, node kept', 'Build a curved "bend" footprint for 2-arm nodes. Looks right, but the node sits outside the road, and every later edit or T-junction has to deal with two edges plus a footprint for what is really one road.'),
+  fig(road(LR.d, STREET) + node(LA) + node(LB) + pill(V(Lc.apex.x - 8, Lc.apex.y + 34), 'R 16 m', { left: 1 }),
+    'C · CONTINUE THE ROAD ✓', 'Becomes one road with a corner', 'Drawing on from a dead end with the same profile extends that road: the old end node becomes a corner (a PI) with the pending radius. One edge, rounded like any drawn corner. A stays as the fallback for joins that can’t merge.', 'pick', 'good'),
+].join('');
+
+// Flow frames
+const cur = add(LN, V(8, 4));
+const newLeg = rounded([LA, LN, LB], R16);
+const Vtag = VN;
+document.getElementById('flow').innerHTML = [
+  fig(road(poly([LA, LN]), STREET) + node(LA) + node(LN) + ring(LN) + cursor(cur) +
+      pill(V(LN.x - 16, LN.y - 30), 'continue · street', { left: 1 }) + pill(V(12, 232), [['LMB', 1], ['Continue this road']], { right: 1 }),
+    '1 · HOVER', 'Snap onto a dead end', 'The node snap on an end with one arm of a profile that matches says <b>continue</b> instead of the plain <code>snap: node</code>.'),
+  fig(road(poly([LA, LN]), STREET, { op: .35, noDash: 1 }) + ghost(newLeg.d, STREET) + node(LA) + cursor(LB) +
+      pill(V(LN.x - 60, LN.y - 64), '∡ 90°', { left: 1 }) + pill(V(LN.x + 18, LN.y - 20), 'R 16 m', { right: 1 }) +
+      pill(V(LB.x + 16, (LB.y + LN.y) / 2 - 20), '↔ 69 m', { right: 1 }) +
+      pill(V(12, 232), [['Shift+wheel', 1], ['Radius'], ['Alt', 1], ['Hard corner']], { right: 1 }),
+    '2 · DRAW', 'The preview rounds the old end', 'The existing road’s last leg becomes the previous leg of this draw. The ghost shows the corner already rounded; Shift+wheel or <kbd>[</kbd> <kbd>]</kbd> resizes it like any live corner.'),
+  fig(road(newLeg.d, STREET) + node(LA) + node(LB) + pill(V(200, 60), 'Total 150 m · 1 road', {}),
+    '3 · BUILT', 'One edge, no node at the bend', 'The old edge is replaced by one longer alignment. One undo step puts the old road back. Later, a T onto this curve splits the arc (already supported).', '', 'good'),
+  fig(road(poly([LA, LN, LB]), STREET, { join: 'round' }) + node(LA) + node(LB) +
+      `<rect x="${LN.x - 4}" y="${LN.y - 4}" width="8" height="8" fill="#fff" stroke="#1C2629"/>` +
+      pill(V(LN.x - 16, LN.y - 30), 'hard corner', { left: 1 }),
+    'ALT+CLICK', 'A hard corner', 'Alt on the snap makes the join a hard corner, the same as Alt+click mid-draw. It is still one road. Profiles without hard corners flash the red hint and round instead.'),
+  fig(road(rounded([VA, VN, VB], R16).d, STREET) + node(VA) + node(VB) +
+      pill(V(VN.x - 70, VN.y - 70), '∡ 25° · R 16 m', { left: 1 }),
+    'SHARP', 'A sharp continuation', 'Rounds like any 25° corner you draw: at R 16 m it uses about 72 m of each leg. If the legs are too short it clamps and shows amber.', '', ''),
+  fig(road(poly([MA, MN]), AVENUE, { noDash: 1 }) + `<circle cx="${MN.x}" cy="${MN.y}" r="${AVENUE / 2}" fill="var(--asphalt)"/>` + road(poly([MN, MB]), STREET) +
+      `<path d="${poly([MA, MN])}" fill="none" stroke="var(--paint)" stroke-width="1.6" stroke-dasharray="7 7"/>` +
+      node(MN) + node(MA) + node(MB) + pill(V(MN.x + 20, MN.y - 50), 'join · avenue → street', { right: 1 }),
+    'CAN’T MERGE', 'Different profiles', 'Street onto an avenue’s dead end: they can’t be one edge, so the node stays and the bend is filled (option A). Also used for Join-kind profiles like fences.'),
+].join('');
+</script>

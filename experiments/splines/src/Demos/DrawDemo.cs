@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using CitySim.Splines.Godot;
@@ -98,6 +99,28 @@ public partial class DrawDemo : Node
         network.Apply(g => g.RemoveEdge(branch.Id));
         Check("delete merges the road", network.Graph.EdgeCount, start + 2);
         Check("no footprint left", network.Footprints.Count, 0);
+
+        // Continue from the road's dead end: the start is the live corner (Shift+wheel sizes it), one road results.
+        Click(400, 1400);
+        DrawTool.AdjustRadiusForTest(2f);
+        Click(400, 1600);
+        DrawTool.FinishForTest();
+        Check("continued: still one road", network.Graph.EdgeCount, start + 2);
+        var road = network.Graph.Edges.First(e => e.Alignment.Pis.Any(p => p.Position == new NumVector2(400, 1400)));
+        Check("continued: joint radius (m)", (int)MathF.Round(road.Alignment.EffectiveRadius(road.Alignment.Pis.FindIndex(p => p.Position == new NumVector2(400, 1400)))), 32);
+        network.Undo();
+        Check("continued: undo restores the old end", network.Graph.EdgeCount, start + 2);
+        Check("continued: undo restores the node", network.Graph.NodeAt(new NumVector2(400, 1400)) is null ? 0 : 1, 1);
+
+        // Ending on a dead end: that click places the point and finishes (no double-click).
+        DrawTool.AddBuiltForTest(street, new Alignment(new[] { new Pi(new NumVector2(600, 1300)), new Pi(new NumVector2(600, 1100)) }));
+        Click(400, 1400);
+        Click(600, 1400);
+        Click(600, 1300);
+        Check("click on a dead end finishes", DrawTool.IsDrawing ? 1 : 0, 0);
+        Check("ended on a dead end: the two roads are one", network.Graph.EdgeCount, start + 2);
+        network.Undo();
+        network.Undo();
     }
 
     private void Click(float x, float z)

@@ -45,6 +45,10 @@ public partial class StoryboardDemo : Node
             ["junction-sharp"] = JunctionSharp,
             ["junction-turnout"] = JunctionTurnout,
             ["junction-canal"] = JunctionCanal,
+            ["continue"] = Continue,
+            ["continue-built"] = ContinueBuilt,
+            ["continue-mix"] = ContinueMix,
+            ["continue-both"] = ContinueBoth,
         };
     }
 
@@ -134,8 +138,9 @@ public partial class StoryboardDemo : Node
     private void LengthNode()
     {
         Use("street");
-        Build("street", (200, 30), (200, 105));
-        Build("street", (200, 105), (200, 180));
+        // A node needs a junction now (two straight streets end to end are one road): a short stub makes it a T.
+        Build("street", (200, 30), (200, 180));
+        Build("street", (200, 105), (250, 105));
         Click((32, 105));
         Hover((199, 106));
     }
@@ -253,6 +258,47 @@ public partial class StoryboardDemo : Node
         Build("street", (20, 100), (300, 100));
         Click((160, 20));
         Hover((160, 190));
+    }
+
+    // --- Continuing a dead end (docs/dead-end-joins.html) ---
+
+    private void Continue()
+    {
+        Use("street");
+        Build("street", (40, 190), (220, 190));
+        Click((220, 190));
+        Hover((220, 40));
+    }
+
+    private void ContinueBuilt()
+    {
+        Use("street");
+        Build("street", (40, 190), (220, 190));
+        Click((220, 190));
+        Click((220, 40));
+        DrawTool!.FinishForTest();
+        Hover((300, 120));
+    }
+
+    private void ContinueBoth()
+    {
+        Use("street");
+        Build("street", (40, 190), (160, 190));
+        Build("street", (300, 30), (300, 110));
+        Click((160, 190));
+        Click((300, 190));
+        Hover((300, 110));
+    }
+
+    private void ContinueMix()
+    {
+        Use("avenue");
+        Build("avenue", (40, 190), (220, 190));
+        Use("street");
+        Click((220, 190));
+        Click((220, 40));
+        DrawTool!.FinishForTest();
+        Hover((300, 120));
     }
 
     // --- Helpers ---

@@ -28,9 +28,10 @@ public sealed record GraphEdge(int Id, ProfileRules Rules, Alignment Alignment, 
 /// <summary>One edge leaving a node: which end of the edge is at the node, and the unit tangent pointing away.</summary>
 public readonly record struct Arm(int EdgeId, bool AtStart, Vector2 Direction, ProfileRules Rules);
 
-/// <summary>What <see cref="SplineGraph.AddSpline"/> made: the new edges in draw order, and every node the new
-/// spline touches (its ends and its junctions).</summary>
-public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes);
+/// <summary>What <see cref="SplineGraph.AddSpline"/> made: the new edges in draw order, every node the new spline
+/// touches (its ends and its junctions), the whole alignment it added (the drawn one, grown by any dead ends it
+/// continued), and the edges those dead ends were (now part of it).</summary>
+public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes, Alignment Alignment, IReadOnlyList<int> Continued);
 
 /// <summary>
 /// The spline network (DESIGN.md → Graph): nodes and edges, each edge owning one alignment. Adding a spline splits it
@@ -123,12 +124,31 @@ public sealed class SplineGraph
     private readonly record struct Cut(float S, Vector2 Point, int? Node, int? Edge, float EdgeS);
 
     /// <summary>
-    /// Adds a drawn spline. Its ends join a node or split an edge they land on, and every crossing with an edge splits
+    /// The edge a spline of <paramref name="rules"/>' profile would continue from a point: a node there with only that
+    /// edge, of the same profile (not a loop), so the two become one road (DESIGN.md → Junctions → Continuing a dead
+    /// end). Null anywhere else.
+    /// </summary>
+    public (int EdgeId, bool AtStart)? DeadEndAt(Vector2 p, ProfileRules rules)
+    {
+        if (rules.JunctionKind == JunctionKind.None || NodeAt(p) is not { } n || _nodes[n].Edges.Count != 1) return null;
+        var e = _edges[_nodes[n].Edges[0]];
+        if (e.Start == e.End || e.Rules.Id != rules.Id) return null;
+        return (e.Id, e.Start == n);
+    }
+
+    /// <summary>
+    /// Adds a drawn spline. An end on a dead end of the same profile (<see cref="DeadEndAt"/>) continues that edge:
+    /// the edge is taken into the spline and its end node becomes a corner, with the drawn end's radius (or hard
+    /// corner), so every corner rule applies to it as if it had been drawn in one go. Its other corners keep their
+    /// built radius. Otherwise ends join a node or split an edge they land on, and every crossing with an edge splits
     /// both, wherever the two profiles <see cref="Connects"/>. Where they don't, nothing joins (validation reports the
     /// crossing or overlap).
     /// </summary>
     public AddResult AddSpline(Alignment alignment, ProfileRules rules)
     {
+        var continued = new List<int>();
+        var emptied = new List<int>();
+        alignment = Continue(alignment, rules, continued, emptied);
         var curve = alignment.Curve;
         float length = curve.Length;
         var cuts = new List<Cut>();
@@ -196,9 +216,48 @@ public sealed class SplineGraph
         }
         edges.Add(NewEdge(rules, rest, from, endNode));
         nodes.Add(endNode);
-        return new AddResult(edges, nodes.Distinct().ToList());
+        foreach (int n in emptied)
+            if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
+        return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued);
 
         static Cut OnEdge(float s, Vector2 p, GraphEdge e, float edgeS) => new(s, p, null, e.Id, edgeS);
+    }
+
+    /// <summary>
+    /// Grows a drawn alignment by the dead ends its ends continue, taking those edges out of the graph. Their far
+    /// nodes are left (maybe empty) for the spline to join, and listed in <paramref name="emptied"/> for clean-up.
+    /// </summary>
+    private Alignment Continue(Alignment drawn, ProfileRules rules, List<int> continued, List<int> emptied)
+    {
+        var pis = drawn.Pis.ToList();
+        if (DeadEndAt(pis[0].Position, rules) is { } s)
+        {
+            var old = _edges[s.EdgeId];
+            var lead = AlignmentOps.Pinned(s.AtStart ? AlignmentOps.Reversed(old.Alignment) : old.Alignment);
+            pis = lead.Pis.Take(lead.Pis.Count - 1).Append(Joint(pis[0], rules)).Concat(pis.Skip(1)).ToList();
+            Take(old);
+        }
+        // After the start, so a draw back onto the other end of the same edge closes a loop instead.
+        if (DeadEndAt(pis[^1].Position, rules) is { } e)
+        {
+            var old = _edges[e.EdgeId];
+            var tail = AlignmentOps.Pinned(e.AtStart ? old.Alignment : AlignmentOps.Reversed(old.Alignment));
+            pis = pis.Take(pis.Count - 1).Append(Joint(pis[^1], rules)).Concat(tail.Pis.Skip(1)).ToList();
+            Take(old);
+        }
+        return continued.Count == 0 ? drawn : new Alignment(pis);
+
+        void Take(GraphEdge old)
+        {
+            DetachEdge(old.Id);
+            continued.Add(old.Id);
+            foreach (int n in new[] { old.Start, old.End })
+                if (_nodes[n].Edges.Count == 0) emptied.Add(n);
+        }
+
+        // A drawn end carries the pending radius; one without (a scripted alignment) takes the profile's default.
+        static Pi Joint(Pi end, ProfileRules rules) =>
+            end.Hard || end.Radius > 0 ? end : end with { Radius = rules.DefaultRadius };
     }
 
     /// <summary>

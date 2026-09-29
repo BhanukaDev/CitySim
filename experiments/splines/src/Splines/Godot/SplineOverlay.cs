@@ -12,6 +12,12 @@ public sealed class OverlayFrame
     public IReadOnlyList<Pi> SessionPis { get; init; } = Array.Empty<Pi>();
     /// <summary>The placed PIs plus the snapped cursor point; null before the first click.</summary>
     public Alignment? Preview { get; init; }
+    /// <summary>The draw continues a dead end at its start / its cursor end: <see cref="Preview"/> then has the old
+    /// road's leg before the first point / after the cursor, drawn as a leg but with no length pill.</summary>
+    public bool LeadIn { get; init; }
+    public bool LeadOut { get; init; }
+    /// <summary>A click here also finishes the draw (the cursor is on a dead end it continues).</summary>
+    public bool ClickFinishes { get; init; }
     public SnapResult? Snap { get; init; }
     public NumVector2? StartHeading { get; init; }
     public ProfileRules? Rules { get; init; }
@@ -162,6 +168,9 @@ public partial class SplineOverlay : Control
         // The legs: thick white dashes from point to point (the tangent polygon the corners round off).
         DashedPolyline(pis.Select(p => p.Position).ToList(), Line, LegWidth, LegDash, LegGap);
 
+        // The cursor's point, and the first drawn one (the old road's leg sits before or after them when continuing).
+        int cur = pis.Count - (f.LeadOut ? 2 : 1), drawnFrom = f.LeadIn ? 1 : 0;
+
         // Corners: the angle arc between the two legs and its pill; the radius knob, or a square at a hard corner.
         int live = pis.Count - 2;
         for (int i = 1; i < pis.Count - 1; i++)
@@ -170,7 +179,11 @@ public partial class SplineOverlay : Control
             var u = pis[i - 1].Position - at;
             var v = pis[i + 1].Position - at;
             if (u.Length() < SplineMath.Epsilon || v.Length() < SplineMath.Epsilon) continue;
-            var lk = snap?.Angle is { Against: AngleReference.Leg } a && NumVector2.Distance(a.Vertex, at) < 1e-3f ? a : (AngleLock?)null;
+            // Straight on (a continued road's joint, drawn in line): nothing to show.
+            if (NumVector2.Dot(NumVector2.Normalize(u), NumVector2.Normalize(v)) < -0.99996f) continue;
+            // A lock against the start road shows on the continued joint, where that road is the previous leg.
+            var lk = snap?.Angle is { } a && (a.Against == AngleReference.Leg || a.Against == AngleReference.StartEdge && f.LeadIn && i == 1)
+                && NumVector2.Distance(a.Vertex, at) < 1e-3f ? a : (AngleLock?)null;
             var c = preview.Corner(i);
             // The live corner's pill also carries its radius (amber when it didn't fit).
             string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null
@@ -195,7 +208,7 @@ public partial class SplineOverlay : Control
         }
 
         // The first leg against the edge the draw started on.
-        if (f.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon && pis.Count >= 2)
+        if (!f.LeadIn && f.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon && pis.Count >= 2)
         {
             var first = pis[1].Position - pis[0].Position;
             if (first.Length() > SplineMath.Epsilon)
@@ -208,20 +221,20 @@ public partial class SplineOverlay : Control
         }
 
         // Nodes: a disc at the start and at the cursor end, a small dot at each corner point.
-        GroundDisc(pis[0].Position, 6f, Line, outline: true);
-        GroundDisc(pis[^1].Position, 6f, Line, outline: true);
+        GroundDisc(pis[drawnFrom].Position, 6f, Line, outline: true);
+        GroundDisc(pis[cur].Position, 6f, Line, outline: true);
         for (int i = 1; i < pis.Count - 1; i++)
             if (ScreenOf(pis[i].Position) is { } d) { DrawCircle(d, 3.5f, Shadow, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
 
         // Length pills in the middle of every leg; the current one says when it's whole steps or equal to another leg.
-        int? steps = LegSteps(f, preview);
-        for (int j = 0; j + 1 < pis.Count; j++)
+        int? steps = LegSteps(f, pis[cur].Position);
+        for (int j = drawnFrom; j < cur; j++)
         {
             var a = pis[j].Position;
             var b = pis[j + 1].Position;
             float len = NumVector2.Distance(a, b);
             if (len < 0.5f || ScreenOf((a + b) / 2) is not { } m) continue;
-            bool current = j == pis.Count - 2;
+            bool current = j == cur - 1;
             string text = $"↔ {len:0} m";
             var style = TagStyle.Plain;
             if (current && snap?.EqualLength is { } eq) { text = $"↔ = {eq.Length:0} m"; style = TagStyle.Snap; }
@@ -233,13 +246,13 @@ public partial class SplineOverlay : Control
         if (f.Rules is { SnapLength: > 0 } rl && steps is { } count && count <= 80)
         {
             var a = f.SessionPis[^1].Position;
-            var dir = NumVector2.Normalize(pis[^1].Position - a);
+            var dir = NumVector2.Normalize(pis[cur].Position - a);
             for (int k = 1; k < count; k++) Tick(a + dir * (k * rl.SnapLength), dir, 4f, Line with { A = 0.55f }, 1f);
         }
         if (snap?.EqualLength is { } e)
         {
             var a = f.SessionPis[^1].Position;
-            var b = pis[^1].Position;
+            var b = pis[cur].Position;
             Tick((a + b) / 2, NumVector2.Normalize(b - a), 10f, Line, 3f);
             Tick((e.A + e.B) / 2, NumVector2.Normalize(e.B - e.A), 10f, Line, 3f);
             if (!pis.Zip(pis.Skip(1)).Any(p => NumVector2.Distance(p.First.Position, e.A) < 1e-3f && NumVector2.Distance(p.Second.Position, e.B) < 1e-3f)
@@ -269,10 +282,10 @@ public partial class SplineOverlay : Control
     }
 
     /// <summary>How many whole snap steps the current leg is, if it's (to the centimetre) a whole number.</summary>
-    private static int? LegSteps(OverlayFrame f, Alignment preview)
+    private static int? LegSteps(OverlayFrame f, NumVector2 cursor)
     {
         if (f.Rules is not { SnapLength: > 0 } r || f.SessionPis.Count == 0) return null;
-        float len = NumVector2.Distance(f.SessionPis[^1].Position, preview.Pis[^1].Position);
+        float len = NumVector2.Distance(f.SessionPis[^1].Position, cursor);
         int n = (int)MathF.Round(len / r.SnapLength);
         return n > 0 && MathF.Abs(n * r.SnapLength - len) < 1e-2f ? n : null;
     }
@@ -397,7 +410,7 @@ public partial class SplineOverlay : Control
     private void Hints(OverlayFrame f)
     {
         var at = f.Mouse + new Vector2(26, -10);
-        _tags.Add(new PendingTag(at, f.Suggestion is null ? "Place" : "Use turnout", TagStyle.Plain, false, "LMB"));
+        _tags.Add(new PendingTag(at, f.Suggestion is not null ? "Use turnout" : f.ClickFinishes ? "Place and finish" : "Place", TagStyle.Plain, false, "LMB"));
         if (f.SessionPis.Count == 0)
         {
             if (f.DeleteTarget is not null) _tags.Add(new PendingTag(at, "Delete", TagStyle.Plain, false, "Del"));
