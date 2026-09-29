@@ -5,11 +5,12 @@ using System.Numerics;
 namespace CitySim.Splines;
 
 /// <summary>
-/// An existing built alignment offered as a snap/guide source. There's no graph yet (S4), so the caller
-/// (<c>SplineDrawTool</c> today) passes every alignment it knows about; a "node" is just one of
-/// <see cref="Alignment"/>'s two ends, and an "edge" is its <see cref="Splines.Alignment.Curve"/>.
+/// A built edge offered as a snap/guide source: every node is one of its <see cref="Alignment"/>'s two ends, and the
+/// edge itself is its <see cref="Splines.Alignment.Curve"/>. <see cref="OpenStart"/>/<see cref="OpenEnd"/> say an end
+/// is a dead end (no other edge there), the only ends an extension guide continues from: past a junction the road
+/// already goes on.
 /// </summary>
-public readonly record struct SnapCandidate(Alignment Alignment, float Width, string Label = "");
+public readonly record struct SnapCandidate(Alignment Alignment, float Width, string Label = "", bool OpenStart = true, bool OpenEnd = true);
 
 /// <summary>What produced a <see cref="SnapResult"/>'s position (DESIGN.md → Snapping and guides → Priority).</summary>
 public enum SnapKind

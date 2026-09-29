@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using NumVector2 = System.Numerics.Vector2;
 
@@ -7,8 +9,10 @@ namespace CitySim.Splines.Godot;
 /// <summary>
 /// Turns <see cref="RibbonGeometry"/> slices into flat-ribbon meshes draped on the ground (DESIGN.md's placeholder
 /// flat-ribbon visual): the preview is a translucent light-blue "ghost" (its outline and dashed legs are drawn by
-/// <see cref="SplineOverlay"/>), with an amber halo under it when a corner was clamped; a built spline is its profile
-/// colour with a lighter dashed centre line. Simple full rebuilds — no incremental updates until S11.
+/// <see cref="SplineOverlay"/>) with an amber or red halo under it when it has a warning or is refused; a turnout
+/// suggestion is a fainter ghost. The built network is each edge in its profile colour with a lighter dashed centre
+/// line, cut back at junctions, each Node junction's footprint filled flat in the widest arm's colour, and a halo under
+/// every edge or junction with an issue. Simple full rebuilds — no incremental updates until S11.
 /// </summary>
 public sealed class RibbonRenderer
 {
@@ -17,11 +21,13 @@ public sealed class RibbonRenderer
     private const float DashOn = 3f, DashOff = 3f;
 
     private static readonly Color GhostFill = new(0.42f, 0.72f, 1f, 0.45f);
-    private static readonly Color Halo = SplineOverlay.Warn with { A = 0.45f };
+    private static readonly Color SuggestFill = new(0.42f, 0.72f, 1f, 0.22f);
+
+    private static Color HaloOf(Severity s) => s == Severity.Invalid ? SplineOverlay.Bad with { A = 0.6f } : SplineOverlay.Warn with { A = 0.45f };
 
     private readonly Node3D _parent;
     private readonly IGround _ground;
-    private MeshInstance3D? _preview;
+    private MeshInstance3D? _preview, _ghost, _network;
 
     public RibbonRenderer(Node3D parent, IGround ground)
     {
@@ -29,30 +35,129 @@ public sealed class RibbonRenderer
         _ground = ground;
     }
 
-    /// <summary>Rebuilds the preview ghost from the in-progress alignment. Null clears it.</summary>
-    public void SetPreview(Alignment? alignment, float width)
+    /// <summary>Rebuilds the preview ghost from the in-progress alignment, with a halo in the worst issue's colour
+    /// (a clamped corner is amber even before validation says so). Null clears it.</summary>
+    public void SetPreview(Alignment? alignment, float width, Severity? worst = null)
     {
         if (alignment is null || alignment.Curve.Length <= 0f)
         {
-            _preview?.QueueFree();
-            _preview = null;
+            Clear(ref _preview);
             return;
         }
         _preview ??= NewInstance();
         var mesh = new ArrayMesh();
-        if (alignment.AnyClamped) AddSurface(mesh, Strip(alignment.Curve, width + 5f, 0, Lift * 0.5f), Halo);
+        if (worst is null && alignment.AnyClamped) worst = Severity.Warn;
+        if (worst is { } w) AddSurface(mesh, Strip(alignment.Curve, width + 5f, 0, Lift * 0.5f), HaloOf(w));
         AddSurface(mesh, Strip(alignment.Curve, width, 0, Lift), GhostFill);
         _preview.Mesh = mesh;
     }
 
-    /// <summary>Adds one permanent built ribbon in the profile's colour. Never rebuilt after.</summary>
-    public void AddBuilt(SplineProfile profile, Alignment alignment)
+    /// <summary>A suggested alignment (the legal turnout offered for a refused branch), fainter than the preview.</summary>
+    public void SetGhost(Alignment? alignment, float width)
     {
-        var node = NewInstance();
+        if (alignment is null || alignment.Curve.Length <= 0f)
+        {
+            Clear(ref _ghost);
+            return;
+        }
+        _ghost ??= NewInstance();
         var mesh = new ArrayMesh();
-        AddSurface(mesh, Strip(alignment.Curve, profile.Width, 0, Lift), profile.Color, opaque: true);
-        AddSurface(mesh, Strip(alignment.Curve, CentreWidth, DashOn, Lift * 2), profile.Color.Lightened(0.55f), opaque: true);
-        node.Mesh = mesh;
+        AddSurface(mesh, Strip(alignment.Curve, width, 0, Lift * 1.5f), SuggestFill);
+        _ghost.Mesh = mesh;
+    }
+
+    /// <summary>Rebuilds every built edge and junction footprint (one mesh, a surface per colour and layer).</summary>
+    public void SetNetwork(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints,
+        IReadOnlyList<Issue> issues, Func<string, Color> colorOf)
+    {
+        Clear(ref _network);
+        if (graph.EdgeCount == 0) return;
+        _network = NewInstance();
+        var mesh = new ArrayMesh();
+
+        var edgeWorst = new Dictionary<int, Severity>();
+        var nodeWorst = new Dictionary<int, Severity>();
+        foreach (var i in issues)
+        {
+            if (i.NodeId is { } n) nodeWorst[n] = Max(nodeWorst, n, i.Severity);
+            else if (i.EdgeId is { } e) edgeWorst[e] = Max(edgeWorst, e, i.Severity);
+        }
+
+        foreach (Severity sev in new[] { Severity.Warn, Severity.Invalid })
+        {
+            var halo = NewStrip();
+            int quads = 0;
+            foreach (var e in graph.Edges)
+                if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev)
+                    quads += Span(halo, e.Alignment.Curve, 0, e.Alignment.Length, e.Rules.Width + 5f, Lift * 0.5f);
+            foreach (var n in graph.Nodes)
+                if (nodeWorst.TryGetValue(n.Id, out var w) && w == sev)
+                    quads += Disc(halo, n.Position, MaxWidth(graph, n.Id) * 0.5f + 6f, Lift * 0.5f);
+            if (quads > 0) AddSurface(mesh, halo, HaloOf(sev), opaque: false);
+        }
+
+        foreach (var group in graph.Edges.GroupBy(e => e.Rules.Id))
+        {
+            var fill = NewStrip();
+            var centre = NewStrip();
+            int quads = 0, dashes = 0;
+            foreach (var e in group)
+            {
+                var (cs, ce) = Junctions.CutBacks(e, footprints);
+                float s0 = cs, s1 = e.Alignment.Length - ce;
+                if (s1 <= s0) continue;
+                quads += Span(fill, e.Alignment.Curve, s0, s1, e.Rules.Width, Lift);
+                for (float s = s0 + DashOff / 2; s < s1; s += DashOn + DashOff)
+                    dashes += Span(centre, e.Alignment.Curve, s, MathF.Min(s + DashOn, s1), CentreWidth, Lift * 2);
+            }
+            var color = colorOf(group.Key);
+            if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
+            if (dashes > 0) AddSurface(mesh, centre, color.Lightened(0.55f), opaque: true);
+        }
+
+        foreach (var f in footprints.Values)
+        {
+            var st = NewStrip();
+            for (int i = 0; i < f.Outline.Count; i++)
+            {
+                st.AddVertex(Drape(f.Centre, Lift));
+                st.AddVertex(Drape(f.Outline[i], Lift));
+                st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], Lift));
+            }
+            var widest = f.Cuts.Select(c => graph.Edge(c.EdgeId)).OrderByDescending(e => e.Rules.Width).First();
+            AddSurface(mesh, st, colorOf(widest.Rules.Id), opaque: true);
+        }
+        _network.Mesh = mesh;
+
+        static Severity Max(Dictionary<int, Severity> d, int key, Severity s) => d.TryGetValue(key, out var old) && old > s ? old : s;
+    }
+
+    private static float MaxWidth(SplineGraph g, int node) => g.Node(node).Edges.Select(e => g.Edge(e).Rules.Width).DefaultIfEmpty(0).Max();
+
+    private static void Clear(ref MeshInstance3D? node)
+    {
+        node?.QueueFree();
+        node = null;
+    }
+
+    private static SurfaceTool NewStrip()
+    {
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        return st;
+    }
+
+    /// <summary>A flat disc of triangles around a point.</summary>
+    private int Disc(SurfaceTool st, NumVector2 centre, float radius, float lift)
+    {
+        const int n = 24;
+        for (int i = 0; i < n; i++)
+        {
+            st.AddVertex(Drape(centre, lift));
+            st.AddVertex(Drape(centre + SplineMath.Direction(MathF.Tau * i / n) * radius, lift));
+            st.AddVertex(Drape(centre + SplineMath.Direction(MathF.Tau * (i + 1) / n) * radius, lift));
+        }
+        return n;
     }
 
     private MeshInstance3D NewInstance()

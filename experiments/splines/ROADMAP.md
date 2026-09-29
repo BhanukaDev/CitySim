@@ -47,6 +47,7 @@ dotnet build && $G --headless --path . --import
 $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-checks, prints "Demo geometry: all ok"
 $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
+$G --headless --path . --quit-after 200 -- --demo-junctions  # S4+: graph, junctions, validation, prints "Demo junctions: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 # S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
 $G --path . -- --flat --storyboard=corner --screenshot=out.png --cam=560,500,340,89,0   # --storyboard=list for names
@@ -87,7 +88,7 @@ scripted `--screenshot` scene. See the milestones.
   Two clamped corners on a short leg meet with no straight between them. A reversal (≈180°) builds as a hard corner.
 - Offsets: an arc whose offset radius goes ≤ 0 is dropped; straights that no longer meet (hard corner, dropped arc)
   are trimmed/extended to where their lines cross.
-- Not yet: `Spiral` is stored on `Pi` but unused until S7. Validation (clamped → Warn) comes with S4.
+- Not yet: `Spiral` is stored on `Pi` but unused until S7. Validation (clamped → Warn) landed in S4.
 
 ### ✅ S2: Draw tool (mode 1) on terrain
 - `IGround` (Core interface: `Raycast`, `GetHeight`) + `TerrainGround` (Godot impl over `citysim_terrain`'s
@@ -145,14 +146,55 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   when a draw starts/ends on a road (S4; for now it only snaps there), the rail speed readout and spirals (S7).
 - Still to do: play-test in the Godot editor (does it feel sticky, not fighty, at normal zooms?).
 
-### ⬜ S4: Graph and junctions
-- Split on end/cross, merge on delete, `ConnectsTo`.
-- `Node` / `Turnout` / `Join` kinds, junction angle checks, and footprint (cut-back + curb arcs) as data, drawn flat.
-- Starting or ending a draw on an edge makes a real T-junction (the storyboard's `T-junction · 90°`); crossing makes
-  a 4-way. Until then S3 only snaps to the point.
-- Validation issues and colours (blue/amber/red) for junctions and the issue list, plus Anarchy (Ctrl+A). The clamped
-  corner's amber preview already exists (S3); S4 adds it as an issue (`Warn`).
-- `--demo-junctions`: T, X, a too-sharp angle, a rail square branch refused, and a legal turnout.
+### ✅ S4: Graph and junctions
+- `Core/Graph/SplineGraph`: nodes and edges (each edge owns one alignment, its `ProfileRules` and a `CustomData`
+  slot). `AddSpline` joins an end to a node or splits the edge it lands on, and splits both at every crossing, where the
+  two profiles `Connects` (each accepts the other: own id or `ConnectsTo`; `JunctionKind.None` never joins).
+  `RemoveEdge` merges the two edges left at a node when they have the same profile and run straight through (±1°).
+  `Clone()` is cheap (alignments are shared, never changed in place): the draw preview and the undo history use it.
+- `Core/Geometry/AlignmentOps`: `SplitAt` (on a straight: an end PI; inside an arc: two PIs where the tangent at the cut
+  meets the legs, so the halves are the same arc), `Reversed`, `Join` (folds a split arc back into one PI, so split →
+  merge round-trips). Corners next to a cut are pinned to their built radius so a clamped one doesn't spring back.
+  `Alignment.CornerStations(i)` and `Curve.SelfIntersect()` were added for this.
+- `Core/Graph/Junctions`: kind at a node (Turnout if any arm is, then Node, then Join), arm gaps, labels
+  (`T-junction · 90°`, `4-way · 90°`, `turnout · R 300 m`, `join`), the **footprint** of a Node junction with 3+ arms
+  (curb arcs between neighbouring arms at the narrower arm's `DefaultRadius`, arm cut-backs, an outline polygon),
+  turnout violations, and `TurnoutGhost` (the nearest legal turnout: leaves along the line at `MinRadius`, the arc
+  starting at the switch; a square target is moved ahead until it fits).
+- `Core/Graph/Validation`: `Issue{Severity, Code, Message, Where, EdgeId, NodeId}`. Clamped radius → Warn
+  (`R 191 m (wants 500)`), below `MinRadius` → Invalid, junction angle below the minimum → Warn (`22°, min 30° ·
+  Ctrl+A allows`), square branch at a turnout → Invalid (`90° not allowed`), crossing an edge it doesn't connect to →
+  Invalid (`crosses street · not connected`), corridor overlap (incl. drawn back over a road from a shared node) →
+  Invalid, crosses itself → Invalid, too short for its junctions → Warn.
+- Godot: `SplineNetwork` (scene node) owns the graph, a snapshot undo/redo stack (one step per action), issues,
+  footprints and the built visuals. `RibbonRenderer.SetNetwork` draws edges cut back at junctions, footprints filled
+  flat, and amber/red halos under edges and nodes with issues.
+- `SplineDrawTool`: every frame the draw is tried on a clone of the graph; the preview shows the junctions it makes
+  (dashed ring + tag), its issues (tags, amber arc in a too-sharp junction, preview halo and outline amber/red) and an
+  issue list (bottom left). **Invalid refuses the finish** (red `Can't build: …` flash, the draw stays open) unless
+  **Anarchy** (Ctrl+A or the options-bar toggle), which also lets Shift+wheel go below `MinRadius`. A square branch off
+  a turnout profile shows the legal turnout as a ghost (`turnout 1:9 · R 300 m`); LMB takes it. With no draw in
+  progress, Ctrl+Z / Ctrl+Y undo/redo on the graph and **Del** deletes the edge under the cursor (a stopgap until the
+  S5 Edit tool). Snapping now reads the graph; extension guides only leave dead ends.
+- Test profiles: street ↔ avenue connect (`ConnectsTo`).
+- `--demo-junctions` (Core): T (split, label, cut-backs 22 m, curb centre), 4-way street × avenue, 22° amber, rail
+  square branch refused + legal turnout ghost, crossing through an existing junction, canal refused by ConnectsTo,
+  overlap vs a 0 m gap, clamped radius, split → merge on a straight and on an arc, a corner node kept. All ok.
+  `--demo-draw` adds the tool flows: refused → built with Anarchy (stays red), undo/redo, T then delete → merged.
+- `--storyboard=junction-cross | junction-sharp | junction-turnout | junction-canal`, each checked against its frame.
+- Fixed on the way (pre-existing, headless only): the overlay's tag clamp threw in a tiny viewport, and degenerate
+  ground discs logged failed triangulations every frame.
+- Known limits (fine for now, revisit if they bite):
+  - Splitting inside an arc can clamp the corner before/after it tighter if that corner already used half its leg
+    (the half-leg clamp rule from S1).
+  - Overlap between edges that share a node is only caught when they leave it along the same line; a turnout's
+    branch is exempt.
+  - Closing a loop onto the draw's own start isn't supported (snapping doesn't offer it); a self-crossing is red.
+  - The turnout ghost is offered for the first leg only; snapping still offers guides from profiles that can't connect.
+  - `ConnectsTo` takes profile ids only (no tags yet).
+  - Curb radius is the narrower arm's `DefaultRadius` (per the storyboard), so street curbs are 16 m. A separate
+    `CurbRadius` profile field is easy if that looks too big.
+- Still to do: play-test in Godot (T, 4-way, the rail turnout ghost, Anarchy, Del → merge, undo).
 
 ### ⬜ S5: Edit tool
 - Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.
@@ -260,3 +302,11 @@ version:
 - 2026-09-30: the in-game overlay follows **CS2's road tool look** (user's reference screenshot): thick white dashes,
   arcs drawn between the lines with angle pills beside them, length pills at the middle of each leg, dark rounded
   pills, mouse hints by the cursor. The storyboard still sets what is shown; its boxed mono tags were only a sketch.
+- 2026-09-30 (S4): **Severity doesn't depend on Anarchy.** Warn builds; Invalid is refused unless Anarchy is on, and
+  what Anarchy builds stays red (the storyboard's "shows red", Network Anarchy's behaviour). A too-sharp junction
+  angle is Warn, so it always builds. DESIGN.md's "Anarchy downgrades Invalid to Warn" is reworded to match.
+- 2026-09-30 (S4): `ConnectsTo` is mutual (both profiles must accept each other); crossings that don't connect are
+  left unsplit and reported Invalid (bridges/tunnels later). A node's kind is the strictest of its arms (Turnout >
+  Node > Join); footprints only for Node junctions with 3+ arms. Merging happens on delete only, never on add.
+- 2026-09-30 (S4): undo is whole-graph snapshots in `SplineNetwork` (simple, and cheap because alignments are
+  shared); S8's terrain shaping will join the same step. Revisit in S11 if memory matters.

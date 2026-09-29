@@ -6,7 +6,7 @@ namespace CitySim.Splines;
 
 /// <summary>
 /// One in-progress Draw-tool session (DESIGN.md → Draw tool, mode 1): the PIs placed so far, and a small undo/redo
-/// stack scoped to this draw (ROADMAP.md S2: "one undo stack for add/remove"; the fuller graph-command undo is S4).
+/// stack scoped to this draw (ROADMAP.md S2). Finished splines are undone on the graph (<c>SplineNetwork</c>).
 /// Discarded on cancel or finish. Core-only: no Godot, no terrain.
 /// </summary>
 public sealed class DrawSession
@@ -36,6 +36,14 @@ public sealed class DrawSession
         _redo.Clear();
     }
 
+    /// <summary>Replaces the placed PIs (taking an offered turnout). One step, like a click; clears redo.</summary>
+    public void ReplaceWith(IEnumerable<Pi> pis)
+    {
+        _pis.Clear();
+        _pis.AddRange(pis);
+        _redo.Clear();
+    }
+
     /// <summary>RMB / Ctrl+Z: pops the last PI. False when there was nothing to pop (caller cancels the draw).</summary>
     public bool Undo()
     {
@@ -53,7 +61,7 @@ public sealed class DrawSession
         return true;
     }
 
-    /// <summary>Sets the pending radius, clamped to the profile's <c>MinRadius</c>. The live corner (the last PI placed,
+    /// <summary>Sets the pending radius, clamped to <paramref name="minRadius"/> (the profile's, or ~0 with Anarchy). The live corner (the last PI placed,
     /// which the preview rounds as the mouse moves on) takes it too, so Shift+wheel grows or shrinks it in place
     /// (storyboard step 2).</summary>
     public void SetPendingRadius(float radius, float minRadius)

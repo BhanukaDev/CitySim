@@ -16,6 +16,8 @@ public partial class SplinesTestbed : Node
     public SplineProfile? Profile { get; private set; }
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
     public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
+    /// <summary>Ctrl+A: Invalid issues still build (and stay red), and radii may go below the profile's minimum.</summary>
+    public bool Anarchy { get; private set; }
 
     private SplineOptionsBar? _bar;
 
@@ -38,7 +40,15 @@ public partial class SplinesTestbed : Node
         };
         _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
         _bar.SnapProvidersChanged += p => EnabledSnaps = p;
+        _bar.AnarchyChanged += on => SetAnarchy(on);
         EnabledSnaps = _bar.EnabledSnaps;
+    }
+
+    public void SetAnarchy(bool on)
+    {
+        Anarchy = on;
+        _bar?.SetAnarchy(on);
+        GD.Print($"Splines: anarchy {(on ? "on" : "off")}");
     }
 
     /// <summary>Selects a profile in the options bar (and fires the same event a click would) — used by

@@ -7,18 +7,24 @@ namespace CitySim.Splines.Godot;
 /// <summary>
 /// The Draw tool's options bar along the top of the screen: a profile picker, the mode strip (Draw · Curve ·
 /// Freehand · Grid), and the snap-provider toggle row (DESIGN.md → Snapping and guides: "each snap and guide type
-/// toggles in the options bar"). Radius and elevation step join it in later milestones.
+/// toggles in the options bar"), and the Anarchy toggle (Ctrl+A). Radius and elevation step join it in later milestones.
 /// </summary>
 public partial class SplineOptionsBar : PanelContainer
 {
     private readonly OptionButton _profilePicker = new() { TooltipText = "Profile" };
     private readonly Dictionary<DrawMode, Button> _modeButtons = new();
     private readonly Dictionary<SnapProviders, Button> _snapButtons = new();
+    private readonly Button _anarchy = new()
+    {
+        Text = "Anarchy", ToggleMode = true, FocusMode = FocusModeEnum.None,
+        TooltipText = "Ctrl+A: build past radius, angle and grade limits (the result stays red)",
+    };
     private IReadOnlyList<SplineProfile> _profiles = Array.Empty<SplineProfile>();
 
     public event Action<SplineProfile>? ProfileChanged;
     public event Action<DrawMode>? ModeChanged;
     public event Action<SnapProviders>? SnapProvidersChanged;
+    public event Action<bool>? AnarchyChanged;
 
     public SplineProfile? Profile => _profilePicker.Selected >= 0 && _profilePicker.Selected < _profiles.Count
         ? _profiles[_profilePicker.Selected] : null;
@@ -58,6 +64,9 @@ public partial class SplineOptionsBar : PanelContainer
             row.AddChild(b);
             _modeButtons[mode] = b;
         }
+        row.AddChild(new VSeparator());
+        _anarchy.Toggled += on => AnarchyChanged?.Invoke(on);
+        row.AddChild(_anarchy);
 
         var snapRow = new HBoxContainer();
         snapRow.AddThemeConstantOverride("separation", 4);
@@ -119,6 +128,9 @@ public partial class SplineOptionsBar : PanelContainer
         _profilePicker.Select(index);
         ProfileChanged?.Invoke(_profiles[index]);
     }
+
+    /// <summary>Shows Anarchy on or off (Ctrl+A) without firing <see cref="AnarchyChanged"/>.</summary>
+    public void SetAnarchy(bool on) => _anarchy.SetPressedNoSignal(on);
 
     public void SetMode(DrawMode mode)
     {

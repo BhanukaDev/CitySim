@@ -121,6 +121,17 @@ public sealed class Curve
         return hits;
     }
 
+    /// <summary>Where this curve crosses itself: hits between segments that aren't neighbours.</summary>
+    public List<CurveHit> SelfIntersect()
+    {
+        var hits = new List<CurveHit>();
+        for (int i = 0; i < _segments.Count; i++)
+            for (int j = i + 2; j < _segments.Count; j++)
+                foreach (var p in SegmentHits(_segments[i], _segments[j]))
+                    hits.Add(new CurveHit(_starts[i] + _segments[i].Closest(p), _starts[j] + _segments[j].Closest(p), p));
+        return hits;
+    }
+
     /// <summary>The tightest radius between stations <paramref name="s0"/> and <paramref name="s1"/> (∞ if straight).</summary>
     public float MinRadius(float s0, float s1)
     {

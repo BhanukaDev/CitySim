@@ -41,6 +41,10 @@ public partial class StoryboardDemo : Node
             ["equal-length"] = EqualLength,
             ["crossing"] = Crossing,
             ["rail-clamped"] = RailClamped,
+            ["junction-cross"] = JunctionCross,
+            ["junction-sharp"] = JunctionSharp,
+            ["junction-turnout"] = JunctionTurnout,
+            ["junction-canal"] = JunctionCanal,
         };
     }
 
@@ -208,6 +212,47 @@ public partial class StoryboardDemo : Node
         Click((20, 178));
         Click((160, 48));
         Hover((300, 178));
+    }
+
+    // --- Junctions ---
+
+    /// <summary>A street drawn across an avenue: both split, a 4-way with curbs at the street's corner radius.</summary>
+    private void JunctionCross()
+    {
+        Use("street");
+        Build("avenue", (20, 110), (300, 110));
+        Click((160, 20));
+        Click((160, 190));
+        DrawTool!.FinishForTest();
+        Hover((250, 40));
+    }
+
+    /// <summary>A branch at 22° off a street (min 30°): amber, with the fix in the tag.</summary>
+    private void JunctionSharp()
+    {
+        Use("street");
+        Build("street", (20, 150), (300, 150));
+        var b = new NumVector2(120, 150) + SplineMath.Direction(-22f * MathF.PI / 180f) * 170f;
+        Click((120, 150));
+        Hover((b.X, b.Y));
+    }
+
+    /// <summary>A square branch off a rail: red, and the legal turnout offered as a ghost.</summary>
+    private void JunctionTurnout()
+    {
+        Use("rail");
+        Build("rail", (-200, 150), (800, 150));
+        Click((140, 150));
+        Hover((140, 40));
+    }
+
+    /// <summary>A canal drawn across a street: they don't connect, so it's red.</summary>
+    private void JunctionCanal()
+    {
+        Use("canal");
+        Build("street", (20, 100), (300, 100));
+        Click((160, 20));
+        Hover((160, 190));
     }
 
     // --- Helpers ---

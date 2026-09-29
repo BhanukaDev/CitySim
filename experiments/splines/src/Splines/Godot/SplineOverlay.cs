@@ -21,9 +21,30 @@ public sealed class OverlayFrame
     /// <summary>Ctrl steps are on: the fan of step spokes is drawn around the leg's start.</summary>
     public float CtrlStepDegrees { get; init; }
     public bool HardRefused { get; init; }
-    /// <summary>A tag that stays a moment after an action ("Total 334 m" after a finish).</summary>
-    public (NumVector2 At, string Text)? Flash { get; init; }
+    /// <summary>Tags that stay a moment after an action ("Total 334 m" and the junctions made, after a finish; a red
+    /// refusal).</summary>
+    public IReadOnlyList<FlashTag> Flashes { get; init; } = Array.Empty<FlashTag>();
+    /// <summary>The junctions the draw would make, each with a dashed ring and its tag (<c>T-junction · 90°</c>).</summary>
+    public IReadOnlyList<JunctionMark> Junctions { get; init; } = Array.Empty<JunctionMark>();
+    /// <summary>What's wrong with the draw, tagged where it is (amber or red).</summary>
+    public IReadOnlyList<Issue> Issues { get; init; } = Array.Empty<Issue>();
+    /// <summary>The draw's worst issue: the preview's outline turns amber or red with it.</summary>
+    public Severity? Worst { get; init; }
+    /// <summary>A too-sharp junction angle, drawn as an amber arc between its two arms.</summary>
+    public IReadOnlyList<(NumVector2 Vertex, NumVector2 A, NumVector2 B)> SharpAngles { get; init; } = Array.Empty<(NumVector2, NumVector2, NumVector2)>();
+    /// <summary>The legal alternative offered for a refused branch (a turnout), and its tag.</summary>
+    public Alignment? Suggestion { get; init; }
+    public string? SuggestionLabel { get; init; }
+    /// <summary>The built edge a Delete would remove (no draw in progress), outlined red.</summary>
+    public Curve? DeleteTarget { get; init; }
+    public float DeleteWidth { get; init; }
 }
+
+/// <summary>A tag left on screen for a moment after an action.</summary>
+public readonly record struct FlashTag(NumVector2 At, string Text, bool Bad = false);
+
+/// <summary>A junction the draw makes: where, its tag, the ring's radius in metres, and whether it's amber.</summary>
+public readonly record struct JunctionMark(NumVector2 At, string Label, float Radius, bool Warn);
 
 /// <summary>
 /// The Draw tool's feedback, in a Cities: Skylines 2 style (DESIGN.md → Feedback → Overlay): thick white dashed legs
@@ -97,6 +118,8 @@ public partial class SplineOverlay : Control
         if (_frame is not { } f || Project is null) return;
 
         foreach (var end in f.BuiltEnds) GroundDisc(end, 4f, Line with { A = 0.75f });
+        if (f.DeleteTarget is { } del) DrawDeleteTarget(del, f.DeleteWidth);
+        if (f.Suggestion is { } sug) DrawSuggestion(sug, f.SuggestionLabel);
 
         var snap = f.Snap;
         bool drawing = f.Preview is not null && f.SessionPis.Count > 0;
@@ -104,11 +127,13 @@ public partial class SplineOverlay : Control
         if (drawing) DrawPreview(f, f.Preview!, snap);
         if (snap is not null) DrawGuides(f, snap);
         if (snap is not null) DrawSnapMarker(snap);
+        if (drawing) DrawJunctionsAndIssues(f);
 
         if (snap is { Tag.Length: > 0, Kind: not (SnapKind.Angle or SnapKind.CtrlAngle) } s && ScreenOf(s.TagAt) is { } tagAt)
             _tags.Add(new PendingTag(tagAt + new Vector2(16, -30), s.Tag, TagStyle.Snap, false, null));
-        if (f.Flash is { } flash && ScreenOf(flash.At) is { } fa)
-            _tags.Add(new PendingTag(fa + new Vector2(14, 14), flash.Text, TagStyle.Plain, false, null));
+        foreach (var flash in f.Flashes)
+            if (ScreenOf(flash.At) is { } fa)
+                _tags.Add(new PendingTag(fa + new Vector2(14, 14), flash.Text, flash.Bad ? TagStyle.Bad : TagStyle.Plain, false, null));
         if (f.HardRefused)
             _tags.Add(new PendingTag(f.Mouse + new Vector2(24, -34), "Hard corners not allowed", TagStyle.Bad, false, null));
         Hints(f);
@@ -123,10 +148,10 @@ public partial class SplineOverlay : Control
     {
         var pis = preview.Pis;
 
-        // The ribbon's outline along both edges (amber when a corner didn't fit).
+        // The ribbon's outline along both edges: amber with a warning (a corner that didn't fit), red when refused.
         if (f.Rules is { Width: > 0.5f } rules)
         {
-            var outline = preview.AnyClamped ? Warn : Line with { A = 0.9f };
+            var outline = f.Worst == Severity.Invalid ? Bad : f.Worst == Severity.Warn || preview.AnyClamped ? Warn : Line with { A = 0.9f };
             foreach (float side in new[] { -1f, 1f })
             {
                 var edge = preview.Curve.Offset(side * rules.Width / 2f);
@@ -252,6 +277,52 @@ public partial class SplineOverlay : Control
         return n > 0 && MathF.Abs(n * r.SnapLength - len) < 1e-2f ? n : null;
     }
 
+    // --- Junctions, issues, suggestions ---
+
+    /// <summary>A dashed ring round each junction the draw makes, with its tag above right (the storyboard's
+    /// <c>T-junction · 90°</c>), then the issues: an amber arc in a too-sharp junction, and each issue's tag where it
+    /// is. A clamped radius is left out: the live corner's pill already says it.</summary>
+    private void DrawJunctionsAndIssues(OverlayFrame f)
+    {
+        foreach (var j in f.Junctions)
+        {
+            var color = j.Warn ? Warn : Line;
+            GroundCircleMetres(j.At, j.Radius, color, ThinWidth, dashed: true);
+            if (ScreenOf(j.At + new NumVector2(j.Radius, -j.Radius) * 0.75f) is { } at)
+                _tags.Add(new PendingTag(at + new Vector2(8, -28), j.Label, j.Warn ? TagStyle.Warn : TagStyle.Snap, false, null));
+        }
+        foreach (var (v, a, b) in f.SharpAngles)
+        {
+            if (PxPerMetre(v) is not { } k) continue;
+            GroundArc(v, a, b, ArcPx * 1.3f / k, Warn, ThinWidth + 0.5f);
+            GroundRing(v, 6f, Warn, 2.5f);
+        }
+        foreach (var issue in f.Issues)
+        {
+            if (issue.Code == "radius-clamped" || ScreenOf(issue.Where) is not { } at) continue;
+            var style = issue.Severity == Severity.Invalid ? TagStyle.Bad : TagStyle.Warn;
+            _tags.Add(new PendingTag(at + new Vector2(14, 16), issue.Message, style, false, null));
+        }
+    }
+
+    /// <summary>The offered alternative: an accent dashed centre line and its tag at its corner.</summary>
+    private void DrawSuggestion(Alignment a, string? label)
+    {
+        var pts = a.Curve.SampleEvery(2f).Select(x => x.Sample.Position).ToList();
+        DashedPolyline(pts, Accent, GuideWidth, GuideDash, GuideGap);
+        if (label is not null && a.Pis.Count >= 3 && ScreenOf(a.Corner(1).Mid) is { } at)
+            _tags.Add(new PendingTag(at + new Vector2(14, 16), label, TagStyle.Snap, false, null));
+    }
+
+    private void DrawDeleteTarget(Curve c, float width)
+    {
+        foreach (float side in new[] { -1f, 1f })
+        {
+            var edge = c.Offset(side * width / 2f);
+            if (edge.Length > 0) SolidPolyline(edge.SampleEvery(2f).Select(x => x.Sample.Position).ToList(), Bad, ThinWidth + 1f);
+        }
+    }
+
     // --- Guides and snaps ---
 
     private void DrawGuides(OverlayFrame f, SnapResult snap)
@@ -326,8 +397,12 @@ public partial class SplineOverlay : Control
     private void Hints(OverlayFrame f)
     {
         var at = f.Mouse + new Vector2(26, -10);
-        _tags.Add(new PendingTag(at, "Place", TagStyle.Plain, false, "LMB"));
-        if (f.SessionPis.Count == 0) return;
+        _tags.Add(new PendingTag(at, f.Suggestion is null ? "Place" : "Use turnout", TagStyle.Plain, false, "LMB"));
+        if (f.SessionPis.Count == 0)
+        {
+            if (f.DeleteTarget is not null) _tags.Add(new PendingTag(at, "Delete", TagStyle.Plain, false, "Del"));
+            return;
+        }
         _tags.Add(new PendingTag(at, "Undo", TagStyle.Plain, false, "RMB"));
         if (f.SessionPis.Count >= 2) _tags.Add(new PendingTag(at, "Finish", TagStyle.Plain, false, "Double-click"));
         if (f.Preview is { } p && p.Pis.Count >= 3 && !p.Pis[^2].Hard) _tags.Add(new PendingTag(at, "Radius", TagStyle.Plain, false, "Shift+wheel"));
@@ -356,6 +431,15 @@ public partial class SplineOverlay : Control
         return pts;
     }
 
+    /// <summary>A ring <paramref name="radius"/> metres round a point, solid or dashed.</summary>
+    private void GroundCircleMetres(NumVector2 centre, float radius, Color color, float width, bool dashed)
+    {
+        const int n = 48;
+        var pts = Enumerable.Range(0, n + 1).Select(i => centre + SplineMath.Direction(i * MathF.Tau / n) * radius).ToList();
+        if (dashed) DashedPolyline(pts, color, width, 6f, 5f);
+        else SolidPolyline(pts, color, width);
+    }
+
     private void GroundRing(NumVector2 centre, float px, Color color, float width)
     {
         if (GroundCircle(centre, px) is not { } pts) return;
@@ -366,8 +450,12 @@ public partial class SplineOverlay : Control
     private void GroundDisc(NumVector2 centre, float px, Color color, bool outline = false)
     {
         if (GroundCircle(centre, px) is not { } pts) return;
+        // A disc seen edge-on (or projected by the headless dummy camera) can come out degenerate; skip it rather than
+        // have Godot log a failed triangulation every frame.
+        var poly = pts[..^1];
+        if (Geometry2D.TriangulatePolygon(poly).Length == 0) return;
         if (outline) DrawPolyline(pts, Shadow, 2f, true);
-        DrawColoredPolygon(pts[..^1], color);
+        DrawColoredPolygon(poly, color);
     }
 
     /// <summary>An arc of radius <paramref name="r"/> metres at a vertex, from one direction to another the short way.</summary>
@@ -466,7 +554,9 @@ public partial class SplineOverlay : Control
         for (int guard = 0; guard < 10 && _placedTags.Exists(r => r.Grow(1).Intersects(box)); guard++)
             box.Position += new Vector2(0, box.Size.Y + 3);
         var view = GetViewportRect().Size;
-        box.Position = new Vector2(Math.Clamp(box.Position.X, 4, view.X - box.Size.X - 4), Math.Clamp(box.Position.Y, 70, view.Y - box.Size.Y - 4));
+        // Kept on screen (the max guards a viewport smaller than the tag, e.g. headless).
+        box.Position = new Vector2(Math.Clamp(box.Position.X, 4, MathF.Max(4, view.X - box.Size.X - 4)),
+            Math.Clamp(box.Position.Y, 70, MathF.Max(70, view.Y - box.Size.Y - 4)));
         _placedTags.Add(box);
         DrawStyleBox(_tagBoxes[t.Style], box);
 

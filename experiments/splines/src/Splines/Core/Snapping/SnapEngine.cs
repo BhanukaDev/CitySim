@@ -15,8 +15,8 @@ namespace CitySim.Splines;
 ///   ("extension · ∡ 90°"), else a length step or equal length does; a guide never pulls a leg off its angle;</item>
 /// <item>with no lock: a guide crossing, then a single guide, then a length step or equal length.</item>
 /// </list>
-/// <see cref="SnapQuery.Disabled"/> (Space) skips everything. Pure and stateless: candidates are the caller's built
-/// alignments, so this needs no graph (S4) and is checked headlessly by <c>--demo-snap</c>.
+/// <see cref="SnapQuery.Disabled"/> (Space) skips everything. Pure and stateless: candidates are the graph's edges,
+/// passed in by the caller, and it's checked headlessly by <c>--demo-snap</c>.
 /// </summary>
 public static class SnapEngine
 {
@@ -262,8 +262,8 @@ public static class SnapEngine
             if (curve.Length <= 0) continue;
             if (providers.HasFlag(SnapProviders.Extension))
             {
-                AddExtension(found, q, curve, atStart: true);
-                AddExtension(found, q, curve, atStart: false);
+                if (c.OpenStart) AddExtension(found, q, curve, atStart: true);
+                if (c.OpenEnd) AddExtension(found, q, curve, atStart: false);
             }
             if (providers.HasFlag(SnapProviders.Perpendicular) && q.SessionPis.Count > 0 &&
                 PerpendicularGuide(curve, q.SessionPis[^1].Position, q) is { } perp)

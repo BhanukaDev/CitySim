@@ -35,7 +35,8 @@ Rules for staying generic:
 - **Edge**: runs between two nodes and owns one **alignment** and one **vertical profile**. It references a profile
   by id. Its `CustomData` belongs to the consumer.
 - Crossing or ending on an edge splits it and adds a node. Deleting an edge whose node is left with exactly two
-  straight-through edges of the same profile merges them back into one.
+  straight-through edges (within 1°) of the same profile merges them back into one. A split inside an arc becomes two
+  PIs where the tangent at the cut meets the legs, so a later merge folds it back into the original corner.
 
 ### Alignment: points of intersection (PIs), not Béziers
 An edge is stored the way civil engineers lay out a road: a polyline of **PIs** (the corner points the player clicked).
@@ -138,7 +139,8 @@ numbers are game feel, not engineering standards.
 | `SnapProviders` | which snaps and guides this profile offers | all | all | all | all | no parallel |
 
 Profiles can also restrict which other profiles they connect to (a canal doesn't join a road; a road crosses a canal
-only as a bridge). That's `ConnectsTo`, a list of profile ids or tags.
+only as a bridge). That's `ConnectsTo`, a list of profile ids (tags later). Two profiles connect when **each** accepts
+the other (its own id always counts); `JunctionKind.None` never connects.
 
 ## Player controls
 
@@ -265,13 +267,15 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
 
 ## Junctions
 - They form automatically when a new edge ends on, or crosses, an edge whose profile is in `ConnectsTo`.
+- A node's kind is the strictest of its arms' profiles: `Turnout`, then `Node`, then `Join`.
 - `Node` kind: splits both edges. Arms are cut back from the node centre so the corners fit. The addon computes the
-  **junction footprint** (the arm cut-backs and curb corner arcs from the arm widths and the smaller arm's
-  `DefaultRadius`). The consumer draws it.
-- `Turnout` kind: a branch has to leave tangentially, within `TurnoutMaxAngle`. A square attempt shows red, and the
-  tool offers the nearest legal turnout as a ghost.
+  **junction footprint** (the arm cut-backs and curb corner arcs from the arm widths and the narrower arm's
+  `DefaultRadius`), for three or more arms. The consumer draws it.
+- `Turnout` kind: a branch has to leave tangentially, within `TurnoutMaxAngle` (every arm must run along another
+  arm's line within that angle). A square attempt shows red, and the tool offers the nearest legal turnout as a
+  ghost: leaving along the line, curving at `MinRadius`, the arc starting at the switch. A click takes it.
 - `Join` kind: edges meet at a shared node with no footprint (fences, walls).
-- An angle below `MinJunctionAngle` is amber (buildable). Anarchy removes the check.
+- An angle below `MinJunctionAngle` (the strictest Node arm's) is amber, and always buildable.
 - A crossing that isn't allowed by `ConnectsTo` is red, or becomes a bridge/tunnel if the vertical gap is enough
   (later milestone).
 
@@ -279,8 +283,8 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
 
 Each edge and node gets a list of issues `{Severity: Warn|Invalid, Code, Message, Where}`. The checks are: radius
 (clamped → Warn, below `MinRadius` → Invalid), junction angle, turnout angle, grade, self-overlap, overlap with
-other corridors, and too-short edges. Anarchy downgrades Invalid to Warn. Validation is pure Core code, so headless
-checks can run it.
+other corridors, and too-short edges. Warn builds. Invalid is refused unless Anarchy is on; Anarchy doesn't change a
+severity, so what it builds stays red. Validation is pure Core code, so headless checks can run it.
 
 ## Hooks for consumers
 
@@ -301,7 +305,9 @@ These are C# events and interfaces on the Godot side, with plain data only:
 ## Undo, save
 
 - Every tool action is one command on the graph (add / remove / move / set radius / split / merge). There's one undo
-  stack, and a spline edit that also shapes terrain joins the terrain's undo step.
+  stack, and a spline edit that also shapes terrain joins the terrain's undo step. (Implementation: whole-graph
+  snapshots, cheap because alignments are shared between them.) While drawing, Ctrl+Z pops the last point; with no
+  draw in progress it undoes the last graph command.
 - Save: a versioned graph file (nodes, edges, PIs, stations, profile ids, custom data blobs), next to the `.csmap`.
   Profile ids are strings so mods can add profiles.
 

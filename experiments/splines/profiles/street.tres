@@ -17,6 +17,7 @@ SnapUnitName = "lot"
 JunctionKind = 0
 MinJunctionAngle = 30
 TurnoutMaxAngle = 0
+ConnectsTo = PackedStringArray("avenue")
 VerticalMode = 0
 MaxGradePercent = 12
 GroundSmoothing = 20
