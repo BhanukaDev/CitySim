@@ -60,6 +60,23 @@ CS_API int32_t cs_find_lakes(const float* heights, int32_t width, int32_t depth,
 //   3 deposit: sediment settling where flow slows (area x slope carried at capacity), 32 x log2(1 + v).
 // Flow splits between lower neighbours by slope (multiple flow directions); on flats (lakes, filled pits) it follows the
 // Priority-Flood tree out over the spill point.
+// Milliseconds the last cs_find_lakes/cs_find_water call spent in each stage: flood, lakes, flow, masks (0 when a stage
+// didn't run). For profiling; not thread-safe across concurrent calls.
+CS_API void cs_last_find_water_ms(float* out4);
+
+// flow_state (optional, one per cell): what cs_find_water_window needs from this search, kept by the caller: the
+// catchment area (16-bit log2 x 2048, bits 0-15) and the gully bit (bit 16).
 CS_API int32_t cs_find_water(const float* heights, int32_t width, int32_t depth, float sea_level, float min_depth,
                              int32_t min_cells, const CsGroundParams* ground_params, float* water_level,
-                             uint32_t* ground, CsProgress* progress);
+                             uint32_t* ground, uint32_t* flow_state, CsProgress* progress);
+
+// cs_find_water on the window [x0..x1] x [z0..z1] (inclusive) only, after an edit inside it. level and flow are the
+// whole map's water_level and flow_state from the last search, read on and just outside the window's border: lakes
+// crossing it keep their level and rivers flowing in keep their catchment. water_out, ground_out and flow_out are
+// window-sized ((x1 - x0 + 1) x (z1 - z0 + 1)). Changes don't reach cells downstream of the window, and a lake cut by
+// its border is kept or dropped on the part inside, so the caller runs a full search later. Returns the number of
+// lakes in the window, or negative on bad arguments.
+CS_API int32_t cs_find_water_window(const float* heights, int32_t width, int32_t depth, int32_t x0, int32_t z0,
+                                    int32_t x1, int32_t z1, float sea_level, float min_depth, int32_t min_cells,
+                                    const CsGroundParams* ground_params, const float* level, const uint32_t* flow,
+                                    float* water_out, uint32_t* ground_out, uint32_t* flow_out, CsProgress* progress);

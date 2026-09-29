@@ -15,8 +15,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <queue>
 #include <thread>
@@ -204,6 +206,7 @@ void thermal_step(const float* src, float* dst, int w, int d, float tan_talus, f
 namespace {
 
 constexpr uint32_t kNone = 0xFFFFFFFFu;
+constexpr float kInfinity = std::numeric_limits<float>::infinity();
 const int kOx[8] = {1, -1, 0, 0, 1, 1, -1, -1};
 const int kOz[8] = {0, 0, 1, -1, 1, -1, 1, -1};
 
@@ -212,9 +215,15 @@ const int kOz[8] = {0, 0, 1, -1, 1, -1, 1, -1};
 /// each cell was reached from (kNone for the border and the sea): following parents leads out of every depression over
 /// its spill point, downhill to the edge. If order isn't null it gets the cells in the order they were taken (every
 /// cell's parent comes before it), followed by kNone; the sea's inner cells are never taken. Returns false if cancelled.
+/// border_level (optional, per cell, only read on the border) is for a window of a bigger map, where the border isn't
+/// an edge water runs off: only border cells where water leaves the window seed the flood, filled to their level there
+/// (a lake reaching past the window keeps its spill height). NaN = not a seed: the cell fills like any other. A seed
+/// in a lake (level above the ground) waits until just after its level: if the lake's own spill point is in the
+/// window, the flood reaches the lake through it first and the lake drains there, as on the whole map; otherwise the
+/// seed takes what's left and the lake drains out of the window.
 template <class Cancelled, class Report>
 bool priority_flood(const float* heights, int width, int depth, float sea_level, float* filled, uint32_t* parent,
-                    uint32_t* order, Cancelled&& cancelled, Report&& report) {
+                    uint32_t* order, Cancelled&& cancelled, Report&& report, const float* border_level = nullptr) {
     const size_t n = (size_t)width * depth;
     std::memcpy(filled, heights, n * sizeof(float));
     if (parent) std::fill(parent, parent + n, kNone);
@@ -228,6 +237,7 @@ bool priority_flood(const float* heights, int width, int depth, float sea_level,
     };
     std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
     std::queue<uint32_t> pit;
+    constexpr uint32_t kLateSeed = 1u << 31; // on a Node's index: a lake seed, not closed until it's taken
     auto border = [&](int x, int z) { return x == 0 || z == 0 || x == width - 1 || z == depth - 1; };
 
     // The sea drains, so it's closed from the start, and its shore seeds the flood.
@@ -237,7 +247,7 @@ bool priority_flood(const float* heights, int width, int depth, float sea_level,
             for (int x = 0; x < width; x++) {
                 if (!border(x, z)) continue;
                 size_t i = (size_t)z * width + x;
-                if (heights[i] < sea_level && !closed[i]) {
+                if (heights[i] < sea_level && !closed[i] && !(border_level && std::isnan(border_level[i]))) {
                     closed[i] = 1;
                     stack.push_back((uint32_t)i);
                 }
@@ -262,7 +272,13 @@ bool priority_flood(const float* heights, int width, int depth, float sea_level,
         for (int x = 0; x < width; x++) {
             if (!border(x, z)) continue;
             size_t i = (size_t)z * width + x;
-            if (!closed[i]) { closed[i] = 1; open.push({heights[i], (uint32_t)i}); }
+            if (closed[i] || (border_level && std::isnan(border_level[i]))) continue;
+            if (border_level && border_level[i] > heights[i]) {
+                open.push({std::nextafter(border_level[i], kInfinity), (uint32_t)i | kLateSeed});
+                continue;
+            }
+            closed[i] = 1;
+            open.push({filled[i], (uint32_t)i});
         }
 
     // Always grow from the lowest open cell; a neighbour lower than it is in a depression and is raised to its level
@@ -271,7 +287,16 @@ bool priority_flood(const float* heights, int width, int depth, float sea_level,
     while (!open.empty() || !pit.empty()) {
         uint32_t c;
         if (!pit.empty()) { c = pit.front(); pit.pop(); }
-        else { c = open.top().i; open.pop(); }
+        else {
+            c = open.top().i;
+            open.pop();
+            if (c & kLateSeed) {
+                c &= ~kLateSeed;
+                if (closed[c]) continue; // reached through the window first
+                closed[c] = 1;
+                filled[c] = std::max(filled[c], border_level[c]);
+            }
+        }
         if (order) order[done] = c;
         if ((++done & 0xFFFFF) == 0) {
             if (cancelled()) return false;
@@ -452,6 +477,16 @@ constexpr float kShoreClimb = 4.0f;
 const float kInf = std::numeric_limits<float>::infinity();
 constexpr float kRiverBank = 6.0f;
 
+// Milliseconds spent in each stage of the last find_water call (flood, lakes, flow, masks), for cs_last_find_water_ms.
+float g_stage_ms[4] = {};
+using Clock = std::chrono::steady_clock;
+float ms_since(Clock::time_point& t) {
+    auto now = Clock::now();
+    float ms = std::chrono::duration<float, std::milli>(now - t).count();
+    t = now;
+    return ms;
+}
+
 uint8_t encode(float v, float near, float far) {
     return (uint8_t)std::lround(std::clamp((far - v) / (far - near), 0.0f, 1.0f) * 255.0f);
 }
@@ -519,14 +554,44 @@ void blur(uint8_t* v, int width, int depth, int passes) {
     }
 }
 
+/// Flow state kept per cell between searches (cs_find_water's flow_state): catchment area as 16-bit log2 x 2048 (0.03 %
+/// steps, 1 m² .. 4e9 m²) in bits 0-15, the gully bit in bit 16, and the flood parent's direction (bits 17-19, kOx/kOz
+/// index) with bit 20 set when there is one: on flats (lakes, filled pits) water follows it; and how far the flood
+/// raised the cell (bits 21-31, cm, up to 20.47 m), so filled pits that aren't lakes route the same from outside a
+/// window. The sediment a cell passes on is its capacity, area x slope, so it needn't be kept.
+constexpr float kAreaScale = 2048.0f;
+constexpr uint32_t kHasParent = 1u << 20;
+uint32_t pack_flow(float area, uint8_t channel, int parent_dir, float raised) {
+    float v = area > 1.0f ? std::log2(area) * kAreaScale : 0.0f;
+    uint32_t cm = (uint32_t)std::lround(std::clamp(raised * 100.0f, 0.0f, 2047.0f));
+    return (uint32_t)std::lround(std::min(v, 65535.0f)) | (channel ? 1u << 16 : 0u) |
+           (parent_dir >= 0 ? kHasParent | (uint32_t)parent_dir << 17 : 0u) | cm << 21;
+}
+float flow_raised(uint32_t f) { return (float)(f >> 21) * 0.01f; }
+float flow_area(uint32_t f) { return std::exp2((float)(f & 0xFFFFu) / kAreaScale); }
+bool flow_channel(uint32_t f) { return (f >> 16) & 1u; }
+int flow_parent_dir(uint32_t f) { return f & kHasParent ? (int)((f >> 17) & 7u) : -1; }
+
+/// What runs into a window from the cells just outside it (see find_water_window).
+struct Inflow {
+    struct Cell {
+        uint32_t i;       // window cell
+        float area;       // m²
+        float sediment;   // carried at capacity
+        uint8_t channel;  // a gully continues into it
+    };
+    std::vector<Cell> cells;
+};
+
 /// The ground masks (see cs_find_water in erosion.h). filled/parent/order come from priority_flood; order is
 /// overwritten with the result. water is the lake level per cell (NaN = dry).
 template <class Cancelled>
-bool ground_masks(const float* heights, const float* filled, const uint32_t* parent, uint32_t* order,
+bool ground_masks(const float* heights, const float* filled, std::vector<uint32_t>& parent_buffer, uint32_t* order,
                   const float* water, int width, int depth, float sea_level, const CsGroundParams& p,
-                  Cancelled&& cancelled) {
+                  Cancelled&& cancelled, const Inflow* inflow = nullptr, uint32_t* flow_state = nullptr) {
     const size_t n = (size_t)width * depth;
     const float cs = p.cell_size, cellArea = cs * cs;
+    const uint32_t* parent = parent_buffer.data();
     auto sea = [&](size_t i) { return heights[i] < sea_level && !(filled[i] > heights[i] + 1e-3f); };
 
     // Flow (multiple flow directions, Quinn/Holmgren): each cell splits its water between its lower neighbours by
@@ -536,7 +601,11 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
     // Sediment is carried at capacity, area x slope; where the slope eases the excess settles (fans at the foot of
     // slopes, deltas where streams meet a lake or the sea).
     const float diagonal = cs * 1.41421356f;
-    std::vector<float> area(n, 0.0f), sediment(n, 0.0f), steep(n, 0.0f);
+    auto t = Clock::now();
+    std::vector<float> area(n, 0.0f), sediment(n, 0.0f);
+    // Wear (stream power, sqrt(area) x slope) as a log-scaled byte, set as each cell is reached (its area is complete
+    // then): no slope array (268 MB at 8193²).
+    std::vector<uint8_t> wear(n);
     // Gully beds start where catchment x slope² passes gully_min_area x kGullySlope² (channel heads need more catchment
     // on gentle ground), or where gully_min_area gathers in a hollow (concave ground: a stream bed or a drain channel).
     // They follow the steepest path down (water spreading over a flat bed would otherwise drop under the threshold and
@@ -558,6 +627,12 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
         return k > 0 && sum / k - heights[(size_t)z * width + x] >= kHollow * cs;
     };
     std::vector<uint8_t> channel(n, 0);
+    if (inflow)
+        for (const auto& in : inflow->cells) {
+            area[in.i] += in.area;
+            sediment[in.i] += in.sediment;
+            channel[in.i] |= in.channel;
+        }
     size_t count = 0;
     while (count < n && order[count] != kNone) count++;
     for (size_t k = count; k-- > 0;) {
@@ -575,7 +650,7 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
             drops[d] = drop / (d < 4 ? cs : diagonal);
             if (drops[d] > s) { s = drops[d]; steepest = d; }
         }
-        steep[i] = s;
+        wear[i] = encode_log(std::sqrt(area[i]) * s);
         float power = area[i] * s * s;
         if (power >= channelHead || (area[i] >= p.gully_min_area && hollow(x, z))) channel[i] = 1;
         else if (channel[i] && area[i] < p.river_min_area && power < channelHead * kGullyEnd) channel[i] = 0;
@@ -608,28 +683,40 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
         }
         sediment[i] = settled / cellArea; // from here on: what settled here, in cells' worth
     }
+    if (flow_state)
+        parallel_for(depth, [&](int z) {
+            for (size_t i = (size_t)z * width, end = i + width; i < end; i++) {
+                int dir = -1;
+                if (uint32_t pi = parent[i]; pi != kNone) {
+                    int dx = (int)(pi % width) - (int)(i % width), dz = (int)(pi / width) - z;
+                    for (int d = 0; d < 8; d++)
+                        if (kOx[d] == dx && kOz[d] == dz) dir = d;
+                }
+                flow_state[i] = pack_flow(area[i], channel[i], dir, filled[i] - heights[i]);
+            }
+        });
+    parent_buffer = {}; // not needed from here on (268 MB at 8193²)
+    g_stage_ms[2] = ms_since(t);
     if (cancelled()) return false;
 
-    // Wear (stream power, sqrt(area) x slope) and deposits, as log-scaled bytes, blurred into soft bands.
-    std::vector<uint8_t> wear(n), deposit(n);
+    // Deposits as log-scaled bytes; both blurred into soft bands.
+    std::vector<uint8_t> deposit(n);
     parallel_for(depth, [&](int z) {
-        for (size_t i = (size_t)z * width, end = i + width; i < end; i++) {
-            wear[i] = encode_log(std::sqrt(area[i]) * steep[i]);
-            deposit[i] = encode_log(sediment[i]);
-        }
+        for (size_t i = (size_t)z * width, end = i + width; i < end; i++) deposit[i] = encode_log(sediment[i]);
     });
-    steep = {};
     blur(wear.data(), width, depth, 1);
     blur(deposit.data(), width, depth, 2);
     if (cancelled()) return false;
 
     // Distances. Rivers and gullies start negative (inside the channel) by a half width growing with their catchment.
-    std::vector<float>& shore = sediment; // reused
-    std::vector<float> level(n), gully(n);
+    // Buffers reused: shore in sediment's, the river level in area's (each cell reads its area before writing it).
+    std::vector<float>& shore = sediment;
+    std::vector<float>& level = area;
+    std::vector<float> gully(n);
     parallel_for(depth, [&](int z) {
     for (size_t i = (size_t)z * width, end = i + width; i < end; i++) {
-        shore[i] = gully[i] = kInf;
         float a = area[i];
+        shore[i] = gully[i] = kInf;
         // Only rivers: lakes and the sea are simulated water now, and the terrain shader takes their shores from the
         // water sim (a hollow nobody put a lake source in stays dry ground).
         if (a >= p.river_min_area && std::isnan(water[i]) && !sea(i)) {
@@ -654,12 +741,19 @@ bool ground_masks(const float* heights, const float* filled, const uint32_t* par
                    (uint32_t)wear[i] << 16 | (uint32_t)deposit[i] << 24;
     }
     });
+    g_stage_ms[3] = ms_since(t);
     return true;
 }
 
+using MakeInflow = std::function<void(const float* filled, Inflow& inflow)>;
+
+/// Lakes and (with ground) the ground masks. For a window of a bigger map, border_level seeds the flood (see
+/// priority_flood) and make_inflow adds what flows in from outside, once the fill is known. flow_state (optional) gets
+/// each cell's area and gully bit (pack_flow).
 int32_t find_water(const float* heights, int32_t width, int32_t depth, float sea_level, float min_depth,
                    int32_t min_cells, const CsGroundParams* ground_params, float* water_level, uint32_t* ground,
-                   CsProgress* progress) {
+                   CsProgress* progress, uint32_t* flow_state = nullptr, const float* border_level = nullptr,
+                   const MakeInflow* make_inflow = nullptr) {
     if (!heights || !water_level || width < 3 || depth < 3) return -1;
     if (ground && (!ground_params || !(ground_params->cell_size > 0))) return -1;
     auto cancelled = [&] { return progress && __atomic_load_n(&progress->cancel, __ATOMIC_RELAXED) != 0; };
@@ -671,11 +765,14 @@ int32_t find_water(const float* heights, int32_t width, int32_t depth, float sea
     // gets its own buffer (and the flood order is built in the ground buffer).
     std::vector<float> fillCopy;
     std::vector<uint32_t> parent;
+    std::fill(g_stage_ms, g_stage_ms + 4, 0.0f);
+    auto t = Clock::now();
     if (ground) { fillCopy.resize(n); parent.resize(n); }
     float* filled = ground ? fillCopy.data() : water_level;
     if (!priority_flood(heights, width, depth, sea_level, filled, ground ? parent.data() : nullptr, ground, cancelled,
-                        [&](float f) { report(floodShare * f); }))
+                        [&](float f) { report(floodShare * f); }, border_level))
         return 0;
+    g_stage_ms[0] = ms_since(t);
     if (ground) std::memcpy(water_level, filled, n * sizeof(float));
     std::vector<uint8_t> closed(n, 0);
 
@@ -714,15 +811,131 @@ int32_t find_water(const float* heights, int32_t width, int32_t depth, float sea
     for (size_t i = 0; i < n; i++)
         if (!(water_level[i] > heights[i] + eps)) water_level[i] = nan;
     closed = {};
+    g_stage_ms[1] = ms_since(t);
     if (ground) {
         report(0.6f);
         if (cancelled()) return lakes;
-        if (!ground_masks(heights, filled, parent.data(), ground, water_level, width, depth, sea_level, *ground_params,
-                          cancelled))
+        Inflow inflow;
+        if (make_inflow) (*make_inflow)(filled, inflow);
+        if (!ground_masks(heights, filled, parent, ground, water_level, width, depth, sea_level, *ground_params,
+                          cancelled, make_inflow ? &inflow : nullptr, flow_state))
             return lakes;
     }
     report(1);
     return lakes;
+}
+
+/// find_water on the window [x0..x1] x [z0..z1] (inclusive) of a width x depth map, for re-searching after an edit
+/// inside it. level and flow are the whole map's results from the last search (level NaN = dry); they're read on and
+/// just outside the window's border: lakes crossing it keep their level, and the cells just outside pass their stored
+/// area (and sediment at capacity, and gullies) to the window cells they drain into, split as ground_masks splits it.
+/// Outputs are window-sized. What changed inside doesn't reach cells downstream of the window, and a lake cut by its
+/// border is kept or dropped on the part inside: a full search puts that right.
+int32_t find_water_window(const float* heights, int32_t width, int32_t depth, int32_t x0, int32_t z0, int32_t x1,
+                          int32_t z1, float sea_level, float min_depth, int32_t min_cells, const CsGroundParams* gp,
+                          const float* level, const uint32_t* flow, float* water_out, uint32_t* ground_out,
+                          uint32_t* flow_out, CsProgress* progress) {
+    if (!heights || !level || !flow || !gp || !(gp->cell_size > 0) || x0 < 0 || z0 < 0 || x1 >= width || z1 >= depth
+        || x1 - x0 < 2 || z1 - z0 < 2)
+        return -1;
+    const int ww = x1 - x0 + 1, wd = z1 - z0 + 1;
+    const size_t n = (size_t)ww * wd;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<float> local(n);
+    for (int z = 0; z < wd; z++)
+        std::memcpy(&local[(size_t)z * ww], heights + (size_t)(z0 + z) * width + x0, ww * sizeof(float));
+
+    // Seeds: border cells water leaves the window from. On the map's edge (it runs off), in a lake crossing the border
+    // (at its level), in the sea, or with a lower cell just outside (by the last search's fill). Elsewhere the border is a wall
+    // that water fills up against: were every border cell a drain, a dam in a river would empty its lake out of the
+    // window's upstream side instead of over the dam.
+    // The last search's fill: a lake's level, else the ground plus what the flood raised it by (filled pits).
+    auto oldFill = [&](int gx, int gz) {
+        size_t g = (size_t)gz * width + gx;
+        return level[g] > heights[g] ? level[g] : heights[g] + flow_raised(flow[g]);
+    };
+    std::vector<float> border(n, nan);
+    int seeds = 0;
+    auto seed = [&](int lx, int lz) {
+        int gx = x0 + lx, gz = z0 + lz;
+        size_t li = (size_t)lz * ww + lx, g = (size_t)gz * width + gx;
+        float lv = level[g], fill = std::max(local[li], oldFill(gx, gz));
+        bool exit = gx == 0 || gz == 0 || gx == width - 1 || gz == depth - 1 || local[li] < sea_level;
+        if (!exit && !std::isnan(lv)) {
+            // In a lake: an exit only where the lake drained out of the window last time (its flood parent is
+            // outside); where water came in, it's a wall like any other.
+            int d = flow_parent_dir(flow[g]), px = gx + (d >= 0 ? kOx[d] : 0), pz = gz + (d >= 0 ? kOz[d] : 0);
+            exit = d < 0 || px < x0 || px > x1 || pz < z0 || pz > z1;
+            if (!exit) return;
+        }
+        for (int k = 0; k < 8 && !exit; k++) {
+            int nx = gx + kOx[k], nz = gz + kOz[k];
+            if (nx >= x0 && nx <= x1 && nz >= z0 && nz <= z1) continue; // inside
+            exit = oldFill(nx, nz) < fill;
+        }
+        if (exit) { border[li] = std::isnan(lv) ? local[li] : lv; seeds++; }
+    };
+    for (int x = 0; x < ww; x++) { seed(x, 0); seed(x, wd - 1); }
+    for (int z = 1; z < wd - 1; z++) { seed(0, z); seed(ww - 1, z); }
+    // Nowhere for water to leave (a window inside a closed basin): let every border cell drain, as a full map's does.
+    if (seeds == 0)
+        for (size_t i = 0; i < n; i++) border[i] = local[i];
+
+    const float cs = gp->cell_size, diagonal = cs * 1.41421356f;
+    MakeInflow inflow = [&](const float* filled, Inflow& in) {
+        // Old fill outside the window: the lake level where there is one, else the ground.
+        auto filledAt = [&](int gx, int gz) {
+            if (gx >= x0 && gx <= x1 && gz >= z0 && gz <= z1) return filled[(size_t)(gz - z0) * ww + (gx - x0)];
+            return oldFill(gx, gz);
+        };
+        auto visit = [&](int ox, int oz) {
+            if (ox < 0 || oz < 0 || ox >= width || oz >= depth) return;
+            size_t go = (size_t)oz * width + ox;
+            uint32_t f = flow[go];
+            if ((f & 0xFFFFu) == 0) return;
+            float a = flow_area(f), fo = filledAt(ox, oz);
+            // A cell the flood raised (lake, filled pit) sits on a flat, where water follows its flood parent. Tested on
+            // what was stored, not on slopes: the stored fill is rounded to cm, and a flat must stay flat.
+            bool flat = flow_raised(f) > 0 || level[go] > heights[go];
+            float drops[8], s = 0, total = 0;
+            int steepest = -1;
+            for (int d = 0; d < 8; d++) {
+                drops[d] = 0;
+                int nx = ox + kOx[d], nz = oz + kOz[d];
+                if (nx < 0 || nz < 0 || nx >= width || nz >= depth) continue;
+                float drop = fo - filledAt(nx, nz);
+                if (!(drop > 0)) continue;
+                drops[d] = drop / (d < 4 ? cs : diagonal);
+                if (drops[d] > s) { s = drops[d]; steepest = d; }
+            }
+            if (flat || steepest < 0) {
+                // Flat (a lake or filled pit): all of it goes to its flood parent, if that's inside.
+                int d = flow_parent_dir(f), nx = ox + (d >= 0 ? kOx[d] : 0), nz = oz + (d >= 0 ? kOz[d] : 0);
+                if (d >= 0 && nx >= x0 && nx <= x1 && nz >= z0 && nz <= z1)
+                    in.cells.push_back({(uint32_t)((nz - z0) * ww + (nx - x0)), a, 0.0f, (uint8_t)flow_channel(f)});
+                return;
+            }
+            bool single = a >= gp->gully_min_area;
+            float share[8];
+            for (int d = 0; d < 8; d++) {
+                float r = drops[d] / s;
+                share[d] = single ? (d == steepest ? 1.0f : 0.0f) : r * r * (d < 4 ? 1.0f : 0.70710678f);
+                total += share[d];
+            }
+            float capacity = a * s;
+            for (int d = 0; d < 8; d++) {
+                int nx = ox + kOx[d], nz = oz + kOz[d];
+                if (share[d] == 0 || nx < x0 || nx > x1 || nz < z0 || nz > z1) continue;
+                float fr = share[d] / total;
+                in.cells.push_back({(uint32_t)((nz - z0) * ww + (nx - x0)), a * fr, capacity * fr,
+                                    (uint8_t)(flow_channel(f) && d == steepest)});
+            }
+        };
+        for (int x = x0 - 1; x <= x1 + 1; x++) { visit(x, z0 - 1); visit(x, z1 + 1); }
+        for (int z = z0; z <= z1; z++) { visit(x0 - 1, z); visit(x1 + 1, z); }
+    };
+    return find_water(local.data(), ww, wd, sea_level, min_depth, min_cells, gp, water_out, ground_out, progress,
+                      flow_out, border.data(), &inflow);
 }
 
 } // namespace
@@ -734,10 +947,23 @@ CS_API int32_t cs_find_lakes(const float* heights, int32_t width, int32_t depth,
 
 CS_API int32_t cs_find_water(const float* heights, int32_t width, int32_t depth, float sea_level, float min_depth,
                              int32_t min_cells, const CsGroundParams* ground_params, float* water_level,
-                             uint32_t* ground, CsProgress* progress) {
+                             uint32_t* ground, uint32_t* flow_state, CsProgress* progress) {
     if (!ground) return -1;
     return find_water(heights, width, depth, sea_level, min_depth, min_cells, ground_params, water_level, ground,
-                      progress);
+                      progress, flow_state);
+}
+
+CS_API int32_t cs_find_water_window(const float* heights, int32_t width, int32_t depth, int32_t x0, int32_t z0,
+                                    int32_t x1, int32_t z1, float sea_level, float min_depth, int32_t min_cells,
+                                    const CsGroundParams* ground_params, const float* level, const uint32_t* flow,
+                                    float* water_out, uint32_t* ground_out, uint32_t* flow_out, CsProgress* progress) {
+    if (!water_out || !ground_out || !flow_out) return -1;
+    return find_water_window(heights, width, depth, x0, z0, x1, z1, sea_level, min_depth, min_cells, ground_params,
+                             level, flow, water_out, ground_out, flow_out, progress);
+}
+
+CS_API void cs_last_find_water_ms(float* out4) {
+    if (out4) std::copy(g_stage_ms, g_stage_ms + 4, out4);
 }
 
 CS_API int32_t cs_erode(float* heights, int32_t width, int32_t depth, float cell_size,

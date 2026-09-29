@@ -85,10 +85,19 @@ constexpr float kSheetFadeDepth = 0.3f;
 /// 24 m wide; the lowest carried 14 m beds into the neighbouring cells (21 m wide); halfway keeps both at their width.
 constexpr float kGroundLow = CS_GROUND_LOW;
 
+/// A tile's moving water: pipe flows out of each side, velocity, and the pollutant concentration of the substep.
+struct TileFlow {
+    float fl[kN], fr[kN], ft[kN], fb[kN], vx[kN], vz[kN], conc[kN];
+};
+
 /// One 64² tile's cells, local index (z & 63) * 64 + (x & 63). Cells past the grid edge (partial tiles) stay 0.
+/// flow is null while the tile isn't moving (asleep, or not stepped yet): all its flows are zero then. Every stepped
+/// tile has one, so pipes (which only look at stepped neighbours) never meet a null. Sleeping seas keep 17 of 45 bytes
+/// per cell.
 struct TileData {
-    float ground[kN], depth[kN], fl[kN], fr[kN], ft[kN], fb[kN], vx[kN], vz[kN], pol[kN], conc[kN], paint[kN];
+    float ground[kN], depth[kN], pol[kN], paint[kN];
     uint8_t source_cell[kN];
+    std::unique_ptr<TileFlow> flow;
 };
 
 /// A tile and its four neighbours (null = none, or not usable for the pass at hand).
@@ -277,7 +286,7 @@ struct CsWater {
                 vol += di;
                 mass += c->pol[i];
                 md = std::max(md, di);
-                mv = std::max(mv, std::sqrt(c->vx[i] * c->vx[i] + c->vz[i] * c->vz[i]));
+                if (auto* f = c->flow.get()) mv = std::max(mv, std::sqrt(f->vx[i] * f->vx[i] + f->vz[i] * f->vz[i]));
                 if (di > kWet) wetCells++;
             });
         tile_volume[t] = vol * area;
@@ -289,9 +298,9 @@ struct CsWater {
         painted[t] = paintAny;
     }
 
+    /// Stops a tile's water: frees its flows (null = all zero).
     void ZeroFlows(int t) {
-        if (auto* c = data[t].get())
-            for (auto* a : {c->fl, c->fr, c->ft, c->fb, c->vx, c->vz}) std::fill(a, a + kN, 0.f);
+        if (auto* c = data[t].get()) c->flow.reset();
         tile_max_speed[t] = 0;
     }
 
@@ -476,48 +485,49 @@ struct CsWater {
         // Neighbouring tiles that aren't stepped this tick are walls (see the top of the file).
         const Near n = Neighbours(t, true);
         TileData* c = n.c;
+        TileFlow* f = c->flow.get();
         ForTile(t, [&](int x, int z, int i) {
             float di = c->depth[i];
             if (di <= 0) {
-                c->fl[i] = c->fr[i] = c->ft[i] = c->fb[i] = 0;
-                c->conc[i] = 0;
+                f->fl[i] = f->fr[i] = f->ft[i] = f->fb[i] = 0;
+                f->conc[i] = 0;
                 return;
             }
-            if (carry) c->conc[i] = c->pol[i] / (di * area);
+            if (carry) f->conc[i] = c->pol[i] / (di * area);
             float h = c->ground[i] + di;
             const int edges = c->source_cell[i] ? 0 : open;
-            float speed = std::sqrt(c->vx[i] * c->vx[i] + c->vz[i] * c->vz[i]);
+            float speed = std::sqrt(f->vx[i] * f->vx[i] + f->vz[i] * f->vz[i]);
             float hd = std::max(di, 0.02f);
             float sheet = std::clamp((kSheetFadeDepth - di) / (kSheetFadeDepth - kSheetFullDepth), 0.f, 1.f);
             float fk = p.manning > 0 ? fric + fricSheet * sheet * sheet * (3.f - 2.f * sheet) : 0.f;
             float damp = speed > 0 ? damp0 / (1.f + fk * speed / (hd * std::sqrt(hd))) : damp0;
             // Outside the map, an open edge acts like dry ground at this cell's height.
-            auto pipe = [&](float f, bool inside, TileData* o, int j, int bit) {
+            auto pipe = [&](float q, bool inside, TileData* o, int j, int bit) {
                 float dh;
                 if (inside) {
                     if (!o) return 0.f;
                     dh = h - o->ground[j] - o->depth[j];
                 } else if (edges & bit) dh = di;
                 else return 0.f;
-                return std::max(0.f, f * damp + k * di * dh);
+                return std::max(0.f, q * damp + k * di * dh);
             };
             int j;
             TileData* o;
             o = Left(n, i, j);
-            float l = pipe(c->fl[i], x > 0, o, j, 1);
+            float l = pipe(f->fl[i], x > 0, o, j, 1);
             o = Right(n, i, j);
-            float r = pipe(c->fr[i], x < w - 1, o, j, 2);
+            float r = pipe(f->fr[i], x < w - 1, o, j, 2);
             o = Up(n, i, j);
-            float tp = pipe(c->ft[i], z > 0, o, j, 4);
+            float tp = pipe(f->ft[i], z > 0, o, j, 4);
             o = Down(n, i, j);
-            float b = pipe(c->fb[i], z < d - 1, o, j, 8);
+            float b = pipe(f->fb[i], z < d - 1, o, j, 8);
             float sum = l + r + tp + b;
             if (sum > 0) {
                 // Never send out more than the cell holds.
                 float s = std::min(1.f, di * area / (sum * dt));
                 l *= s; r *= s; tp *= s; b *= s;
             }
-            c->fl[i] = l; c->fr[i] = r; c->ft[i] = tp; c->fb[i] = b;
+            f->fl[i] = l; f->fr[i] = r; f->ft[i] = tp; f->fb[i] = b;
         });
     }
 
@@ -527,6 +537,8 @@ struct CsWater {
         // Pipes from cells in tiles that aren't stepped are zero (their flows were cleared when they slept).
         const Near n = Neighbours(t, true);
         TileData* c = n.c;
+        TileFlow* f = c->flow.get();
+        auto fo = [](TileData* o) { return o->flow.get(); };
         double vol = 0, mass = 0;
         float md = 0, mv = 0, mq = 0, change = 0;
         int wetCells = 0, clamps = 0;
@@ -537,9 +549,9 @@ struct CsWater {
             TileData* orr = x < w - 1 ? Right(n, i, jr) : nullptr;
             TileData* ot = z > 0 ? Up(n, i, jt) : nullptr;
             TileData* ob = z < d - 1 ? Down(n, i, jb) : nullptr;
-            float inL = ol ? ol->fr[jl] : 0.f, inR = orr ? orr->fl[jr] : 0.f;
-            float inT = ot ? ot->fb[jt] : 0.f, inB = ob ? ob->ft[jb] : 0.f;
-            float out = c->fl[i] + c->fr[i] + c->ft[i] + c->fb[i];
+            float inL = ol ? fo(ol)->fr[jl] : 0.f, inR = orr ? fo(orr)->fl[jr] : 0.f;
+            float inT = ot ? fo(ot)->fb[jt] : 0.f, inB = ob ? fo(ob)->ft[jb] : 0.f;
+            float out = f->fl[i] + f->fr[i] + f->ft[i] + f->fb[i];
             float d0 = c->depth[i];
             float d1 = d0 + dt * (inL + inR + inT + inB - out) / area;
             if (d1 < -1e-5f * std::max(1.f, d0)) clamps++;
@@ -548,17 +560,17 @@ struct CsWater {
             // Pollutant rides the same pipes, at the concentration of the cell it leaves.
             float m = c->pol[i];
             if (carry) {
-                float mIn = inL * (ol ? ol->conc[jl] : 0.f) + inR * (orr ? orr->conc[jr] : 0.f)
-                          + inT * (ot ? ot->conc[jt] : 0.f) + inB * (ob ? ob->conc[jb] : 0.f);
-                m = d1 > 0 ? std::max(0.f, (m + dt * (mIn - out * c->conc[i])) * keep) : 0.f;
+                float mIn = inL * (ol ? fo(ol)->conc[jl] : 0.f) + inR * (orr ? fo(orr)->conc[jr] : 0.f)
+                          + inT * (ot ? fo(ot)->conc[jt] : 0.f) + inB * (ob ? fo(ob)->conc[jb] : 0.f);
+                m = d1 > 0 ? std::max(0.f, (m + dt * (mIn - out * f->conc[i])) * keep) : 0.f;
                 c->pol[i] = m;
             }
             float avg = 0.5f * (d0 + d1);
             float u = 0, v = 0;
             // Films thinner than kWet get no velocity: flow / a tiny depth spikes, and the CFL limit would follow it.
             if (avg > kWet) {
-                u = 0.5f * (inL - c->fl[i] + c->fr[i] - inR) / (cell * avg);
-                v = 0.5f * (inT - c->ft[i] + c->fb[i] - inB) / (cell * avg);
+                u = 0.5f * (inL - f->fl[i] + f->fr[i] - inR) / (cell * avg);
+                v = 0.5f * (inT - f->ft[i] + f->fb[i] - inB) / (cell * avg);
                 // Flow passing through a thin cell from a deeper one reads as a huge speed; cap at Froude 3 (fast,
                 // supercritical flow on steep slopes stays possible).
                 float cap = std::min(vmax, 3.f * std::sqrt(p.gravity * avg));
@@ -568,8 +580,8 @@ struct CsWater {
                 mq = std::max(mq, s * avg);
             }
             c->depth[i] = d1;
-            c->vx[i] = u;
-            c->vz[i] = v;
+            f->vx[i] = u;
+            f->vz[i] = v;
             if (d1 > 0) {
                 any = true;
                 vol += d1;
@@ -608,7 +620,8 @@ struct CsWater {
         max_depth = max_speed = 0;
         for (int t = 0; t < tiles; t++) {
             if (!stepped[t]) continue;
-            Ensure(t);
+            auto* c = Ensure(t);
+            if (!c->flow) c->flow = std::make_unique<TileFlow>(); // zeroed
             list.push_back(t);
             CatchUp(t);
             tile_change[t] = 0;
@@ -800,7 +813,9 @@ CS_API int32_t cs_water_step(CsWater* w, float dt, int32_t max_substeps, CsWater
         stats->clamp_hits = clamps;
         stats->pollution = mass;
         stats->allocated_tiles = w->allocated;
-        stats->allocated_mb = (float)(w->allocated * (double)sizeof(TileData) / (1024.0 * 1024.0));
+        size_t flows = 0;
+        for (auto& c : w->data) flows += c && c->flow;
+        stats->allocated_mb = (float)((w->allocated * (double)sizeof(TileData) + flows * (double)sizeof(TileFlow)) / (1024.0 * 1024.0));
     }
     return 0;
 }
@@ -840,7 +855,8 @@ CS_API int32_t cs_water_read_tiles(CsWater* w, const int32_t* tiles, int32_t cou
             float* o = o4 + (size_t)i * 4;
             float g = c ? c->ground[i] : w->GroundAt(x, z), dep = c ? c->depth[i] : 0.f;
             if (dep > kWet) {
-                o[0] = g + dep; o[1] = dep; o[2] = c->vx[i]; o[3] = c->vz[i];
+                o[0] = g + dep; o[1] = dep;
+                if (auto* f = c->flow.get()) { o[2] = f->vx[i]; o[3] = f->vz[i]; }
                 if (ex) ex[i] = concAt(c, i);
                 any = true;
                 return;
@@ -1011,7 +1027,7 @@ CS_API int32_t cs_water_drain(CsWater* w, float x, float z, float radius, float 
         }
         w->drained[w->drained_index[t]].second[li] = c->ground[li] + c->depth[li];
         c->depth[li] = c->pol[li] = 0.f;
-        c->fl[li] = c->fr[li] = c->ft[li] = c->fb[li] = c->vx[li] = c->vz[li] = 0.f;
+        if (auto* f = c->flow.get()) f->fl[li] = f->fr[li] = f->ft[li] = f->fb[li] = f->vx[li] = f->vz[li] = 0.f;
         hit[t] = 1;
         n++;
         if (cx > 0) push(i - 1);

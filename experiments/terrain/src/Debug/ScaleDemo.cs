@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using Godot;
 using CitySim.TerrainSystem;
 using CitySim.TerrainSystem.Generation;
@@ -52,6 +53,8 @@ public static class ScaleDemo
                  $"first range {rangeMs:0.0} ms: {min:0}–{max:0} m");
         Mem("after generate");
 
+        var lakes = RunLakes(map, Mem);
+
         var splat = new SplatMap(map.Width, map.Depth, map.CellSize);
         var history = new UndoStack();
         var c = new System.Numerics.Vector2(map.SizeX * 0.5f, map.SizeZ * 0.5f);
@@ -74,6 +77,7 @@ public static class ScaleDemo
         }
         history.EndStroke();
         double strokeMs = sw.Elapsed.TotalMilliseconds;
+        ok &= CheckLakeWindows(map, lakes, map.CircleRect(c.X, c.Y, brush.Radius + 40f));
         sw.Restart();
         map.GetRange();
         double rangeAfterMs = sw.Elapsed.TotalMilliseconds;
@@ -185,6 +189,101 @@ public static class ScaleDemo
         GD.Print($"Demo scale: water grids read {readMs:0} ms, loaded {loadMs:0} ms, volume {st.Volume / 1e6:0.###} → " +
                  $"{sim.LastStats.Volume / 1e6:0.###} million m³ {Ok(kept && st.AllocatedTiles < sim.TilesX * sim.TilesZ)}");
         return kept && st.AllocatedTiles < sim.TilesX * sim.TilesZ;
+    }
+
+    /// <summary>The full lake + ground mask search (what ran after every edit before M6 3c), by stage.</summary>
+    private static CitySim.TerrainSystem.Erosion.LakeMap RunLakes(HeightMap map, Action<string> mem)
+    {
+        CitySim.TerrainSystem.Erosion.Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
+        var sw = Stopwatch.StartNew();
+        var lakes = CitySim.TerrainSystem.Erosion.Lakes.Find(map, new CitySim.TerrainSystem.Erosion.LakeSettings(), null, ground: true);
+        double ms = sw.Elapsed.TotalMilliseconds;
+        var st = CitySim.TerrainSystem.Erosion.Lakes.LastStageMs();
+        ulong hash = 14695981039346656037ul;
+        foreach (uint v in lakes!.Ground!) hash = (hash ^ v) * 1099511628211ul;
+        foreach (uint v in lakes.Flow!) hash = (hash ^ v) * 1099511628211ul;
+        GD.Print($"Demo scale: lakes + ground masks {ms:0} ms ({lakes.Count} lakes): flood {st[0]:0}, lakes {st[1]:0}, " +
+                 $"flow {st[2]:0}, masks {st[3]:0} ms; masks + flow hash {hash:x16}");
+        mem("after lake search");
+        return lakes;
+    }
+
+    /// <summary>
+    /// Window search (M6 3c) vs a full search after edits: the demo stroke (<paramref name="stroke"/>, already applied),
+    /// no edit on the biggest river near the centre (the window alone must match), then a 3 m bump across that river.
+    /// Compares the part a window search keeps: ground mask bytes within ±2, lake levels, catchment areas.
+    /// </summary>
+    private static bool CheckLakeWindows(HeightMap map, CitySim.TerrainSystem.Erosion.LakeMap last, VertexRect stroke)
+    {
+        var settings = new CitySim.TerrainSystem.Erosion.LakeSettings();
+        bool ok = true;
+
+        // The river: the vertex with the biggest catchment within 1 km of the centre.
+        int cx = map.Width / 2, cz = map.Depth / 2, best = -1, reach = (int)(1000 / map.CellSize);
+        uint bestArea = 0;
+        for (int z = cz - reach; z <= cz + reach; z++)
+            for (int x = cx - reach; x <= cx + reach; x++)
+            {
+                uint a = last.Flow![z * map.Width + x] & 0xFFFF;
+                if (a > bestArea) { bestArea = a; best = z * map.Width + x; }
+            }
+        int rx = best % map.Width, rz = best / map.Width, r = (int)(30 / map.CellSize);
+        var bump = new VertexRect(rx - r, rz - r, rx + r, rz + r);
+
+        foreach (var (name, edit, apply) in new (string, VertexRect, Action?)[]
+                 {
+                     ("stroke", stroke, null),
+                     ("no edit, on the river", bump, () => { }),
+                     ($"3 m bump on a river ({MathF.Pow(2, bestArea / 2048f) / 1e6f:0.#} km² catchment)", bump, () =>
+                     {
+                         for (int z = bump.MinZ; z <= bump.MaxZ; z++)
+                             for (int x = bump.MinX; x <= bump.MaxX; x++)
+                             {
+                                 float d = MathF.Sqrt((x - rx) * (x - rx) + (z - rz) * (z - rz)) / r;
+                                 if (d < 1) map[x, z] += 3f * (1 - d * d);
+                             }
+                         map.Invalidate(bump);
+                     }),
+                 })
+        {
+            apply?.Invoke();
+            var window = edit.Expand(TerrainSystem.Terrain.WindowMargin, map.Width, map.Depth);
+            var inner = edit.Expand(TerrainSystem.Terrain.WindowKeep, map.Width, map.Depth);
+            var sw = Stopwatch.StartNew();
+            var win = CitySim.TerrainSystem.Erosion.Lakes.FindWindow(map, last, window, settings, null)!;
+            double winMs = sw.Elapsed.TotalMilliseconds;
+            var full = CitySim.TerrainSystem.Erosion.Lakes.Find(map, settings, null, ground: true)!;
+
+            var within = new long[4];
+            var worst = new int[4];
+            long cells = 0, levelSame = 0, areaSame = 0;
+            for (int z = inner.MinZ; z <= inner.MaxZ; z++)
+                for (int x = inner.MinX; x <= inner.MaxX; x++)
+                {
+                    int g = z * map.Width + x, l = (z - window.MinZ) * window.Width + (x - window.MinX);
+                    uint a = win.Ground[l], b = full.Ground![g];
+                    for (int k = 0; k < 4; k++)
+                    {
+                        int d = Math.Abs((int)((a >> (8 * k)) & 0xFF) - (int)((b >> (8 * k)) & 0xFF));
+                        if (d <= 2) within[k]++;
+                        worst[k] = Math.Max(worst[k], d);
+                    }
+                    float la = win.Level[l], lb = full.Level[g];
+                    if ((float.IsNaN(la) && float.IsNaN(lb)) || MathF.Abs(la - lb) < 0.01f) levelSame++;
+                    // Catchment within 1 % (log2 × 2048: 1 % ≈ 29 steps).
+                    if (Math.Abs((int)(win.Flow[l] & 0xFFFF) - (int)(full.Flow![g] & 0xFFFF)) <= 29) areaSame++;
+                    cells++;
+                }
+            string[] names = ["shore", "gully", "wear", "deposit"];
+            var bytes = string.Join(", ", Enumerable.Range(0, 4).Select(k => $"{names[k]} {100.0 * within[k] / cells:0.00} % (worst {worst[k]})"));
+            bool pass = Enumerable.Range(0, 4).All(k => within[k] >= cells * 0.99) && levelSame >= cells * 0.99;
+            GD.Print($"Demo scale: window search, {name}: {window.Width}×{window.Depth} in {winMs:0} ms; inner {inner.Width}×{inner.Depth} " +
+                     $"within ±2 of a full search: {bytes}; lake levels {100.0 * levelSame / cells:0.00} %, catchment ±1 % " +
+                     $"{100.0 * areaSame / cells:0.00} % {Ok(pass)}");
+            ok &= pass;
+            last = full;
+        }
+        return ok;
     }
 
     private static string Ok(bool b) => b ? "ok" : "FAILED";

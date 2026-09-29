@@ -20,6 +20,13 @@ public readonly record struct VertexRect(int MinX, int MinZ, int MaxX, int MaxZ)
             Math.Max(MaxX, other.MaxX), Math.Max(MaxZ, other.MaxZ));
     }
 
+    /// <summary>Grown by <paramref name="by"/> vertices on every side, clamped to a <paramref name="width"/>×<paramref name="depth"/> grid.</summary>
+    public VertexRect Expand(int by, int width, int depth) => IsEmpty ? this : new VertexRect(
+        Math.Max(0, MinX - by), Math.Max(0, MinZ - by), Math.Min(width - 1, MaxX + by), Math.Min(depth - 1, MaxZ + by));
+
+    /// <summary>Vertex count (0 when empty).</summary>
+    public long Area => IsEmpty ? 0 : (long)Width * Depth;
+
     /// <summary>
     /// Vertices within the square bounding a circle at a local position (world units), on a grid of
     /// <paramref name="width"/>×<paramref name="depth"/> vertices spaced <paramref name="cellSize"/> apart.

@@ -118,12 +118,29 @@ public partial class Terrain : Node3D
     private ImageTexture? _groundTexture;
     private byte[]? _groundBytes;
     private long _groundVersion = -1;
-    private double _lakeTimer = -1;
-    private CancellationTokenSource? _lakeJob;
+    // Lake/ground searches (see StartLakeSearch). _lakeTimer: a search is due (a window one after edits, unless a full one
+    // is pending); _fullLakeTimer: the background full search is due.
+    private double _lakeTimer = -1, _fullLakeTimer = -1;
+    private bool _fullLakesPending, _fullBackground, _lakesExact;
+    private CancellationTokenSource? _fullJob, _windowJob;
+    // Heights edited since the last search that covers them started / since the running full search started / that the
+    // running window search covers.
+    private VertexRect _lakeDirty = VertexRect.Empty, _fullDirty = VertexRect.Empty, _windowJobDirty = VertexRect.Empty;
     private bool _lakesFailed;
 
     /// <summary>Wait after the last height edit before finding lakes again (a stroke edits every tick).</summary>
-    private const double LakeDelay = 0.5;
+    private const double LakeDelay = 0.3;
+    /// <summary>Quiet time after the last window search before a full one puts right what windows can't see.</summary>
+    private const double FullLakeDelay = 15;
+    /// <summary>
+    /// A window search covers the edit + <see cref="WindowMargin"/> vertices and keeps edit + <see cref="WindowKeep"/>.
+    /// Near the window's border, flats (lakes, filled pits) route water a little differently from a full search; 96
+    /// between kept part and border still left one gully with a third of its catchment on 28.7 km Mountains, 96 +
+    /// 64 = 160 matches a full search everywhere (`--demo-scale`), in ~25 ms.
+    /// </summary>
+    public const int WindowMargin = 160, WindowKeep = 64;
+    /// <summary>Maps up to this many vertices a side always search in full (≤ 1 s).</summary>
+    private const int FullSearchMaxWidth = 2049;
 
     public HeightMap? Map { get; private set; }
 
@@ -147,6 +164,8 @@ public partial class Terrain : Node3D
     /// <summary>Time spent pushing edits to Terrain3D in the last frame that had edits.</summary>
     public double LastPushMs { get; private set; }
     public int LastPushRegions { get; private set; }
+    /// <summary>Terrain3D region side in vertices (0 before a map is set).</summary>
+    public int RegionVertices => _render?.RegionVertices ?? 0;
 
     /// <summary>Goes up with every height change, so work started on older heights can tell it's stale.</summary>
     public int HeightVersion { get; private set; }
@@ -331,6 +350,7 @@ public partial class Terrain : Node3D
         PushWaterGround();
         UpdateWeather();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
+        if (_fullLakeTimer >= 0 && (_fullLakeTimer -= delta) < 0) StartFullLakeSearch(background: true);
     }
 
     /// <summary>Uploads the water's ground marks (distance to water, wet paint) when the sim published new ones.</summary>
@@ -357,7 +377,8 @@ public partial class Terrain : Node3D
 
     public override void _ExitTree()
     {
-        _lakeJob?.Cancel();
+        _fullJob?.Cancel();
+        _windowJob?.Cancel();
         DisposeWater();
     }
 
@@ -368,22 +389,64 @@ public partial class Terrain : Node3D
         else if (what == NotificationUnpaused && Water is not null) Water.Suspended = false;
     }
 
-    /// <summary>Finds the lakes again after <paramref name="delay"/> seconds (restarted by every height edit).</summary>
-    public void RefreshLakes(double delay = LakeDelay) => _lakeTimer = delay;
+    /// <summary>
+    /// Finds the lakes and ground masks of the whole map again after <paramref name="delay"/> seconds (new map, new lake
+    /// settings or sea level, or when every lake must be exact). Height edits don't need this: they search around the
+    /// edit (<see cref="MarkDirty(int, int, int, int)"/>).
+    /// </summary>
+    public void RefreshLakes(double delay = LakeDelay)
+    {
+        _fullLakesPending = true;
+        _lakeTimer = delay;
+    }
+
+    /// <summary>Heights changed in <paramref name="rect"/>: search around it soon, and the whole map once edits stop.</summary>
+    private void LakesEdited(VertexRect rect)
+    {
+        _lakeDirty = _lakeDirty.Union(rect);
+        _fullDirty = _fullDirty.Union(rect);
+        _lakesExact = false;
+        _lakeTimer = LakeDelay;
+        _fullLakeTimer = -1;
+        // A background full search would be stale before it lands; it starts again once edits stop.
+        if (_fullJob is not null && _fullBackground)
+        {
+            _fullJob.Cancel();
+            _fullJob = null;
+        }
+    }
 
     /// <summary>
-    /// Finds hollows and ground masks on a worker; the result is dropped if the heights changed meanwhile.
+    /// Lakes and ground masks, on workers. On a big map an edit is searched in a window around it
+    /// (<see cref="TerrainSystem.Erosion.Lakes.FindWindow"/>: well under a second instead of ~20 s at 28.7 km), using
+    /// the last full search for everything outside; a full search follows once edits stop for
+    /// <see cref="FullLakeDelay"/> s. Small maps, new maps and settings changes search in full.
     /// </summary>
     private void StartLakeSearch()
     {
         _lakeTimer = -1;
         if (Map is not { } map || _lakesFailed) return;
-        _lakeJob?.Cancel();
-        var job = _lakeJob = new CancellationTokenSource();
-        int version = HeightVersion;
+        bool full = _fullLakesPending || map.Width <= FullSearchMaxWidth || Lakes is not { Flow: not null } lakes ||
+                    lakes.Width != map.Width || lakes.Depth != map.Depth ||
+                    _lakeDirty.Union(_windowJobDirty).Expand(WindowMargin, map.Width, map.Depth).Area * 8 > (long)map.Width * map.Depth;
+        if (!full) StartWindowLakeSearch(map);
+        // A full search that isn't a background one is already running: it lands, then covers these edits.
+        else if (_fullJob is null || _fullBackground || _fullLakesPending) StartFullLakeSearch(background: false);
+    }
+
+    private void StartFullLakeSearch(bool background)
+    {
+        _fullLakeTimer = -1;
+        if (Map is not { } map || _lakesFailed) return;
+        _fullLakesPending = false;
+        _fullJob?.Cancel();
+        var job = _fullJob = new CancellationTokenSource();
+        _fullBackground = background;
+        // It reads every height now; edits from here on get a window search once it lands.
+        _lakeDirty = _fullDirty = VertexRect.Empty;
         var settings = _lakeSettings;
         float? sea = SeaLevel;
-        Task.Run(() =>
+        RunLakeJob(job, () =>
         {
             var sw = Stopwatch.StartNew();
             var lakes = TerrainSystem.Erosion.Lakes.Find(map, settings, sea, job.Token, ground: true);
@@ -391,21 +454,92 @@ public partial class Terrain : Node3D
             double ms = sw.Elapsed.TotalMilliseconds;
             Callable.From(() =>
             {
-                if (!IsInstanceValid(this) || job.IsCancellationRequested || map != Map || version != HeightVersion) return;
-                if (lakes.Ground is { } ground) _render?.PushGround(ground, Lakes?.Ground, map.Width);
-                GD.Print($"Terrain: {lakes.Count} lakes and ground masks in {ms:0} ms");
+                if (!IsInstanceValid(this) || job.IsCancellationRequested || map != Map) return;
+                if (_fullJob == job) _fullJob = null;
+                if (lakes.Ground is { } ground) _render?.PushGround(ground, map.Width);
+                lakes.DropGround();
                 Lakes = lakes;
                 LastLakeMs = ms;
+                GD.Print($"Terrain: {lakes.Count} lakes and ground masks in {ms:0} ms{(background ? " (background)" : "")}");
+                // The replaced search and the uploaded masks are 0.8 GB of dead arrays at 28.7 km: collect them now
+                // rather than whenever the GC gets round to it (the footprint counts them until then). Deferred, so
+                // nothing in this call still holds them.
+                if (map.Width > FullSearchMaxWidth) Callable.From(CollectLakeGarbage).CallDeferred();
+                // Edited while it ran: those parts read heights mid-edit, so search them again.
+                _lakesExact = _fullDirty.IsEmpty;
+                if (!_lakesExact)
+                {
+                    _lakeDirty = _lakeDirty.Union(_fullDirty);
+                    _fullDirty = VertexRect.Empty;
+                    if (_lakeTimer < 0) _lakeTimer = 0;
+                }
                 if (_lakeSourcesPending && Water is not null)
                 {
-                    _lakeSourcesPending = false;
-                    var done = _lakeSourcesDone;
-                    _lakeSourcesDone = null;
-                    PlanLakeSources(done);
+                    if (_lakesExact)
+                    {
+                        _lakeSourcesPending = false;
+                        var done = _lakeSourcesDone;
+                        _lakeSourcesDone = null;
+                        PlanLakeSources(done);
+                    }
+                    else RefreshLakes(0);
                 }
                 LakesChanged?.Invoke();
             }).CallDeferred();
-        }, job.Token).ContinueWith(t =>
+        });
+    }
+
+    private void StartWindowLakeSearch(HeightMap map)
+    {
+        // A window search still running is replaced by one that covers its edits too.
+        _windowJob?.Cancel();
+        var dirty = _lakeDirty.Union(_windowJobDirty);
+        _lakeDirty = VertexRect.Empty;
+        _windowJobDirty = dirty;
+        var job = _windowJob = new CancellationTokenSource();
+        var last = Lakes!;
+        var window = dirty.Expand(WindowMargin, map.Width, map.Depth);
+        var keep = dirty.Expand(WindowKeep, map.Width, map.Depth);
+        var settings = _lakeSettings;
+        float? sea = SeaLevel;
+        RunLakeJob(job, () =>
+        {
+            var sw = Stopwatch.StartNew();
+            var result = TerrainSystem.Erosion.Lakes.FindWindow(map, last, window, settings, sea, job.Token);
+            if (result is null) return;
+            double ms = sw.Elapsed.TotalMilliseconds;
+            Callable.From(() =>
+            {
+                if (!IsInstanceValid(this) || job.IsCancellationRequested || map != Map) return;
+                _windowJob = null;
+                _windowJobDirty = VertexRect.Empty;
+                if (Lakes is not { Flow: not null } lakes || lakes.Width != map.Width)
+                {
+                    // Replaced meanwhile by a search without flow state: try again on the next one.
+                    _lakeDirty = _lakeDirty.Union(dirty);
+                    return;
+                }
+                lakes.Apply(result, keep);
+                _render?.PushGroundWindow(result.Ground, window, keep);
+                GD.Print($"Terrain: ground masks around an edit ({keep.Width}×{keep.Depth} of a {window.Width}×{window.Depth} window) in {ms:0} ms");
+                LastLakeMs = ms;
+                if (_fullJob is null) _fullLakeTimer = FullLakeDelay;
+                LakesChanged?.Invoke();
+            }).CallDeferred();
+        });
+    }
+
+    private static void CollectLakeGarbage()
+    {
+        var sw = Stopwatch.StartNew();
+        System.GC.Collect(2, System.GCCollectionMode.Forced, blocking: true, compacting: false);
+        GD.Print($"Terrain: GC after the lake search {sw.Elapsed.TotalMilliseconds:0} ms, {System.GC.GetTotalMemory(false) >> 20} MB live");
+    }
+
+    /// <summary>Runs a lake search on a worker and reports a failure on the main thread.</summary>
+    private void RunLakeJob(CancellationTokenSource job, System.Action work)
+    {
+        Task.Run(work, job.Token).ContinueWith(t =>
         {
             if (!t.IsFaulted) return;
             var error = t.Exception!.GetBaseException();
@@ -427,7 +561,8 @@ public partial class Terrain : Node3D
     public void AddLakeSources(System.Action<LakeSourcesAdded>? done = null)
     {
         if (Water is null) return;
-        if (Lakes is { } lakes && lakes.Width == Map?.Width && !_lakeSourcesPending && _lakeTimer < 0) PlanLakeSources(done);
+        // Every lake must be exact: after edits, windows alone aren't enough.
+        if (Lakes is { } lakes && lakes.Width == Map?.Width && !_lakeSourcesPending && _lakesExact && _lakeTimer < 0) PlanLakeSources(done);
         else
         {
             _lakeSourcesPending = true;
@@ -674,7 +809,12 @@ public partial class Terrain : Node3D
         _arrows = null;
         _preview = null;
         _heightDirty = _splatDirty = VertexRect.Empty;
-        _lakeJob?.Cancel();
+        _fullJob?.Cancel();
+        _windowJob?.Cancel();
+        _fullJob = _windowJob = null;
+        _lakeDirty = _fullDirty = _windowJobDirty = VertexRect.Empty;
+        _fullLakeTimer = -1;
+        _lakesExact = false;
         Lakes = null;
         _lakesFailed = false;
         HeightVersion++;
@@ -701,7 +841,7 @@ public partial class Terrain : Node3D
         GD.Print($"Terrain: horizon ring {_horizon.LastVertexCount} vertices, heights {_horizon.LastHeightRange.Min:0}..{_horizon.LastHeightRange.Max:0} m, built in {_horizon.LastBuildMs:0.0} ms");
         ApplyEdgeFog();
 
-        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms");
+        GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms ({_render.CopyTimings})");
         StartWater(map, water);
         RefreshLakes(0);
     }
@@ -900,7 +1040,7 @@ public partial class Terrain : Node3D
         _heightDirty = _heightDirty.Union(rect);
         Water?.GroundChanged(rect);
         HeightVersion++;
-        RefreshLakes();
+        LakesEdited(rect);
     }
 
     /// <summary>

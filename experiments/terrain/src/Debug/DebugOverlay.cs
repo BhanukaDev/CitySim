@@ -27,6 +27,9 @@ namespace CitySim.Debug;
 /// --sea=level (a Sea source at that level), --edge=line|fog|horizon (the map edge's look), --rain[=intensity] (it starts raining: the ground wets over sim time), --wetness=x (the whole map's wetness at once, 0-1),
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path, --water-cells=n (water grid side cap; 2048 = old 14 m on 28.7 km),
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
+/// --profile[=frames] (frame times with vsync off, once the first lake search is in; --profile-during-search: right away),
+/// --demo-push (Terrain3D push time per frame mid-region and on a region corner), --demo-lake-window (an edit gets a
+/// window lake search, then a background full one; --lake-shot=path saves a screenshot after the window search),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
 /// --bake-brushes (bake brush masks for import, then quit; see TextureBaker).
 /// </summary>
@@ -47,6 +50,16 @@ public partial class DebugOverlay : CanvasLayer
     private readonly System.Collections.Generic.Queue<float> _zoomShots = new();
     private float[]? _cam;
     private double _zoomWait;
+    /// <summary>--profile[=frames]: frames still to wait (then measure), and what's been measured so far.</summary>
+    private int _profileWait = -1, _profileFrames;
+    private bool _profileDuringSearch;
+    /// <summary>--demo-push: frames done, and push times (ms) mid-region and on a region corner.</summary>
+    private int _pushFrame = -1;
+    /// <summary>--demo-lake-window: step (-1 = off), time in it, and lake searches seen (sum of their times).</summary>
+    private int _lakeStep = -1, _lakeSearches;
+    private double _lakeTime, _lakeLastMs;
+    private readonly System.Collections.Generic.List<double> _pushMid = new(), _pushCorner = new();
+    private readonly System.Collections.Generic.List<(double Frame, double Cpu, double Gpu)> _profile = new();
 
     public override void _Ready()
     {
@@ -62,6 +75,20 @@ public partial class DebugOverlay : CanvasLayer
                 _screenshotPath = arg["--screenshot=".Length..];
             else if (arg.StartsWith("--screenshot-frames=") && int.TryParse(arg["--screenshot-frames=".Length..], out int f))
                 _screenshotFrames = f;
+            else if (arg == "--profile" || arg.StartsWith("--profile="))
+            {
+                _profileFrames = arg.Length > "--profile=".Length && int.TryParse(arg["--profile=".Length..], out int pf) ? pf : 240;
+                _profileWait = 180; // let the map, water and LODs settle
+                // No vsync, so the numbers show the headroom above 60.
+                DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
+                RenderingServer.ViewportSetMeasureRenderTime(GetViewport().GetViewportRid(), true);
+            }
+            else if (arg == "--demo-push")
+                _pushFrame = 0;
+            else if (arg == "--demo-lake-window")
+                _lakeStep = 0;
+            else if (arg == "--profile-during-search")
+                _profileDuringSearch = true;
             else if (arg.StartsWith("--screenshot-zoom="))
                 foreach (var t in arg["--screenshot-zoom=".Length..].Split(','))
                     _zoomShots.Enqueue(float.Parse(t, System.Globalization.CultureInfo.InvariantCulture));
@@ -691,6 +718,9 @@ public partial class DebugOverlay : CanvasLayer
 
     public override void _Process(double delta)
     {
+        if (_profileWait >= 0) Profile(delta);
+        if (_pushFrame >= 0) PushDemo();
+        if (_lakeStep >= 0) LakeWindowDemo(delta);
         if (_screenshotPath is not null && --_screenshotFrames <= 0 && (_zoomWait -= delta) <= 0)
         {
             string path = _screenshotPath;
@@ -754,5 +784,128 @@ public partial class DebugOverlay : CanvasLayer
         text += "\n\nWASD move · Q/E rotate · R/F tilt · Z/X or wheel zoom" +
                 "\nCtrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · Esc deselect tool / menu · G grid · C contours";
         _label.Text = text;
+    }
+
+    /// <summary>
+    /// --profile: after the settle frames, records frame time and the viewport's measured CPU/GPU render time, then
+    /// prints averages, the 95th percentile and the draw stats, and quits.
+    /// </summary>
+    private void Profile(double delta)
+    {
+        if (_profileWait > 0) { _profileWait--; return; }
+        // Steady state: wait for the first lake/ground search too (it runs on workers for several seconds on big maps),
+        // unless --profile-during-search.
+        if (!_profileDuringSearch && _profile.Count == 0 && Terrain?.Map is not null && Terrain.Lakes is null)
+        {
+            _profileWait = 60; // then settle again after its ground upload
+            return;
+        }
+        var rid = GetViewport().GetViewportRid();
+        _profile.Add((delta * 1000, RenderingServer.ViewportGetMeasuredRenderTimeCpu(rid),
+            RenderingServer.ViewportGetMeasuredRenderTimeGpu(rid)));
+        if (_profile.Count < _profileFrames) return;
+
+        static double Avg(System.Collections.Generic.IEnumerable<double> v) => System.Linq.Enumerable.Average(v);
+        var frames = System.Linq.Enumerable.ToList(System.Linq.Enumerable.OrderBy(System.Linq.Enumerable.Select(_profile, p => p.Frame), f => f));
+        double avg = Avg(frames), p95 = frames[(int)(frames.Count * 0.95)];
+        double cpu = Avg(System.Linq.Enumerable.Select(_profile, p => p.Cpu)), gpu = Avg(System.Linq.Enumerable.Select(_profile, p => p.Gpu));
+        var vp = GetViewport();
+        long draws = (long)vp.GetRenderInfo(Viewport.RenderInfoType.Visible, Viewport.RenderInfo.DrawCallsInFrame);
+        long prims = (long)vp.GetRenderInfo(Viewport.RenderInfoType.Visible, Viewport.RenderInfo.PrimitivesInFrame);
+        long shadowDraws = (long)vp.GetRenderInfo(Viewport.RenderInfoType.Shadow, Viewport.RenderInfo.DrawCallsInFrame);
+        long shadowPrims = (long)vp.GetRenderInfo(Viewport.RenderInfoType.Shadow, Viewport.RenderInfo.PrimitivesInFrame);
+        GD.Print($"Profile: {_profile.Count} frames, frame {avg:0.00} ms avg ({1000 / avg:0} FPS), p95 {p95:0.00} ms; " +
+                 $"render CPU {cpu:0.00} ms, GPU {gpu:0.00} ms (0 on Metal); " +
+                 $"{draws} draws, {prims / 1000} k primitives; shadows {shadowDraws} draws, {shadowPrims / 1000} k primitives");
+        _profileWait = -1;
+        GetTree().Quit();
+    }
+
+    /// <summary>
+    /// --demo-push: raises a 35² patch a little every frame, as a brush does, first in the middle of a Terrain3D region
+    /// (1 region per push) and then on a region corner (4), and prints what the pushes to Terrain3D cost per frame.
+    /// </summary>
+    private void PushDemo()
+    {
+        if (Terrain?.Map is not { } map || Terrain.RegionVertices == 0) return;
+        // Measure with the first lake search done, unless --profile-during-search.
+        if (_pushFrame == 0 && !_profileDuringSearch && Terrain.Lakes is null) return;
+        const int settle = 60, frames = 180, half = 17;
+        int f = _pushFrame++;
+        // The push of the previous frame's edit has run by now (Terrain pushes after everything else).
+        if (f > settle && f <= settle + frames) _pushMid.Add(Terrain.LastPushMs);
+        else if (f > settle + frames + 1 && f <= settle + 2 * frames + 1) _pushCorner.Add(Terrain.LastPushMs);
+        if (f == settle + 2 * frames + 2)
+        {
+            static string Stats(System.Collections.Generic.List<double> v)
+            {
+                v.Sort();
+                return $"avg {System.Linq.Enumerable.Average(v):0.00} ms, p95 {v[(int)(v.Count * 0.95)]:0.00}, max {v[^1]:0.00}";
+            }
+            GD.Print($"Demo push: {map.Width}², {Terrain.RegionVertices}² regions; mid-region {Stats(_pushMid)}; corner {Stats(_pushCorner)}");
+            _pushFrame = -1;
+            GetTree().Quit();
+            return;
+        }
+        int r = Terrain.RegionVertices;
+        int cx = f <= settle + frames ? r * 3 / 2 : r * 2, cz = cx;
+        for (int z = cz - half; z <= cz + half; z++)
+        {
+            var row = map.Row(z);
+            for (int x = cx - half; x <= cx + half; x++) row[x] += 0.01f;
+        }
+        map.Invalidate(new VertexRect(cx - half, cz - half, cx + half, cz + half));
+        Terrain.MarkDirty(cx - half, cz - half, cx + half, cz + half);
+    }
+
+    /// <summary>
+    /// --demo-lake-window (M6 3c): after the first lake search, raises a 60 m patch by 3 m in one go. On a big map a window
+    /// search must follow within 3 s (well under a second of work), then, with no more edits, a background full search
+    /// after ~15 s. Prints ok/FAILED and quits.
+    /// </summary>
+    private void LakeWindowDemo(double delta)
+    {
+        if (Terrain?.Map is not { } map) return;
+        _lakeTime += delta;
+        switch (_lakeStep)
+        {
+            case 0:
+                if (Terrain.Lakes is null) return;
+                Terrain.LakesChanged += () => { _lakeSearches++; _lakeLastMs = Terrain.LastLakeMs; };
+                int cx = map.Width / 3, cz = map.Depth / 3, half = (int)(30 / map.CellSize);
+                for (int z = cz - half; z <= cz + half; z++)
+                {
+                    var row = map.Row(z);
+                    for (int x = cx - half; x <= cx + half; x++) row[x] += 3f;
+                }
+                var rect = new VertexRect(cx - half, cz - half, cx + half, cz + half);
+                map.Invalidate(rect);
+                Terrain.MarkDirty(rect.MinX, rect.MinZ, rect.MaxX, rect.MaxZ);
+                _lakeStep = 1;
+                _lakeTime = 0;
+                break;
+            case 1:
+                if (_lakeTime < 3) return;
+                bool window = _lakeSearches == 1 && _lakeLastMs < 1000;
+                GD.Print($"Demo lake window: {_lakeSearches} search(es) within 3 s of the edit, last {_lakeLastMs:0} ms {(window ? "ok" : "FAILED")}");
+                foreach (string arg in OS.GetCmdlineUserArgs())
+                    if (arg.StartsWith("--lake-shot="))
+                        GetViewport().GetTexture().GetImage().SavePng(arg["--lake-shot=".Length..]);
+                _lakeStep = window ? 2 : 3;
+                _lakeTime = 0;
+                break;
+            case 2:
+                if (_lakeSearches < 2 && _lakeTime < 60) return;
+                bool full = _lakeSearches == 2 && _lakeLastMs > 1000;
+                GD.Print($"Demo lake window: background full search {(full ? $"after {_lakeTime:0} s, {_lakeLastMs / 1000:0.0} s of work ok" : "FAILED")}");
+                _lakeStep = full ? 4 : 3;
+                break;
+            default:
+                bool ok = _lakeStep == 4;
+                GD.Print(ok ? "Demo lake window: all ok" : "Demo lake window: FAILED");
+                _lakeStep = -1;
+                GetTree().Quit(ok ? 0 : 1);
+                break;
+        }
     }
 }

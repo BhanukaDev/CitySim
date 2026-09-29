@@ -86,7 +86,11 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --bake-theme=<id>|all (bake a theme's texture arrays, previews and materials.gdshaderinc, then quit; run --import after),
 #   --demo-scale[=cells] (headless data benchmark at 8193²: generate/stroke/undo/save/load/RAM, water memory/speed, then quits),
 #   --water-cells=n (cap the water grid side; 2048 = the pre-3f 14 m cells on 28.7 km),
-#   --size=cells (8192 = 28.7 km)
+#   --size=cells (8192 = 28.7 km),
+#   --profile[=frames] (frame avg/p95 + render CPU + draws with vsync off, after the first lake search; quits),
+#   --profile-during-search (don't wait for it), --demo-push (push ms per frame mid-region / on a region corner),
+#   --demo-lake-window (an edit → window lake search → background full search; --lake-shot=path screenshots it)
+# peak memory: /usr/bin/time -l $G ... ("peak memory footprint"); steady: footprint <pid>
 # any flag skips the start menu (scenes/Menu.tscn)
 tools/fetch_textures.sh      # first time (or after changing a texture): download the ground textures, bake every theme, import
 tools/fetch_brushes.sh       # only after changing a brush: download stamps, bake + import brush masks (baked masks are committed)
@@ -445,7 +449,7 @@ follows every edit (strokes, undo, generate, erosion) and needs no saving or und
 - Cost (M1): 3.6 km lakes 90 → ~180 ms. 28.7 km Mountains: lakes 8 s → 16.5 s (flood 7.4, flow 5.6, chamfer 1.1, rest 1.3),
   on the worker, so textures catch up ~16 s after an edit there. Extra transient memory ≈ 14 B/vertex (~0.9 GB at 8193²).
 - Not done: river water surfaces (the beds are dry sand/gravel), `RiverMinArea`/`GullyMinArea` in the Erosion panel,
-  partial re-search after small edits (would help the 28.7 km delay).
+  ~~partial re-search after small edits~~ (done in M6 3c step 3: window searches, 9–36 ms at 28.7 km).
 
 ### 🔶 M3.4: Material rule stack + Materials panel (replaced by M3.5 themes; the rules live on as the default theme's shader + slots)
 The automatic ground is now data, not shader code, so it can be tuned in the Map Editor. Motivation: hard grass→sand and
@@ -767,7 +771,7 @@ User: shallow water (streams, small rivers) changed colour and shape a lot with 
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
 - ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
-### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3b, 3d, 3e, 3f, 3h done; next 3c)
+### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3b, 3c, 3d, 3e, 3f, 3h done; next 3g)
 Target (user, revised 2026-09-28): the map **stops at 28,672 m** (8192 cells × 3.5 m, an "8k" heightmap), sculptable and
 buildable, on an 8 GB M1. **No 70 km background**: 28.7 km is already ~2× CS2's buildable side (4096 × 3.5 m ≈ 14.3 km),
 4× its area. The effort goes into quality and performance at 28.7 km instead (phase 3). Why 28.7 km: 3.5 m is CS2's
@@ -879,9 +883,95 @@ Phases (tick off as they land):
       `Terrain.SetMap` when reloading into the running scene (same on the previous commit).
     - Side effect: world-space noise (grass patches, edge noise, ripples) now lines up with a different world position,
       so the same map shows a different but equivalent pattern of patches.
-  - [ ] **3c. Performance** (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
+  - [x] **3c. Performance** (implemented, waiting for the user to test; the RAM target isn't met, see step 5) (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
     across frames (~10 ms at region corners); overlap the Terrain3D copy with generation/load (> 2 s now); peak footprint
-    3.96 GB → < 2.5 GB, leaving room for city systems.
+    3.96 GB → < 2.5 GB, leaving room for city systems. Plus: partial lake/ground re-search after edits, and sleeping
+    water tiles drop their flow arrays. Plan: baseline (step 0) → sleeping flow → split pushes → window lake search →
+    faster load → memory → FPS.
+    - **Step 0, baseline** (M1 8 GB, 28.7 km Mountains, `/usr/bin/time -l` for the peak footprint). New tools:
+      `--profile[=frames]` (vsync off; waits for the first lake search + 60 frames unless `--profile-during-search`;
+      prints frame avg/p95, render CPU, process time, draws; quits), stage timings for the lake search
+      (`cs_last_find_water_ms`, printed by `--demo-scale`) and for the Terrain3D copy (printed by `SetMap`).
+      | | before |
+      |---|---|
+      | lake + ground search (full map) | 17.6–21.4 s: flood 8.2, lakes 0.6, flow 9.3, masks 2.3 |
+      | Terrain3D copy | 1.9–2.2 s: images 0.76, sanitize 0.03, add_region 0.59, update_maps 0.26–0.52 |
+      | generate | 2.8–3.1 s |
+      | FPS (vsync off), 300 / 700 / 1,800 m | 145 / 145 / 145 (6.9 ms, looks like the 144 Hz display cap); same during the lake search |
+      | peak footprint, `--demo-scale` (no rendering) | 3.5 GB |
+      | peak footprint, scene (generate + copy + lake search) | 5.2–5.7 GB |
+      - FPS isn't the problem at steady state. One run at 700 m dropped to 34 FPS (29 ms frames, all process time)
+        while the lake search ran, with a 5.2 GB peak: memory pressure on 8 GB. The 46–48 in phase 2 was likely the same.
+      - The lake search's scratch memory is the peak: filled, parent, order, area, sediment, steep, level, gully
+        (4 B each) plus closed, channel, wear, deposit (1 B each) ≈ 36 B/vertex ≈ 2.4 GB at 8193² (the M5.1 note said 14).
+      - `ViewportGetMeasuredRenderTimeGpu` reads 0 on Metal, so GPU time isn't measured.
+    - **Step 1, sleeping tiles drop their flows** (`native/water/`). `TileData` keeps ground, depth, pollutant, paint and
+      source cells (17 B/cell); pipe flows, velocity and concentration live in `TileFlow` (28 B/cell) behind a pointer
+      that's null while the tile isn't moving. `BeginTick` gives every stepped tile one (zeroed); `ZeroFlows` (sleep,
+      reset) frees it. Pipes only read stepped neighbours, so they never meet a null. `--demo-scale` water: 240 → **103 MB**
+      (same 1,365 tiles, 700 asleep); `--demo-water` all ok (same checks, fully wet 1025² 6.6 ms/substep).
+    - **Step 2, split stroke pushes: measured, not needed.** New `--demo-push` (after the first lake search): a 35² patch
+      raised every frame, 180 frames mid-region then 180 on a region corner, push time per frame. 28.7 km (512² regions):
+      mid 0.8–1.0 ms avg (p95 1.3), corner 1.3–2.2 ms avg (p95 2.3–2.8); 1.8 km: 0.4 / 0.7 ms. The ~10 ms in phase 2 was
+      a big 216×189 batch. About one frame in 180 spikes to 5–40 ms, sometimes inside Terrain3D's `update_maps` (upload
+      stall), sometimes outside it: not something spreading regions over frames would fix, so the push stays as is.
+    - **Step 3, window lake search** (the ~16 s wait after edits). An edit on a map wider than 2049 vertices is searched
+      in a window around it: `cs_find_water_window` (`native/erosion/`), `Lakes.FindWindow`, window = edit + 160
+      vertices, kept = edit + 64 (`Terrain.WindowMargin`/`WindowKeep`), 0.3 s after the last edit. **9–36 ms at 28.7 km**
+      (was 18–24 s). A full search follows in the background after 15 s without edits (cancelled by the next edit);
+      new maps, lake settings, and Add Lake Sources (needs every lake exact) search in full; small maps always do.
+      - What a window needs from outside comes from the last search: `LakeMap.Flow` (new, u32 per vertex: catchment as
+        log2 × 2048, gully bit, flood-parent direction, cm the flood raised the cell) and `LakeMap.Level`. Sediment
+        needn't be kept: a cell passes on its capacity (area × slope).
+      - Flood seeds are the border cells water leaves by: the map edge, the sea, a lower cell just outside, or a lake
+        whose flood parent is outside. A lake seed is taken just after its level, so a lake whose spill is inside drains
+        there. The rest of the border is a wall (with every border cell a drain, a dam's lake emptied out upstream).
+      - Inflow: each cell just outside passes its stored area into the window as the full search splits it (slope²
+        shares, one steepest cell for gullies, the flood parent on flats: lakes and filled pits). Found by testing:
+        without the parent, a river crossing a filled pit into the window was lost; with a cm-rounded fill instead of
+        the "raised" test, a flat pit looked sloped.
+      - `--demo-scale` checks it against a full search on the kept part: the demo stroke, the biggest river near the
+        centre with no edit, and a 3 m bump across it (4.6 km² catchment): mask bytes within ±2 on 100 % of cells,
+        lake levels 100 %. With 96 instead of 160 the river case left one gully at a third of its catchment (flats near
+        the window border route a little differently).
+      - Memory: `LakeMap.Ground` is dropped once uploaded (−268 MB); `Flow` adds 268 MB. `PushGround` compares a hash per
+        region instead of the previous masks.
+      - `--demo-lake-window`: after the first search, a 60 m patch raised 3 m; a window search follows (23–36 ms), then
+        the background full one (~24 s of work, 36 s after the edit). `--demo-erosion`, `--demo-water` all ok.
+    - **Step 4, faster copy to Terrain3D** (`Terrain3DBridge.AddRegions`). 28.7 km: **1.9–2.2 s → 0.55–0.7 s** (create
+      0.14, fill 0.05, upload 0.34–0.45; `SetMap` prints the split). Regions start with Terrain3D's blank maps
+      (`sanitize_maps`) and their own Images are filled in place, in parallel (`Image.SetData`, one reused buffer per
+      thread; ground masks `Fill`ed with zero). `set_height_map` was the cost (~2.7 ms per 512² region, it rescans every
+      pixel), then `calc_height_range` per region (now `set_height_range` from the copy's own min/max). What's left is
+      Terrain3D's GPU upload (`update_maps`), which has to be on the main thread, so building the images in the menu's
+      worker (the plan) would save only ~50 ms: not done. Generate stays 2.8–3.1 s. Screenshots: `--demo-paint`, 28.7 km
+      Mountains at 1.5 km, both as before.
+    - **Step 5, memory.** 28.7 km Mountains, scene (generate + copy + first lake search):
+      | | before | after |
+      |---|---|---|
+      | peak footprint (`/usr/bin/time -l`) | 5.2–6.0 GB | 5.5 GB |
+      | steady footprint (`footprint`, after the search) | 3.8 GB | 3.4 GB |
+      | managed live after the search | ~1.06 GB + garbage | 0.81 GB (height map, lake level, flow) |
+      - Lake search scratch (`native/erosion/`): wear is set as each cell is reached (no slope array), the river level
+        reuses the area buffer, the flood parents are freed after the flow stage: −0.8 GB of full-map arrays. Output
+        identical (masks + flow hash printed by `--demo-scale`, same before/after).
+      - A blocking GC (6–22 ms) right after a full search lands on big maps: the replaced search and the uploaded masks
+        (~0.8 GB) otherwise stayed in the footprint until the GC got round to them. Deferred one call, so nothing holds them.
+      - Whole-region ground mask uploads reuse one buffer and one patch Image (was a new 1 MB buffer + Image per region).
+        Still a blit, not `SetData`: Terrain3D's colour Images have mipmaps, and replacing the data drops them
+        ("Required size for texture update (349524) does not match … (262144)").
+      - **Not met: < 2.5 GB.** Steady state is 3.4 GB and ~2 GB of it is Terrain3D: a CPU copy of every map (height,
+        control, colour: 3 × 256 MB) plus the GPU copies (IOAccelerator 1.24 GB with render targets). A full lake search
+        still adds up to ~1.8 GB for ~20 s (flood, flow and masks over 67 M vertices). Options (not done, need a
+        decision): ground masks at half resolution in a texture of our own instead of Terrain3D's colour map
+        (−~0.5 GB); full searches on a 2× coarser grid at 28.7 km (−~1.3 GB peak and ~4× faster, masks upsampled);
+        or keep the full search for Add Lake Sources and new maps only (windows cover edits).
+    - **Step 6, FPS.** Nothing to fix in rendering: with vsync off every view measured 6.9 ms (145 FPS, the display's
+      144 Hz cap) at 300 / 700 / 1,800 m, also during a lake search; `Terrain._Process` ~0.01 ms. Some runs, though,
+      ran at 27–29 ms for their whole length (34–36 FPS), each time near the 5–6 GB peak on the 8 GB M1: memory
+      pressure. So the frame rate on this machine depends on step 5's peak; the background full search now only runs
+      after 15 s without edits and stops at the next edit. The HUD's "FPS 36" in scripted screenshot runs is the same
+      thing or macOS throttling a hidden window; it's not seen in `--profile`. Check FPS in a normal session.
   - [x] **3d. Camera zoom-out** (implemented, waiting for the user to test). `MaxDistance` (1,800 m) is still the god view:
     every zoom-dependent limit (pitch, clearance, near plane, smoothing) reaches its far end there, so nothing below it
     changed. Past it the zoom continues to `ZoomOutLimit` = max(MaxDistance, `WholeMapZoom` 1.5 × map side): 43 km on
@@ -945,7 +1035,7 @@ Phases (tick off as they land):
       path, tiles freed after it dries; a pond saved on 7 m loads on 3.5 m with the same volume). FPS at the 28.7 km
       demo stream overview (900 m): 31 (14 m cells: 30); `--demo-falls` 31.
     - `--water-cells=n` caps the water grid (2048 = the old 14 m on 28.7 km) to compare looks.
-    - Not done: sleeping tiles could drop their flow arrays (7 of 11 floats) to halve the memory of big calm seas; the
+    - Not done: ~~sleeping tiles could drop their flow arrays~~ (done in 3c step 1: 240 → 103 MB); the
       ground marks' coarse distance pass still scans the whole 2049² grid once a second.
   - [ ] **3g. Look tuning at 28.7 km**: snow and rock read blotchy (noise sizes tuned for 2 km maps).
   - [x] **3h. A 14.3 km size** (4096 cells, CS2's buildable side) in `MapSize.All` (implemented, waiting for the user to

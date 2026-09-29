@@ -24,16 +24,42 @@ public sealed class LakeMap
     /// water scours the ground) and deposit (where the sediment it carries settles). Encodings: <c>cs_find_water</c> in
     /// <c>native/erosion/erosion.h</c>. Derived from the heights, like the lakes, so they follow every edit.
     /// </summary>
-    public uint[]? Ground { get; }
+    public uint[]? Ground { get; private set; }
 
-    public LakeMap(int width, int depth, float cellSize, float[] level, int count, uint[]? ground = null)
+    /// <summary>
+    /// Per vertex, what a window search (<see cref="Lakes.FindWindow"/>) needs from outside its window: catchment area and
+    /// the gully bit, packed (<c>cs_find_water</c>'s flow_state). Null when the search didn't ask for ground masks.
+    /// </summary>
+    public uint[]? Flow { get; }
+
+    public LakeMap(int width, int depth, float cellSize, float[] level, int count, uint[]? ground = null, uint[]? flow = null)
     {
         Ground = ground;
+        Flow = flow;
         Width = width;
         Depth = depth;
         CellSize = cellSize;
         Level = level;
         Count = count;
+    }
+
+    /// <summary>Lets go of <see cref="Ground"/> once it's been uploaded (268 MB at 28.7 km); window searches don't need it.</summary>
+    public void DropGround() => Ground = null;
+
+    /// <summary>
+    /// Writes a window search's results inside <paramref name="inner"/> (which lies inside <c>w.Window</c>) into
+    /// <see cref="Level"/> and <see cref="Flow"/>. <see cref="Count"/> stays as the last full search found it.
+    /// </summary>
+    public void Apply(LakeWindow w, VertexRect inner)
+    {
+        if (Flow is null) throw new InvalidOperationException("No flow state: this map came from a search without ground masks.");
+        var win = w.Window;
+        for (int z = inner.MinZ; z <= inner.MaxZ; z++)
+        {
+            int src = (z - win.MinZ) * win.Width + (inner.MinX - win.MinX), dst = z * Width + inner.MinX;
+            w.Level.AsSpan(src, inner.Width).CopyTo(Level.AsSpan(dst, inner.Width));
+            w.Flow.AsSpan(src, inner.Width).CopyTo(Flow.AsSpan(dst, inner.Width));
+        }
     }
 
     /// <summary>Lake surface at vertex (x, z), or NaN.</summary>
@@ -57,6 +83,9 @@ public sealed class LakeMap
     }
 }
 
+/// <summary>A window search's results (<see cref="Lakes.FindWindow"/>): window-sized, row-major over <see cref="Window"/>.</summary>
+public sealed record LakeWindow(VertexRect Window, float[] Level, uint[] Ground, uint[] Flow, int Count);
+
 public static class Lakes
 {
     /// <summary>
@@ -68,12 +97,45 @@ public static class Lakes
     {
         var level = new float[map.Width * map.Depth];
         var masks = ground ? new uint[level.Length] : null;
-        int minCells = (int)MathF.Ceiling(s.MinArea / (map.CellSize * map.CellSize));
-        var gp = new Native.GroundParams { CellSize = map.CellSize, RiverMinArea = s.RiverMinArea, GullyMinArea = s.GullyMinArea };
+        var flow = ground ? new uint[level.Length] : null;
+        int minCells = MinCells(map, s);
+        var gp = Ground(map, s);
         int count = ErosionSim.WithProgress(ct, null, (Native.Progress* p) => masks is null
             ? Native.FindLakes(map.Data, map.Width, map.Depth, seaLevel ?? -1e30f, s.MinDepth, minCells, level, p)
-            : Native.FindWater(map.Data, map.Width, map.Depth, seaLevel ?? -1e30f, s.MinDepth, minCells, gp, level, masks, p));
+            : Native.FindWater(map.Data, map.Width, map.Depth, seaLevel ?? -1e30f, s.MinDepth, minCells, gp, level, masks, flow, p));
         if (count < 0) throw new InvalidOperationException($"cs_find_water failed ({count}).");
-        return ct.IsCancellationRequested ? null : new LakeMap(map.Width, map.Depth, map.CellSize, level, count, masks);
+        return ct.IsCancellationRequested ? null : new LakeMap(map.Width, map.Depth, map.CellSize, level, count, masks, flow);
     }
+
+    /// <summary>
+    /// Finds lakes and ground masks again inside <paramref name="window"/> only, after an edit there, using what
+    /// <paramref name="last"/> (a search with ground masks on this map) knows about the rest: lakes crossing the window's
+    /// border keep their level, rivers flowing in keep their catchment. Near the window's border the masks can be off
+    /// (blur and distances see nothing outside), so callers keep only an inner part of it. Changes don't reach anything
+    /// downstream of the window; a full <see cref="Find"/> later puts that right. Returns null if cancelled.
+    /// </summary>
+    public static unsafe LakeWindow? FindWindow(HeightMap map, LakeMap last, VertexRect window, LakeSettings s, float? seaLevel,
+        CancellationToken ct = default)
+    {
+        if (last.Flow is null) throw new ArgumentException("The last search has no flow state (it had no ground masks).", nameof(last));
+        if (last.Width != map.Width || last.Depth != map.Depth) throw new ArgumentException("The last search is for another map size.", nameof(last));
+        int n = window.Width * window.Depth;
+        var level = new float[n];
+        var masks = new uint[n];
+        var flow = new uint[n];
+        var gp = Ground(map, s);
+        int count = ErosionSim.WithProgress(ct, null, (Native.Progress* p) => Native.FindWaterWindow(map.Data, map.Width, map.Depth,
+            window.MinX, window.MinZ, window.MaxX, window.MaxZ, seaLevel ?? -1e30f, s.MinDepth, MinCells(map, s), gp,
+            last.Level, last.Flow, level, masks, flow, p));
+        if (count < 0) throw new InvalidOperationException($"cs_find_water_window failed ({count}).");
+        return ct.IsCancellationRequested ? null : new LakeWindow(window, level, masks, flow, count);
+    }
+
+    private static int MinCells(HeightMap map, LakeSettings s) => (int)MathF.Ceiling(s.MinArea / (map.CellSize * map.CellSize));
+
+    private static Native.GroundParams Ground(HeightMap map, LakeSettings s) =>
+        new() { CellSize = map.CellSize, RiverMinArea = s.RiverMinArea, GullyMinArea = s.GullyMinArea };
+
+    /// <summary>Milliseconds the last <see cref="Find"/> spent in each stage: flood, lakes, flow, masks (profiling).</summary>
+    public static float[] LastStageMs() => Native.LastFindWaterMs();
 }

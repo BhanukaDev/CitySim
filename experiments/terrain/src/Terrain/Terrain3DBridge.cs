@@ -34,6 +34,8 @@ public sealed class Terrain3DBridge
     // Per region (row-major): the Terrain3DRegion and its height/control/colour Images, edited in place.
     private readonly GodotObject[] _regions;
     private readonly Image[] _heightImages, _controlImages, _colorImages;
+    // Per region: hash of the ground masks on the GPU (0 = not known), so PushGround uploads only changed regions.
+    private readonly ulong[] _groundHash;
     private readonly List<int> _edited = new();
     private Camera3D? _camera;
 
@@ -43,6 +45,10 @@ public sealed class Terrain3DBridge
 
     /// <summary>Regions touched by the last push.</summary>
     public int LastPushRegions { get; private set; }
+    /// <summary>Region side in vertices.</summary>
+    public int RegionVertices => _region;
+    /// <summary>Where the initial copy's time went (profiling): images, sanitize, add_region, update_maps.</summary>
+    public string CopyTimings { get; private set; } = "";
 
     private Terrain3DBridge(Node3D node, int region, int renderedX, int renderedZ)
     {
@@ -57,6 +63,7 @@ public sealed class Terrain3DBridge
         _heightImages = new Image[_regions.Length];
         _controlImages = new Image[_regions.Length];
         _colorImages = new Image[_regions.Length];
+        _groundHash = new ulong[_regions.Length];
         _data = node.Get("data").AsGodotObject();
         _material = node.Get("material").AsGodotObject();
     }
@@ -125,59 +132,79 @@ public sealed class Terrain3DBridge
     private void AddRegions(HeightMap map, SplatMap splat)
     {
         int r = _region;
-        var heights = new float[r * r];
-        var control = new uint[r * r];
-        // No ground masks until the first lake search (all zero = no shore, gullies, wear or deposits).
-        var blankColor = new byte[r * r * 4];
-        for (int rz = 0; rz < _regionsZ; rz++)
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        // Regions start with Terrain3D's blank maps (sanitize_maps), and their own Images are then filled in place, in
+        // parallel: set_height_map and friends rescan every pixel (~2.7 ms per 512² region, 0.7 s at 28.7 km).
+        for (int i = 0; i < _regions.Length; i++)
         {
-            for (int rx = 0; rx < _regionsX; rx++)
-            {
-                int x0 = rx * r, z0 = rz * r;
-                int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
-                bool padded = w < r || d < r, painted = padded;
-                for (int z = 0; z < r; z++)
-                {
-                    // Padding repeats the last drawn row/column; it's a hole anyway.
-                    var src = map.Row(z0 + Math.Min(z, d - 1)).Slice(x0, w);
-                    var dst = heights.AsSpan(z * r, r);
-                    src.CopyTo(dst);
-                    dst[w..].Fill(src[w - 1]);
-                }
-                for (int tz = z0 / SplatMap.TileSize; !painted && tz <= (z0 + d - 1) / SplatMap.TileSize; tz++)
-                    for (int tx = x0 / SplatMap.TileSize; tx <= (x0 + w - 1) / SplatMap.TileSize; tx++)
-                        painted |= splat.GetTile(tx, tz) is not null;
-
-                var region = ClassDB.Instantiate("Terrain3DRegion").AsGodotObject();
-                region.Call("set_region_size", r);
-                region.Call("set_vertex_spacing", map.CellSize);
-                region.Call("set_location", _location + new Vector2I(rx, rz));
-                region.Call("set_height_map", FloatImage(r, r, MemoryMarshal.AsBytes(heights.AsSpan())));
-                if (painted)
-                {
-                    for (int z = 0; z < r; z++)
-                        for (int x = 0; x < r; x++)
-                            control[z * r + x] = x < w && z < d ? splat.Get(x0 + x, z0 + z) : HoleBit;
-                    region.Call("set_control_map", FloatImage(r, r, MemoryMarshal.AsBytes(control.AsSpan())));
-                }
-                region.Call("set_color_map", Image.CreateFromData(r, r, false, Image.Format.Rgba8, blankColor));
-                region.Call("sanitize_maps"); // fills in a blank control map
-                region.Call("calc_height_range");
-                _data.Call("add_region", region, false);
-
-                int i = rz * _regionsX + rx;
-                _regions[i] = region;
-                _heightImages[i] = (Image)region.Call("get_height_map").AsGodotObject();
-                _controlImages[i] = (Image)region.Call("get_control_map").AsGodotObject();
-                _colorImages[i] = (Image)region.Call("get_color_map").AsGodotObject();
-            }
+            var region = ClassDB.Instantiate("Terrain3DRegion").AsGodotObject();
+            region.Call("set_region_size", r);
+            region.Call("set_vertex_spacing", map.CellSize);
+            region.Call("set_location", _location + new Vector2I(i % _regionsX, i / _regionsX));
+            region.Call("sanitize_maps");
+            _regions[i] = region;
+            _heightImages[i] = (Image)region.Call("get_height_map").AsGodotObject();
+            _controlImages[i] = (Image)region.Call("get_control_map").AsGodotObject();
+            _colorImages[i] = (Image)region.Call("get_color_map").AsGodotObject();
         }
+        double create = Lap();
+
+        var ranges = new Vector2[_regions.Length];
+        System.Threading.Tasks.Parallel.For(0, _regions.Length, () => new byte[r * r * 4], (i, _, bytes) =>
+        {
+            int x0 = i % _regionsX * r, z0 = i / _regionsX * r;
+            int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
+            var heights = MemoryMarshal.Cast<byte, float>(bytes.AsSpan());
+            float min = float.MaxValue, max = float.MinValue;
+            for (int z = 0; z < r; z++)
+            {
+                // Padding repeats the last drawn row/column; it's a hole anyway.
+                var src = map.Row(z0 + Math.Min(z, d - 1)).Slice(x0, w);
+                var dst = heights.Slice(z * r, r);
+                src.CopyTo(dst);
+                dst[w..].Fill(src[w - 1]);
+                foreach (float h in src) { min = Math.Min(min, h); max = Math.Max(max, h); }
+            }
+            ranges[i] = new Vector2(min, max);
+            _heightImages[i].SetData(r, r, false, Image.Format.Rf, bytes);
+
+            bool painted = w < r || d < r;
+            for (int tz = z0 / SplatMap.TileSize; !painted && tz <= (z0 + d - 1) / SplatMap.TileSize; tz++)
+                for (int tx = x0 / SplatMap.TileSize; tx <= (x0 + w - 1) / SplatMap.TileSize; tx++)
+                    painted |= splat.GetTile(tx, tz) is not null;
+            if (painted)
+            {
+                var control = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
+                for (int z = 0; z < r; z++)
+                    for (int x = 0; x < r; x++)
+                        control[z * r + x] = x < w && z < d ? splat.Get(x0 + x, z0 + z) : HoleBit;
+                _controlImages[i].SetData(r, r, false, Image.Format.Rf, bytes);
+            }
+            // No ground masks until the first lake search: all zero = no shore, gullies, wear or deposits (the blank
+            // colour map is white, which would read as "all shore").
+            _colorImages[i].Fill(new Color(0, 0, 0, 0));
+            return bytes;
+        }, _ => { });
+        double fill = Lap();
+
+        for (int i = 0; i < _regions.Length; i++)
+        {
+            _regions[i].Call("set_height_range", ranges[i]);
+            _data.Call("add_region", _regions[i], false);
+        }
+        double add = Lap();
         _data.Call("update_maps", 3, true, false); // TYPE_MAX: every map of every region
         _data.Call("calc_height_range", false);
-    }
+        double upload = Lap();
+        CopyTimings = $"create {create:0}, fill {fill:0} (parallel), add_region {add:0}, update_maps {upload:0} ms";
 
-    private static Image FloatImage(int w, int d, ReadOnlySpan<byte> bytes) =>
-        Image.CreateFromData(w, d, false, Image.Format.Rf, bytes.ToArray());
+        double Lap()
+        {
+            double ms = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            return ms;
+        }
+    }
 
     /// <summary>Copies heights inside <paramref name="rect"/> to the render copy.</summary>
     public void PushHeights(HeightMap map, VertexRect rect)
@@ -210,38 +237,78 @@ public sealed class Terrain3DBridge
     }
 
     /// <summary>
-    /// Copies ground masks (one packed RGBA8 value per heightmap vertex, see <see cref="Erosion.LakeMap.Ground"/>) to the
-    /// render copy. With <paramref name="previous"/> (the masks now on the GPU), only regions that differ are uploaded.
+    /// Copies ground masks (one packed RGBA8 value per heightmap vertex, see <see cref="Erosion.LakeMap.Ground"/>) for the
+    /// whole map to the render copy. Only regions whose masks changed are uploaded: each region's hash is kept, so the
+    /// previous masks needn't be (268 MB at 28.7 km).
     /// </summary>
-    public void PushGround(uint[] ground, uint[]? previous, int mapWidth)
+    public void PushGround(uint[] ground, int mapWidth)
     {
         int r = _region;
-        LastPushRegions = 0;
-        for (int rz = 0; rz < _regionsZ; rz++)
-            for (int rx = 0; rx < _regionsX; rx++)
-            {
-                int x0 = rx * r, z0 = rz * r;
-                int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
-                if (previous is not null && !Differs(x0, z0, w, d)) continue;
-                PushRegion(rx, rz, x0, z0, w, d, TypeColor, bytes =>
-                {
-                    var dst = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
-                    for (int z = 0; z < d; z++)
-                        ground.AsSpan((z0 + z) * mapWidth + x0, w).CopyTo(dst.Slice(z * w, w));
-                    return null;
-                });
-            }
-        FinishPush(TypeColor);
-
-        bool Differs(int x0, int z0, int w, int d)
+        var hashes = new ulong[_regions.Length];
+        System.Threading.Tasks.Parallel.For(0, _regions.Length, i =>
         {
+            int x0 = i % _regionsX * r, z0 = i / _regionsX * r;
+            int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
+            ulong h = 14695981039346656037ul;
             for (int z = 0; z < d; z++)
+                foreach (ulong v in MemoryMarshal.Cast<uint, ulong>(ground.AsSpan((z0 + z) * mapWidth + x0, w & ~1)))
+                    h = (h ^ v) * 1099511628211ul;
+            hashes[i] = h | 1; // never 0 (0 = not known)
+        });
+        LastPushRegions = 0;
+        // One buffer and one patch Image for every whole region, blitted in: the region's colour Image has mipmaps
+        // (Terrain3D's layout), so replacing its data (SetData) would drop them and the texture update is refused.
+        byte[]? whole = null;
+        Image? patch = null;
+        for (int i = 0; i < _regions.Length; i++)
+        {
+            if (hashes[i] == _groundHash[i]) continue;
+            _groundHash[i] = hashes[i];
+            int rx = i % _regionsX, rz = i / _regionsX, x0 = rx * r, z0 = rz * r;
+            int w = Math.Min(r, RenderedX - x0), d = Math.Min(r, RenderedZ - z0);
+            if (w == r && d == r)
             {
-                int o = (z0 + z) * mapWidth + x0;
-                if (!ground.AsSpan(o, w).SequenceEqual(previous.AsSpan(o, w))) return true;
+                whole ??= new byte[r * r * 4];
+                var dst = MemoryMarshal.Cast<byte, uint>(whole.AsSpan());
+                for (int z = 0; z < r; z++)
+                    ground.AsSpan((z0 + z) * mapWidth + x0, r).CopyTo(dst.Slice(z * r, r));
+                if (patch is null) patch = Image.CreateFromData(r, r, false, Image.Format.Rgba8, whole);
+                else patch.SetData(r, r, false, Image.Format.Rgba8, whole);
+                _colorImages[i].BlitRect(patch, new Rect2I(0, 0, r, r), Vector2I.Zero);
+                _regions[i].Call("set_edited", true);
+                _edited.Add(i);
+                continue;
             }
-            return false;
+            PushRegion(rx, rz, x0, z0, w, d, TypeColor, bytes =>
+            {
+                var dst = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
+                for (int z = 0; z < d; z++)
+                    ground.AsSpan((z0 + z) * mapWidth + x0, w).CopyTo(dst.Slice(z * w, w));
+                return null;
+            });
         }
+        patch?.Dispose();
+        FinishPush(TypeColor);
+    }
+
+    /// <summary>
+    /// Copies the <paramref name="keep"/> part of a window search's ground masks (<paramref name="ground"/>, row-major
+    /// over <paramref name="window"/>) to the render copy.
+    /// </summary>
+    public void PushGroundWindow(uint[] ground, VertexRect window, VertexRect keep)
+    {
+        Push(keep, TypeColor, (x0, z0, w, d, bytes) =>
+        {
+            var dst = MemoryMarshal.Cast<byte, uint>(bytes.AsSpan());
+            for (int z = 0; z < d; z++)
+                ground.AsSpan((z0 + z - window.MinZ) * window.Width + (x0 - window.MinX), w).CopyTo(dst.Slice(z * w, w));
+            return null;
+        });
+        // Those regions no longer match their hash: the next full push compares them afresh.
+        int r = _region;
+        for (int rz = Math.Max(keep.MinZ, 0) / r; rz <= Math.Min(keep.MaxZ, RenderedZ - 1) / r; rz++)
+            for (int rx = Math.Max(keep.MinX, 0) / r; rx <= Math.Min(keep.MaxX, RenderedX - 1) / r; rx++)
+                _groundHash[rz * _regionsX + rx] = 0;
     }
 
     /// <summary>Writes the part of a vertex rect in each region: fill builds its bytes and may return a height range.</summary>
