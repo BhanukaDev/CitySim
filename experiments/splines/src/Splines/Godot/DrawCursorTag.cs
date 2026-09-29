@@ -26,13 +26,24 @@ public sealed class DrawCursorTag
         layer.AddChild(_label);
     }
 
-    public void Update(Vector2 screenPos, float length, float headingDeg, float turnDeg, float radius)
+    public void Update(Vector2 screenPos, float length, float headingDeg, float turnDeg, float radius, string? snapTag = null)
     {
         _label.Visible = true;
         string text = $"{length:0.#} m · {headingDeg:0}°";
         if (!float.IsNaN(turnDeg)) text += $" · turn {turnDeg:+0;-0}°";
         text += radius > 0 ? $" · R {radius:0} m" : " · hard";
+        if (!string.IsNullOrEmpty(snapTag)) text += $"\n{snapTag}";
         _label.Text = _hintUntil > 0 ? text + "\nhard corners not allowed" : text;
+        _label.Position = screenPos + new Vector2(16, 16);
+    }
+
+    /// <summary>Before the first PI is placed there's no leg to read a length/heading/radius off, but a node,
+    /// edge or guide can still catch — DESIGN.md's snap tag is shown either way, so the player knows where their
+    /// first click will land.</summary>
+    public void ShowSnapOnly(Vector2 screenPos, string tag)
+    {
+        _label.Visible = true;
+        _label.Text = tag;
         _label.Position = screenPos + new Vector2(16, 16);
     }
 

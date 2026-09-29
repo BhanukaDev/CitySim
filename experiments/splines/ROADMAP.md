@@ -44,6 +44,7 @@ G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 dotnet build && $G --headless --path . --import
 $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-checks, prints "Demo geometry: all ok"
 $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
+$G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 ```
 
@@ -107,20 +108,40 @@ scripted `--screenshot` scene. See the milestones.
 - Not yet done: the addon hasn't moved to `packages/citysim_splines/` — do that once this has been tried in
   Godot and looks right (see tech decisions).
 
-### ⬜ S3: Snapping and guides
-- Providers in `DESIGN.md` order, exact values, screen-pixel catch distance, snap tag, Space to disable, a toggle row
-  in the options bar.
-- Guides (`DESIGN.md` → Snapping and guides), **shown only when aligned**, at most two at once:
-  - extension (straight and arc ends)
-  - node alignment (Figma-style: other nodes' edge directions and square to them, plus the current leg's
-    reference directions)
-  - parallel to nearby edges at lot steps edge-to-edge, following arcs
-  - perpendicular to nearby edges
-  - equal-length ticks
-  - guide crossings as the strongest guide snap
-- Length ticks along the preview.
-- `--demo-snap`: each provider and guide catches when expected and loses to a higher one; a guide crossing beats a
-  single guide; a parallel guide along an arc stays concentric; Space disables all of them.
+### ✅ S3: Snapping and guides
+- `Core/Snapping/SnapEngine.cs` (`CitySim.Splines`, pure and stateless): resolves DESIGN.md's 7-level priority —
+  node, edge, guide crossing, single guide (extension/node-align/parallel/perpendicular), soft 90°/45° angle
+  (relative to the **previous leg**, decided over "fixed to the first edge"), Ctrl absolute 15°/5° steps
+  (overrides the guides and the soft angle), then length step / equal length. Space (`SnapQuery.Disabled`) skips
+  every level. Reuses S1's `Curve.ClosestPoint`/`Offset`/`SplineMath` directly — no new math duplicated, and the
+  parallel guide's "stays concentric on an arc" requirement falls out of `Curve.Offset` for free.
+- No graph yet (S4): a "node" is one of `Alignment`'s two ends and an "edge" is its `Curve`; the caller
+  (`SplineDrawTool._built`) passes every alignment it knows about as a `SnapCandidate`.
+- `SplineDrawTool` snaps the cursor itself before calling `DrawSession.Place`/`BuildPreview` — `DrawSession` stays
+  unchanged and snap-agnostic. `ForcedPlanCursor` (the `--demo-draw` test hook) bypasses `SnapEngine` entirely, so
+  its golden coordinates stay exact.
+- `GuideRenderer` (Godot): dashed guide lines and length ticks, draped like `RibbonRenderer` but as thin
+  `PrimitiveType.Lines` meshes, not filled ribbons. `DrawCursorTag.Update` gained an optional snap-tag line.
+- `SplineOptionsBar` gained a `SnapProviders` toggle row (independent toggles, no `ButtonGroup`) ANDed with the
+  active profile's own `SnapProviders` — the profile is a ceiling the bar can only narrow.
+- `--demo-snap`: pure Core (no scene/camera — catch distance is a literal plan-unit constant, matching
+  `GeometryDemo`'s style), covers every provider/guide catching and losing to a higher one, guide crossing beating
+  a single guide, a parallel guide along an arc staying concentric, Ctrl overriding the soft angle, the provider
+  mask, and Space.
+- Findings / decisions:
+  - The `Perpendicular` guide can't be re-derived from the live cursor each frame (its foot would then always be
+    exactly at the cursor, distance zero, and it would crowd out every other guide). It's anchored at the current
+    leg's start PI instead — a "perpendicular from here" osnap — and needs a leg in progress to mean anything.
+  - `SnapQuery.StartHeading` (first-leg soft-angle reference, if the start PI itself snapped onto an existing
+    node/edge) exists in Core and is exercised by `--demo-snap`, but `SplineDrawTool` doesn't populate it yet —
+    the first leg of a session simply has no soft-angle reference until that's wired up.
+  - Parallel guide polylines are sampled at a fixed 2 m spacing (not derived from the whole offset curve's
+    length) — `Curve.SampleEvery` divides each segment independently, so a short, sharply-curved arc segment
+    needs its own fine spacing or it stays badly under-sampled even when the straight parts are fine.
+  - Not yet done: guide colour/dash lengths are untuned placeholders: visual polish (provider buttons greying out
+    when the active profile doesn't offer them, tag wording, dash spacing) is deferred, not required for the
+    milestone. Manual play-testing in the Godot editor (does snapping feel sticky, not fighty?) is still needed
+    before this is called done-done.
 
 ### ⬜ S4: Graph and junctions
 - Split on end/cross, merge on delete, `ConnectsTo`.
@@ -219,3 +240,6 @@ version:
   spline needs the graph-command stack from S4 and isn't implemented yet. `IGround` stays at two members
   (`Raycast`, `GetHeight`) until S8 needs `HeightsChanged`. "Built" splines in S2 are a plain rendering list, not
   graph data — replaced wholesale once S4 lands.
+- 2026-09-30: S3's soft 90°/45° angle re-anchors to the **previous leg** at each corner, not a fixed heading from
+  the session's first edge — matches how the cursor tag's "turn" readout already works. `SnapEngine` treats an
+  alignment's two ends as its "nodes" pre-S4; there's no separate junction concept yet.

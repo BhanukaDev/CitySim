@@ -5,30 +5,40 @@ using Godot;
 namespace CitySim.Splines.Godot;
 
 /// <summary>
-/// The Draw tool's options bar along the top of the screen: a profile picker and the mode strip (Draw · Curve ·
-/// Freehand · Grid). Plain Godot controls; snap toggles, radius and elevation step join it in later milestones.
+/// The Draw tool's options bar along the top of the screen: a profile picker, the mode strip (Draw · Curve ·
+/// Freehand · Grid), and the snap-provider toggle row (DESIGN.md → Snapping and guides: "each snap and guide type
+/// toggles in the options bar"). Radius and elevation step join it in later milestones.
 /// </summary>
 public partial class SplineOptionsBar : PanelContainer
 {
     private readonly OptionButton _profilePicker = new() { TooltipText = "Profile" };
     private readonly Dictionary<DrawMode, Button> _modeButtons = new();
+    private readonly Dictionary<SnapProviders, Button> _snapButtons = new();
     private IReadOnlyList<SplineProfile> _profiles = Array.Empty<SplineProfile>();
 
     public event Action<SplineProfile>? ProfileChanged;
     public event Action<DrawMode>? ModeChanged;
+    public event Action<SnapProviders>? SnapProvidersChanged;
 
     public SplineProfile? Profile => _profilePicker.Selected >= 0 && _profilePicker.Selected < _profiles.Count
         ? _profiles[_profilePicker.Selected] : null;
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
+
+    /// <summary>The bar's own toggle bitmask, ANDed with the active profile's <c>SnapProviders</c> — the profile
+    /// is a ceiling this can only narrow, never widen.</summary>
+    public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
 
     public SplineOptionsBar()
     {
         Name = "SplineOptionsBar";
         SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide);
 
+        var container = new VBoxContainer();
+        AddChild(container);
+
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 8);
-        AddChild(row);
+        container.AddChild(row);
 
         row.AddChild(new Label { Text = "Profile" });
         _profilePicker.CustomMinimumSize = new Vector2(140, 0);
@@ -48,6 +58,32 @@ public partial class SplineOptionsBar : PanelContainer
             row.AddChild(b);
             _modeButtons[mode] = b;
         }
+
+        var snapRow = new HBoxContainer();
+        snapRow.AddThemeConstantOverride("separation", 4);
+        container.AddChild(snapRow);
+        snapRow.AddChild(new Label { Text = "Snap" });
+        foreach (SnapProviders flag in Enum.GetValues<SnapProviders>())
+        {
+            // Crossing isn't its own toggle (DESIGN.md → Snapping and guides): a crossing is the strongest pick
+            // whenever two of the *other* enabled guides happen to line up, not an independently switchable snap
+            // or guide type — the storyboard shows five guide types (extension, node align, parallel,
+            // perpendicular, equal length), not six.
+            if (flag is SnapProviders.None or SnapProviders.All or SnapProviders.Crossing) continue;
+            var b = new Button
+            {
+                Text = flag.ToString(), ToggleMode = true, ButtonPressed = true, FocusMode = FocusModeEnum.None,
+            };
+            b.Pressed += () => ToggleSnap(flag, b.ButtonPressed);
+            snapRow.AddChild(b);
+            _snapButtons[flag] = b;
+        }
+    }
+
+    private void ToggleSnap(SnapProviders flag, bool pressed)
+    {
+        EnabledSnaps = pressed ? EnabledSnaps | flag : EnabledSnaps & ~flag;
+        SnapProvidersChanged?.Invoke(EnabledSnaps);
     }
 
     public void SetProfiles(IReadOnlyList<SplineProfile> profiles)

@@ -15,6 +15,7 @@ public partial class SplinesTestbed : Node
     public IReadOnlyList<SplineProfile> Profiles { get; private set; } = new List<SplineProfile>();
     public SplineProfile? Profile { get; private set; }
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
+    public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
 
     private SplineOptionsBar? _bar;
 
@@ -30,6 +31,8 @@ public partial class SplinesTestbed : Node
         Profile = _bar.Profile;
         _bar.ProfileChanged += p => { Profile = p; GD.Print($"Splines: profile {p.Id}"); };
         _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
+        _bar.SnapProvidersChanged += p => EnabledSnaps = p;
+        EnabledSnaps = _bar.EnabledSnaps;
     }
 
     /// <summary>Selects a profile in the options bar (and fires the same event a click would) — used by
