@@ -1,0 +1,25 @@
+[gd_resource type="ShaderMaterial" load_steps=4 format=3]
+
+[ext_resource type="Shader" path="res://shaders/waterfall_rings.gdshader" id="1_rings"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_rings"]
+noise_type = 1
+frequency = 0.04
+fractal_octaves = 2
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_rings"]
+width = 256
+height = 256
+seamless = true
+noise = SubResource("FastNoiseLite_rings")
+
+[resource]
+render_priority = 2
+shader = ExtResource("1_rings")
+shader_parameter/ring_noise = SubResource("NoiseTexture2D_rings")
+shader_parameter/ring_color = Color(0.72, 0.84, 0.82, 1)
+shader_parameter/ring_alpha = 0.75
+shader_parameter/ring_count = 4.0
+shader_parameter/ring_width = 0.18
+shader_parameter/glow_color = Color(0.25, 0.42, 0.42, 1)
+shader_parameter/glow_alpha = 0.35

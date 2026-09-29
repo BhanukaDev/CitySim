@@ -7,11 +7,7 @@
 render_priority = 3
 shader = ExtResource("1_mist")
 shader_parameter/puff_atlas = ExtResource("2_puffs")
-shader_parameter/mist_color = Color(0.84, 0.9, 0.9, 1)
-shader_parameter/mist_alpha = 0.8
-shader_parameter/puff_contrast = Vector2(0.35, 0.5)
-shader_parameter/stretch = 1.4
-shader_parameter/life = 5.0
-shader_parameter/rise = 0.3
-shader_parameter/drift = 0.7
-shader_parameter/soft_distance = 1.0
+shader_parameter/mist_color = Color(0.82, 0.86, 0.88, 1)
+shader_parameter/mist_alpha = 0.55
+shader_parameter/life = 8.0
+shader_parameter/rise = 0.4

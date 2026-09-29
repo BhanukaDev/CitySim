@@ -6,25 +6,26 @@ using CitySim.WaterSystem;
 
 namespace CitySim.TerrainSystem;
 
-/// <summary>Waterfall curtains and mist (graphics setting; <see cref="Terrain.WaterfallFx"/>).</summary>
+/// <summary>Waterfall curtains, mist and splash rings (graphics setting; <see cref="Terrain.WaterfallFx"/>).</summary>
 public enum WaterfallQuality { Off, Low, High }
 
 /// <summary>
 /// Look-only waterfall effects on top of the simulated water: a curtain arcing off each fall's lip and mist puffs where
-/// it lands. Nothing here feeds back into the sim.
+/// it lands, with ripple rings on the pool around it. Nothing here feeds back into the sim.
 /// Kept cheap because it's only a visual:
 /// - Only falls near the camera are looked for (<see cref="CurtainDistance"/>), in a window of the sim's snapshot copied
 ///   under one lock, on a background task, a few times a second (sooner when the camera moves or turns a lot); none at
 ///   all while the camera is higher above the ground than that.
 /// - Falls outside the camera's view (plus a margin) are skipped, and far curtains get fewer rows and mist fewer puffs.
 /// - Both fade out with distance in the shader before the search radius, so nothing pops at the edge.
-/// - One mesh for every curtain and one MultiMesh for every puff (2 draw calls); the mist is animated on the GPU from a
-///   seed per puff, so a refresh doesn't restart it. No shadows, no lighting, capped counts.
+/// - One mesh for every curtain, one MultiMesh for every puff and one for every ring set (3 draw calls); mist and rings
+///   are animated on the GPU from a seed each, so a refresh doesn't restart them. No shadows, no lighting, capped counts.
 /// </summary>
 public partial class WaterFalls : Node3D
 {
     public const int MaxSegments = 1500;
     public const int MaxPuffs = 600;
+    public const int MaxRings = 200;
     private const float Gravity = 9.81f;
     /// <summary>Ground drop per cell (as a slope) where a lip starts: tan 30°.</summary>
     private const float LipSlope = 0.577f;
@@ -37,6 +38,8 @@ public partial class WaterFalls : Node3D
     /// neighbouring bins overlap into one bank along the foot.
     /// </summary>
     private const float MistBin = 6f;
+    /// <summary>Ring sets are gathered in bins this size (m): one set per stretch of a fall's foot, not one per cell.</summary>
+    private const float RingBin = 24f;
 
     private Terrain? _terrain;
     private WaterSim? _sim;
@@ -44,7 +47,9 @@ public partial class WaterFalls : Node3D
     private ArrayMesh _curtainMesh = null!;
     private MultiMeshInstance3D _mistNode = null!;
     private MultiMesh _mist = null!;
-    private ShaderMaterial? _curtainMaterial, _mistMaterial;
+    private MultiMeshInstance3D _ringNode = null!;
+    private MultiMesh _rings = null!;
+    private ShaderMaterial? _curtainMaterial, _mistMaterial, _ringMaterial;
     private Task<Result>? _job;
     private float[] _window = [];
     private double _timer;
@@ -75,7 +80,7 @@ public partial class WaterFalls : Node3D
     public int Puffs { get; private set; }
     public double ScanMs { get; private set; }
 
-    public void Init(Terrain terrain, WaterSim sim, Material? curtain, Material? mist)
+    public void Init(Terrain terrain, WaterSim sim, Material? curtain, Material? mist, Material? rings)
     {
         _terrain = terrain;
         _sim = sim;
@@ -104,6 +109,23 @@ public partial class WaterFalls : Node3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_mistNode);
+        _ringMaterial = rings as ShaderMaterial;
+        _rings = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
+            UseCustomData = true,
+            Mesh = new PlaneMesh { Size = Vector2.One },
+            InstanceCount = MaxRings,
+            VisibleInstanceCount = 0,
+        };
+        _ringNode = new MultiMeshInstance3D
+        {
+            Multimesh = _rings,
+            MaterialOverride = rings,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_ringNode);
         ApplyQuality();
         VisibilityChanged += () => { _timer = 0; _lastPublish = -1; };
     }
@@ -113,12 +135,14 @@ public partial class WaterFalls : Node3D
         // The shaders fade out before the search radius, so falls leave the search already invisible.
         _curtainMaterial?.SetShaderParameter("fade_distance", new Vector2(CurtainDistance * 0.6f, CurtainDistance * 0.95f));
         _mistMaterial?.SetShaderParameter("fade_distance", new Vector2(MistDistance * 0.55f, MistDistance * 0.95f));
+        _ringMaterial?.SetShaderParameter("fade_distance", new Vector2(MistDistance * 0.55f, MistDistance * 0.95f));
     }
 
     private void Clear()
     {
         _curtainMesh?.ClearSurfaces();
         if (_mist is not null) _mist.VisibleInstanceCount = 0;
+        if (_rings is not null) _rings.VisibleInstanceCount = 0;
         Segments = Puffs = 0;
     }
 
@@ -169,6 +193,8 @@ public partial class WaterFalls : Node3D
         public readonly List<Vector2> Uv2s = new();
         public readonly List<int> Indices = new();
         public readonly List<(Transform3D At, Color Custom)> Puffs = new();
+        /// <summary>Ring sets: transform (scaled to the set's diameter), seed, strength.</summary>
+        public readonly List<(Transform3D At, float Seed, float Strength)> Rings = new();
         public int Segments;
         public double Ms;
     }
@@ -180,6 +206,12 @@ public partial class WaterFalls : Node3D
         public float SumW;
         public Vector2 Dir;
         public float Fwd;
+    }
+
+    private sealed class RingBinData
+    {
+        public float Weight, Height, BaseY = float.MinValue;
+        public Vector2 Sum, Dir, Min = new(float.MaxValue, float.MaxValue), Max = new(float.MinValue, float.MinValue);
     }
 
     /// <summary>The search, on a task: lips in the window around the camera, curtain vertices, mist puffs.</summary>
@@ -214,6 +246,7 @@ public partial class WaterFalls : Node3D
         float threshold = LipSlope * cs;
         var profile = new List<float>();
         var bins = new Dictionary<(int, int), MistBinData>();
+        var ringBins = new Dictionary<(int, int), RingBinData>();
         for (int j = 0; j < d && r.Segments < MaxSegments; j++)
             for (int i = 0; i < w && r.Segments < MaxSegments; i++)
             {
@@ -264,6 +297,17 @@ public partial class WaterFalls : Node3D
                 bin.BaseY = MathF.Max(bin.BaseY, baseY);
                 bin.Dir += dir;
                 bin.Fwd = MathF.Max(bin.Fwd, run);
+
+                var land = new Vector2(landing.X, landing.Z);
+                var rkey = ((int)MathF.Floor(landing.X / RingBin), (int)MathF.Floor(landing.Z / RingBin));
+                if (!ringBins.TryGetValue(rkey, out var rb)) ringBins[rkey] = rb = new RingBinData();
+                rb.Weight += wgt;
+                rb.Sum += land * wgt;
+                rb.Height = MathF.Max(rb.Height, height);
+                rb.BaseY = MathF.Max(rb.BaseY, baseY);
+                rb.Dir += dir;
+                rb.Min = rb.Min.Min(land);
+                rb.Max = rb.Max.Max(land);
             }
 
         foreach (var ((bx, bz), bin) in bins)
@@ -294,6 +338,19 @@ public partial class WaterFalls : Node3D
                 var pos = new Vector3(at.X - dir.X * bin.Fwd * 0.3f, bin.BaseY + bin.Height * 0.3f, at.Y - dir.Y * bin.Fwd * 0.3f);
                 r.Puffs.Add((new Transform3D(basis, pos), new Color(Hash(bx, bz, 99), size * 0.8f, strength * 0.6f, bin.Height * 0.3f)));
             }
+        }
+        foreach (var ((bx, bz), rb) in ringBins)
+        {
+            if (rb.Weight <= 0f || r.Rings.Count >= MaxRings) continue;
+            var at = rb.Sum / rb.Weight;
+            var dir = rb.Dir.LengthSquared() > 0f ? rb.Dir.Normalized() : Vector2.Up;
+            // Big enough to ring the stretch of foot this bin holds, and bigger under taller falls.
+            float diameter = Math.Clamp(MathF.Max(10f + rb.Height * 0.8f, (rb.Max - rb.Min).Length() * 1.3f), 10f, 60f);
+            // Centred a little downstream of the landing, where the splash spreads.
+            at += dir * diameter * 0.12f;
+            var basis = new Basis(Vector3.Up, MathF.Atan2(dir.X, dir.Y)).Scaled(new Vector3(diameter, 1f, diameter));
+            float strength = Math.Clamp(0.4f + rb.Weight * 0.3f, 0.4f, 1f);
+            r.Rings.Add((new Transform3D(basis, new Vector3(at.X, rb.BaseY + 0.05f, at.Y)), Hash(bx, bz, 7), strength));
         }
         r.Ms = clock.Elapsed.TotalMilliseconds;
         return r;
@@ -379,6 +436,21 @@ public partial class WaterFalls : Node3D
         }
         _mist.VisibleInstanceCount = n;
         _mistNode.CustomAabb = box;
+
+        int rn = Math.Min(r.Rings.Count, MaxRings);
+        var ringBox = new Aabb();
+        for (int k = 0; k < rn; k++)
+        {
+            var (at, seed, strength) = r.Rings[k];
+            _rings.SetInstanceTransform(k, at);
+            _rings.SetInstanceCustomData(k, new Color(seed, 0f, 0f, 0f));
+            _rings.SetInstanceColor(k, new Color(1f, 1f, 1f, strength));
+            float half = at.Basis.X.Length() * 0.5f;
+            var set = new Aabb(at.Origin - new Vector3(half, 1f, half), new Vector3(half * 2f, 2f, half * 2f));
+            ringBox = k == 0 ? set : ringBox.Merge(set);
+        }
+        _rings.VisibleInstanceCount = rn;
+        _ringNode.CustomAabb = ringBox;
         Segments = r.Segments;
         Puffs = n;
         ScanMs = r.Ms;

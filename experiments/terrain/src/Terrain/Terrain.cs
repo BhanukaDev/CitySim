@@ -57,9 +57,10 @@ public partial class Terrain : Node3D
     [Export] public Material? HorizonMaterial { get; set; }
     /// <summary>Water surfaces (<c>water.gdshader</c>); each drawn page gets a copy with its own data texture.</summary>
     [Export] public Material? WaterMaterial { get; set; }
-    /// <summary>Waterfall curtains and mist (<c>waterfall_curtain.gdshader</c>, <c>waterfall_mist.gdshader</c>).</summary>
+    /// <summary>Waterfall curtains, mist and splash rings (<c>waterfall_curtain/mist/rings.gdshader</c>).</summary>
     [Export] public Material? WaterfallCurtainMaterial { get; set; }
     [Export] public Material? WaterfallMistMaterial { get; set; }
+    [Export] public Material? WaterfallRingsMaterial { get; set; }
 
     /// <summary>The current map's theme: its shader, materials and erosion slots.</summary>
     public TerrainTheme? Theme { get; private set; }
@@ -703,7 +704,8 @@ public partial class Terrain : Node3D
         _falls = new WaterFalls { Name = "WaterFalls", Visible = _showWater };
         AddChild(_falls);
         _falls.Init(this, Water, WaterfallCurtainMaterial ?? GD.Load<Material>("res://materials/waterfall_curtain.tres"),
-            WaterfallMistMaterial ?? GD.Load<Material>("res://materials/waterfall_mist.tres"));
+            WaterfallMistMaterial ?? GD.Load<Material>("res://materials/waterfall_mist.tres"),
+            WaterfallRingsMaterial ?? GD.Load<Material>("res://materials/waterfall_rings.tres"));
         _falls.Quality = _waterfallFx;
         WaterChanged?.Invoke();
     }

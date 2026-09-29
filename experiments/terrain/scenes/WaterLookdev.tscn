@@ -1,0 +1,129 @@
+[gd_scene load_steps=29 format=3]
+
+[ext_resource type="Script" path="res://src/Lookdev/WaterLookdevStation.cs" id="1_station"]
+[ext_resource type="Script" path="res://src/Lookdev/LookdevCamera.cs" id="2_camera"]
+[ext_resource type="Material" path="res://materials/templates/water_a_current.tres" id="water_a_current"]
+[ext_resource type="Material" path="res://materials/templates/curtain_a_current.tres" id="curtain_a_current"]
+[ext_resource type="Material" path="res://materials/templates/mist_a_current.tres" id="mist_a_current"]
+[ext_resource type="Material" path="res://materials/templates/water_b_glacial.tres" id="water_b_glacial"]
+[ext_resource type="Material" path="res://materials/templates/curtain_b_glacial.tres" id="curtain_b_glacial"]
+[ext_resource type="Material" path="res://materials/templates/mist_b_glacial.tres" id="mist_b_glacial"]
+[ext_resource type="Material" path="res://materials/templates/water_c_tropical.tres" id="water_c_tropical"]
+[ext_resource type="Material" path="res://materials/templates/curtain_c_tropical.tres" id="curtain_c_tropical"]
+[ext_resource type="Material" path="res://materials/templates/mist_c_tropical.tres" id="mist_c_tropical"]
+[ext_resource type="Material" path="res://materials/templates/water_d_nordic.tres" id="water_d_nordic"]
+[ext_resource type="Material" path="res://materials/templates/curtain_d_nordic.tres" id="curtain_d_nordic"]
+[ext_resource type="Material" path="res://materials/templates/mist_d_nordic.tres" id="mist_d_nordic"]
+[ext_resource type="Material" path="res://materials/templates/water_e_toon.tres" id="water_e_toon"]
+[ext_resource type="Material" path="res://materials/templates/curtain_e_toon.tres" id="curtain_e_toon"]
+[ext_resource type="Material" path="res://materials/templates/mist_e_toon.tres" id="mist_e_toon"]
+
+[ext_resource type="Material" path="res://materials/templates/water_f_stylized.tres" id="water_f_stylized"]
+[ext_resource type="Material" path="res://materials/templates/curtain_f_stylized.tres" id="curtain_f_stylized"]
+[ext_resource type="Material" path="res://materials/templates/mist_f_stylized.tres" id="mist_f_stylized"]
+[ext_resource type="Material" path="res://materials/templates/rings_f_stylized.tres" id="rings_f_stylized"]
+[ext_resource type="Material" path="res://materials/templates/water_g_blend.tres" id="water_g_blend"]
+[ext_resource type="Material" path="res://materials/templates/curtain_g_blend.tres" id="curtain_g_blend"]
+[ext_resource type="Material" path="res://materials/templates/mist_g_blend.tres" id="mist_g_blend"]
+[ext_resource type="Material" path="res://materials/templates/rings_g_blend.tres" id="rings_g_blend"]
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.32, 0.55, 0.88, 1)
+sky_horizon_color = Color(0.8, 0.84, 0.95, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.62, 0.68, 0.7, 1)
+ground_horizon_color = Color(0.8, 0.84, 0.95, 1)
+sun_angle_max = 20.0
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+tonemap_mode = 4
+fog_enabled = true
+fog_light_color = Color(0.66, 0.78, 0.96, 1)
+fog_density = 0.00021
+fog_aerial_perspective = 0.4
+fog_sun_scatter = 0.25
+fog_height_density = 0.0
+fog_sky_affect = 0.0
+adjustment_enabled = true
+adjustment_contrast = 1.05
+adjustment_saturation = 1.1
+
+[node name="WaterLookdev" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.72, 0.6, 0)
+light_color = Color(1, 0.93, 0.8, 1)
+light_energy = 1.1
+shadow_enabled = true
+shadow_blur = 1.5
+directional_shadow_max_distance = 1500.0
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9, 0.44, 0, -0.44, 0.9, 90, 60, 170)
+script = ExtResource("2_camera")
+
+[node name="Current" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+script = ExtResource("1_station")
+Title = "A · Current"
+WaterMaterial = ExtResource("water_a_current")
+CurtainMaterial = ExtResource("curtain_a_current")
+MistMaterial = ExtResource("mist_a_current")
+
+[node name="Glacial" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 220, 0, 0)
+script = ExtResource("1_station")
+Title = "B · Glacial"
+WaterMaterial = ExtResource("water_b_glacial")
+CurtainMaterial = ExtResource("curtain_b_glacial")
+MistMaterial = ExtResource("mist_b_glacial")
+
+[node name="Tropical" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 440, 0, 0)
+script = ExtResource("1_station")
+Title = "C · Tropical"
+WaterMaterial = ExtResource("water_c_tropical")
+CurtainMaterial = ExtResource("curtain_c_tropical")
+MistMaterial = ExtResource("mist_c_tropical")
+
+[node name="Nordic" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 660, 0, 0)
+script = ExtResource("1_station")
+Title = "D · Nordic"
+WaterMaterial = ExtResource("water_d_nordic")
+CurtainMaterial = ExtResource("curtain_d_nordic")
+MistMaterial = ExtResource("mist_d_nordic")
+
+[node name="Toon" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 880, 0, 0)
+script = ExtResource("1_station")
+Title = "E · Toon"
+WaterMaterial = ExtResource("water_e_toon")
+CurtainMaterial = ExtResource("curtain_e_toon")
+MistMaterial = ExtResource("mist_e_toon")
+
+[node name="Stylized" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1100, 0, 0)
+script = ExtResource("1_station")
+Title = "F · Stylized (ref)"
+WaterMaterial = ExtResource("water_f_stylized")
+CurtainMaterial = ExtResource("curtain_f_stylized")
+MistMaterial = ExtResource("mist_f_stylized")
+RingsMaterial = ExtResource("rings_f_stylized")
+
+[node name="Blend" type="Node3D" parent="." groups=["lookdev_station"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1320, 0, 0)
+script = ExtResource("1_station")
+Title = "G · Blend (ref + Nordic)"
+WaterMaterial = ExtResource("water_g_blend")
+CurtainMaterial = ExtResource("curtain_g_blend")
+MistMaterial = ExtResource("mist_g_blend")
+RingsMaterial = ExtResource("rings_g_blend")
