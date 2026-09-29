@@ -57,6 +57,9 @@ public partial class Terrain : Node3D
     [Export] public Material? HorizonMaterial { get; set; }
     /// <summary>Water surfaces (<c>water.gdshader</c>); each drawn page gets a copy with its own data texture.</summary>
     [Export] public Material? WaterMaterial { get; set; }
+    /// <summary>Waterfall curtains and mist (<c>waterfall_curtain.gdshader</c>, <c>waterfall_mist.gdshader</c>).</summary>
+    [Export] public Material? WaterfallCurtainMaterial { get; set; }
+    [Export] public Material? WaterfallMistMaterial { get; set; }
 
     /// <summary>The current map's theme: its shader, materials and erosion slots.</summary>
     public TerrainTheme? Theme { get; private set; }
@@ -109,6 +112,7 @@ public partial class Terrain : Node3D
     private WaterSourceMarkers? _markers;
     private WaterFlowArrows? _arrows;
     private WaterPreview? _preview;
+    private WaterFalls? _falls;
     // Add lake sources when the hollow search finishes; the callback (if any) gets what was added, for undo.
     private bool _lakeSourcesPending;
     private System.Action<LakeSourcesAdded>? _lakeSourcesDone;
@@ -265,8 +269,27 @@ public partial class Terrain : Node3D
     public bool ShowWater
     {
         get => _showWater;
-        set { _showWater = value; if (_waterSurface is not null) _waterSurface.Visible = value; }
+        set
+        {
+            _showWater = value;
+            if (_waterSurface is not null) _waterSurface.Visible = value;
+            if (_falls is not null) _falls.Visible = value;
+        }
     }
+
+    private WaterfallQuality _waterfallFx = WaterfallQuality.High;
+    /// <summary>
+    /// Waterfall curtains and mist (graphics setting): Off = none (the water surface still shows a sheet on the cliff),
+    /// Low = nearer and less mist, High = all.
+    /// </summary>
+    public WaterfallQuality WaterfallFx
+    {
+        get => _waterfallFx;
+        set { _waterfallFx = value; if (_falls is not null) _falls.Quality = value; }
+    }
+
+    /// <summary>The waterfall effects node (stats for the Water panel and demos), or null without water.</summary>
+    public WaterFalls? Falls => _falls;
 
     /// <summary>Sea level for lake finding: ground below it connected to the edge is sea. Null when the map has no sea shape.</summary>
     public float? SeaLevel => Settings.Shape.Kind != ShapeKind.None ? Settings.SeaLevel : null;
@@ -677,6 +700,11 @@ public partial class Terrain : Node3D
         _preview = new WaterPreview { Name = "WaterPreview", Visible = false };
         AddChild(_preview);
         _preview.Init(this, Water);
+        _falls = new WaterFalls { Name = "WaterFalls", Visible = _showWater };
+        AddChild(_falls);
+        _falls.Init(this, Water, WaterfallCurtainMaterial ?? GD.Load<Material>("res://materials/waterfall_curtain.tres"),
+            WaterfallMistMaterial ?? GD.Load<Material>("res://materials/waterfall_mist.tres"));
+        _falls.Quality = _waterfallFx;
         WaterChanged?.Invoke();
     }
 
@@ -798,16 +826,19 @@ public partial class Terrain : Node3D
         var origin = Terrain3DBridge.Origin(map);
         GlobalPosition = new Vector3(origin.X, 0f, origin.Y);
 
-        // Free the old render copy and skirt, including ones left over from an editor script reload.
+        // Free the old render copy, horizon ring and water nodes, including ones left over from an editor script reload.
         _render?.Free();
         _render = null;
         foreach (var child in GetChildren())
-            if (child is TerrainHorizon or WaterSurface or WaterSourceMarkers or WaterFlowArrows or WaterPreview)
+            if (child is TerrainHorizon or WaterSurface or WaterSourceMarkers or WaterFlowArrows or WaterPreview or WaterFalls)
                 child.Free();
+        // Null every field the loop just freed: ApplyTheme below touches _horizon (via ApplyEdgeFog) before the new one exists.
+        _horizon = null;
         _waterSurface = null;
         _markers = null;
         _arrows = null;
         _preview = null;
+        _falls = null;
         _heightDirty = _splatDirty = VertexRect.Empty;
         _fullJob?.Cancel();
         _windowJob?.Cancel();

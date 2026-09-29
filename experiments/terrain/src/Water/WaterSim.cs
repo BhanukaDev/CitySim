@@ -618,6 +618,36 @@ public sealed class WaterSim : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Copies the snapshot of the cells [x0, x0 + w) × [z0, z0 + d) (clamped to the grid) into <paramref name="into"/>,
+    /// 4 floats per cell, rows of w (surface, depth, velocity x, z; depth −1 where nothing shows). One lock for the whole
+    /// window, and tiles with nothing in them are skipped. Returns whether any cell shows water.
+    /// </summary>
+    public bool CopyWindow(int x0, int z0, int w, int d, float[] into)
+    {
+        Array.Fill(into, 0f, 0, w * d * 4);
+        for (int i = 0; i < w * d; i++) into[i * 4 + 1] = -1f;
+        bool any = false;
+        int cx0 = Math.Max(x0, 0), cz0 = Math.Max(z0, 0);
+        int cx1 = Math.Min(x0 + w, Width), cz1 = Math.Min(z0 + d, Depth);
+        if (cx0 >= cx1 || cz0 >= cz1) return false;
+        lock (_snapLock)
+            for (int tz = cz0 / TileSize; tz <= (cz1 - 1) / TileSize; tz++)
+                for (int tx = cx0 / TileSize; tx <= (cx1 - 1) / TileSize; tx++)
+                {
+                    if (_snapshot[tz * TilesX + tx] is not { } snap) continue;
+                    int sx0 = Math.Max(cx0, tx * TileSize), sx1 = Math.Min(cx1, (tx + 1) * TileSize);
+                    int sz0 = Math.Max(cz0, tz * TileSize), sz1 = Math.Min(cz1, (tz + 1) * TileSize);
+                    for (int z = sz0; z < sz1; z++)
+                    {
+                        int n = sx1 - sx0;
+                        snap.AsSpan(WaterGrid.Local(sx0, z) * 4, n * 4).CopyTo(into.AsSpan(((z - z0) * w + sx0 - x0) * 4, n * 4));
+                    }
+                    any = true;
+                }
+        return any;
+    }
+
     /// <summary>Water depth at a local position (metres; 0 when dry), bilinear.</summary>
     public float DepthAt(float x, float z) => Bilinear(x, z, 1, clampZero: true);
 

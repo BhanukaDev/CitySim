@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://src/Terrain/Terrain.cs" id="1_terrain"]
 [ext_resource type="Script" path="res://src/Camera/CityCamera.cs" id="2_camera"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
 [ext_resource type="Shader" path="res://shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://materials/water.tres" id="10_water"]
+[ext_resource type="Material" path="res://materials/waterfall_curtain.tres" id="11_curtain"]
+[ext_resource type="Material" path="res://materials/waterfall_mist.tres" id="12_mist"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
 frequency = 0.008
@@ -66,6 +68,8 @@ directional_shadow_max_distance = 1500.0
 script = ExtResource("1_terrain")
 HorizonMaterial = SubResource("ShaderMaterial_horizon")
 WaterMaterial = ExtResource("10_water")
+WaterfallCurtainMaterial = ExtResource("11_curtain")
+WaterfallMistMaterial = ExtResource("12_mist")
 
 [node name="CityCamera" type="Node3D" parent="." node_paths=PackedStringArray("Terrain")]
 script = ExtResource("2_camera")

@@ -1,0 +1,9 @@
+[gd_resource type="ShaderMaterial" load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://shaders/waterfall_mist.gdshader" id="1_mist"]
+[ext_resource type="Texture2D" path="res://assets/particles/mist_puffs.png" id="2_puffs"]
+
+[resource]
+render_priority = 3
+shader = ExtResource("1_mist")
+shader_parameter/puff_atlas = ExtResource("2_puffs")

@@ -72,13 +72,14 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   map's corner, as the HUD pivot shows: the world origin is the map's centre), --flat[=height] (empty map),
 #   --load=path.csmap, --heightmap=path[,min,max] (import a 16-bit PNG/RAW as a 2 km map), --game (game mode),
 #   --preset=island|coast|archipelago|mountains|flat-lowlands|rolling-hills, --seed=n, --show-generator (open the panel),
-#   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
+#   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates, a new size keeps the horizon/water),
 #   --demo-erosion (erosion per preset, repeatability, lakes obey the spill rule, one-step undo), --erode[=light|medium|heavy],
 #   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
 #   --view=materials|cost|slot:<n>|wetlook (debug views), --demo-themes (paint across theme switches, map file v3/v2),
 #   --rain[=intensity] (it starts raining), --wetness=x (whole-map wetness at once), --edge=line|fog|horizon, --sea=level (a Sea source),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
 #   --demo-falls (1.8 km made-up map: plateau sloping 5 %, 25 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
+#   --falls-fx=off|low|high (waterfall curtains + mist, M5.8),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
 #   --water-arrows (flow arrows on), --no-tool (--demo-water ends with no tool out: no flow arrows),
 #   --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, e.g. far out),
@@ -573,6 +574,9 @@ Candidates so far (tick when the switch exists):
 - [ ] Water mesh detail: enum on the near LOD (1 or 2 vertices per cell, M5.4).
 - [ ] Horizon ring (M6 3e): bool, off = the Fog edge (`Terrain.EdgeStyle`).
 - [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows. (The on/off per mode from 3a is a mode rule, not a setting.)
+- [x] Waterfall curtains + mist (M5.8): enum Off / Low / High (`Terrain.WaterfallFx`; no menu yet). Low = half the
+  distance, half the mist. Measured at the `--demo-falls` wide fall (51 curtain segments, 66 puffs): +0.1–0.3 ms/frame,
+  +2 draws; the smoky-bank mist costs ~0.5 ms there. The search runs on a task.
 - [ ] Effect draw distance (caustics, glints): number, later if needed.
 - [ ] Flow arrows are an editor aid, not a graphics setting (stay a tool option).
 
@@ -764,8 +768,37 @@ User: shallow water (streams, small rivers) changed colour and shape a lot with 
 - Checked with `--screenshot-zoom` at 30/60/120/250/500 m over the `--demo-water --stream-flow=4 --erode` stream and the falls.
 - Not done: thin sheets spread over a valley floor still read as flat grey-teal (it's the sim's water, see M5.6).
 
+### 🔶 M5.8: Waterfall curtains and mist (implemented, waiting for the user to test)
+Look only, nothing feeds back into the sim (`src/Terrain/WaterFalls.cs`, child of `Terrain` like the flow arrows).
+- **Finding falls**: a lip is a wet cell (flux depth × speed ≥ 0.02 m²/s, speed ≥ 0.3 m/s) whose ground drops at ≥ 30°
+  just downstream but not just upstream (one lip per flow line). The drop is followed downstream to the foot; a fall is
+  ≥ 3 m high and on average ≥ 30° steep (user: 30° and up; was 45°). Gentler is rapids (the water shader's white water).
+  The default map's `--demo-water` mountain stream gets ~19 segments on its steep drops.
+- **Curtain** (`shaders/waterfall_curtain.gdshader`, `materials/waterfall_curtain.tres`): a ribbon per lip cell, arcing off
+  the lip on a parabola at the lip's speed but never closer to the face than a standoff growing with the drop (0.3 m → 4 m),
+  so it hangs in front of the simulated sheet on the face and always reaches the foot. Unshaded, streaks scroll down in
+  world metres (neighbours line up, rebuilds don't jump), fades at lip/foot/sides, edge-on and with distance.
+- **Mist** (`shaders/waterfall_mist.gdshader`, `materials/waterfall_mist.tres`): a smoky bank, not separate clouds (user).
+  Landing points gathered in 6 m bins, 2–6 faint (alpha 0.45), soft-edged puffs per bin, 1.6× wider than tall and only
+  slightly tilted, overlapping into one bank along the foot (plus spray halfway up falls > 12 m). They start where the
+  curtain hits the water (up to ⅓ size out over the pool), hug the surface and drift slowly downstream (6 s loops). Animated wholly in the vertex shader from a seed per puff (stable hash per
+  bin, so refreshes don't restart them). Soft against the ground (depth texture) and the surface it rises from.
+  Sprites: 4 CC0 Kenney smoke puffs baked into `assets/particles/mist_puffs.png` (`tools/fetch_particles.sh`, committed).
+- **Cheap because it's a visual**: only a window of radius `CurtainDistance` (High 700 m, Low 350 m) around the camera,
+  copied under one lock (`WaterSim.CopyWindow`) and searched on a task ≤ 2×/s (≤ 5×/s after a big move/turn, never when
+  nothing changed); skipped entirely when the camera is higher above the ground than that. Falls outside the frustum (+30 m)
+  are skipped; far curtains get 5 rows instead of 10, far mist half the puffs. Shaders fade out before the search radius, so
+  nothing pops. One mesh + one MultiMesh (2 draws), no shadows, no lighting, caps 1500 segments / 600 puffs.
+- Measured (`--profile`, `--demo-falls --cam=1120,1010,110,22,35`, before the smoky-bank change): Off 36.8–37.1 ms, High
+  37.1–37.2 ms per frame (this view is GPU-bound by the water), +2 draws; the bank uses ~1.6× the puffs (66 → 104 there), measured after it: Off 37.0 ms, High 37.5 ms (+0.5 ms); search 1.2–2 ms normally, 10–14 ms on the task under `--profile` load; god view
+  at 1.4 km: no search.
+- Checked with screenshots of the wide, narrow and small falls in `--demo-falls` (Off vs High); `--demo-water`,
+  `--demo-generate` (reload frees/recreates the node), `--demo-mapfile` ok.
+- Not done: lips flicker a little when the sim's flow shifts (no hysteresis yet); curtains on a sloped (not steep) chute are
+  skipped by design; no sound; mist doesn't react to wind or rain.
+
 ### ⬜ M5.3: Water events and structures (next)
-- Waterfalls: curtain mesh + mist where flux crosses a big drop; foam already appears on steep/fast water.
+- ~~Waterfalls: curtain mesh + mist where flux crosses a big drop~~ (done in M5.8).
 - Floods (hydrograph on a source, rain event), tsunami (travelling level pulse on the Sea), tides (sine on the sea),
   seasonal streams, detention/retention basins (Lake min/max), a water clean-up burst (evaporation × N).
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
@@ -879,8 +912,7 @@ Phases (tick off as they land):
     - Checked: `--demo-sculpt`, `--demo-paint`, `--demo-channel`, `--demo-themes`, `--demo-water` (all ok, incl. the tool's
       border snap); `--demo-camera` same as before (its three first-person checks fail headless, as noted in phase 1);
       screenshots: whole map in game mode, the water demo with the River tool (markers, arrows, preview), and the far-corner
-      stream (same view as before centring). Known, not new: `--demo-mapfile` throws `ObjectDisposedException` in
-      `Terrain.SetMap` when reloading into the running scene (same on the previous commit).
+      stream (same view as before centring).
     - Side effect: world-space noise (grass patches, edge noise, ripples) now lines up with a different world position,
       so the same map shows a different but equivalent pattern of patches.
   - [x] **3c. Performance** (implemented, waiting for the user to test; the RAM target isn't met, see step 5) (the phase 2 "not done" list): 60 FPS at 28.7 km (46–48 now); split a stroke's region pushes
@@ -1004,6 +1036,13 @@ Phases (tick off as they land):
     - Measured: 3.6 km ring 14k vertices, 14 ms; 28.7 km ~111k vertices, 54 ms. FPS at the 43 km whole-map view: 59–62.
     - Screenshots: 3.6 km default from inside (skyline of hazy hills), island + sea from above and at 500 m, 28.7 km
       Mountains whole map and at the border; Fog and Line modes unchanged. `--demo-sculpt/-paint/-channel/-themes/-camera/-water` ok.
+    - **Reload fix** (implemented, waiting for the user to test): replacing the map in the running scene (Generator at another
+      size, importing a heightmap of another size, `--demo-mapfile`/`--demo-heightmap`) threw `ObjectDisposedException`
+      in `ApplyEdgeFog` ← `ApplyTheme` ← `SetMap`: SetMap freed the old ring but kept `_horizon`, so the reload stopped
+      before the new ring, `StartWater` and the lake search. SetMap now nulls `_horizon` with the other freed nodes.
+      `--demo-generate` now also applies another size and checks for one ring and a running water sim (it threw without
+      the fix). Checked: both demos log the ring, "copied to Terrain3D" and a lake search after the reload; screenshot
+      of a 3.6 → 1.8 km regenerate with `--edge=horizon` shows the ring.
     - Not done: building the ring off the main thread (54 ms hitch on 28.7 km border strokes, 2/s at most); the ring's sea
       doesn't animate; the ring ignores theme hooks (grass tint by height), so its colour can differ slightly from the map's
       edge; the Edge button's label doesn't follow `--edge`. Later: an unbuildable strip *inside* the heightmap

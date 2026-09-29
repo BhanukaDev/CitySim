@@ -20,7 +20,7 @@ namespace CitySim.Debug;
 /// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-channel, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
 /// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
-/// --demo-falls (a made-up map with a cliff and two falls),
+/// --demo-falls (a made-up map with a cliff and two falls), --falls-fx=off|low|high (waterfall curtains and mist),
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
 /// --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, map metres), --water-speed=n, --water-run=seconds (simulate that long right away),
 /// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt;|wetlook (debug views), --demo-themes,
@@ -127,6 +127,10 @@ public partial class DebugOverlay : CanvasLayer
                 Callable.From(RunFallsDemo).CallDeferred();
             else if (arg == "--hide-water" && Terrain is not null)
                 Terrain.ShowWater = false;
+            else if (arg.StartsWith("--falls-fx=") && Terrain is not null
+                     && System.Enum.TryParse<WaterfallQuality>(arg["--falls-fx=".Length..], ignoreCase: true, out var fallsFx))
+                // --falls-fx=off|low|high: waterfall curtains and mist (graphics setting).
+                Terrain.WaterfallFx = fallsFx;
             else if (arg.StartsWith("--preview-at="))
             {
                 var v = arg["--preview-at=".Length..].Split(',').Select(t => float.Parse(t, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
@@ -405,6 +409,14 @@ public partial class DebugOverlay : CanvasLayer
         bool redoOk = map.Data.SequenceEqual(after);
         GD.Print($"Demo generate: undo {(undoOk ? "ok" : "FAILED")}, redo {(redoOk ? "ok" : "FAILED")}");
         ok &= undoOk && redoOk;
+
+        // Another size (the panel's Size) replaces the map: the horizon ring and water come back (ObjectDisposedException before).
+        var resized = baseSettings with { Cells = map.Width - 1 == 512 ? 1024 : 512 };
+        Tools.ApplyGenerated(TerrainGen.Create(resized), resized);
+        int rings = Terrain.GetChildren().OfType<TerrainHorizon>().Count();
+        bool resizeOk = Terrain.Map?.Width == resized.Cells + 1 && rings == 1 && Terrain.Water is not null;
+        GD.Print($"Demo generate: new size {Terrain.Map?.Width}², horizon rings {rings}, water {(Terrain.Water is null ? "none" : "running")}: {(resizeOk ? "ok" : "FAILED")}");
+        ok &= resizeOk;
         GD.Print(ok ? "Demo generate: ok" : "Demo generate: FAILED");
     }
 
@@ -728,6 +740,8 @@ public partial class DebugOverlay : CanvasLayer
                 path = System.IO.Path.ChangeExtension(path, null) + $"_{_cam[2]:0}.png";
             var err = GetViewport().GetTexture().GetImage().SavePng(path);
             GD.Print($"Screenshot saved to {path} ({err})");
+            if (Terrain?.Falls is { } falls)
+                GD.Print($"Waterfalls: {falls.Segments} curtain segments, {falls.Puffs} mist puffs, search {falls.ScanMs:0.0} ms");
             if (_zoomShots.Count > 0 && _cam is not null && CityCamera is not null)
             {
                 // Same pivot, next distance, with the sim paused so only the view changes; wait for the camera and the LODs to settle.
@@ -817,6 +831,8 @@ public partial class DebugOverlay : CanvasLayer
         GD.Print($"Profile: {_profile.Count} frames, frame {avg:0.00} ms avg ({1000 / avg:0} FPS), p95 {p95:0.00} ms; " +
                  $"render CPU {cpu:0.00} ms, GPU {gpu:0.00} ms (0 on Metal); " +
                  $"{draws} draws, {prims / 1000} k primitives; shadows {shadowDraws} draws, {shadowPrims / 1000} k primitives");
+        if (Terrain?.Falls is { } falls)
+            GD.Print($"Profile: waterfalls {Terrain.WaterfallFx}: {falls.Segments} curtain segments, {falls.Puffs} mist puffs, search {falls.ScanMs:0.0} ms");
         _profileWait = -1;
         GetTree().Quit();
     }
