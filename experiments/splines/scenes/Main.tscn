@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://src/EditDemo.cs" id="5_demo"]
 [ext_resource type="Script" path="res://src/Demos/GeometryDemo.cs" id="6_geometry"]
 [ext_resource type="Script" path="res://src/SplinesTestbed.cs" id="7_testbed"]
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineDrawTool.cs" id="8_drawtool"]
+[ext_resource type="Script" path="res://src/Demos/DrawDemo.cs" id="14_drawdemo"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
@@ -92,3 +94,14 @@ script = ExtResource("6_geometry")
 
 [node name="SplinesTestbed" type="Node" parent="."]
 script = ExtResource("7_testbed")
+
+[node name="SplineDrawTool" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera", "Testbed")]
+script = ExtResource("8_drawtool")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+Testbed = NodePath("../SplinesTestbed")
+
+[node name="DrawDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed")]
+script = ExtResource("14_drawdemo")
+DrawTool = NodePath("../SplineDrawTool")
+Testbed = NodePath("../SplinesTestbed")

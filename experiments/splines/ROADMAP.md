@@ -43,6 +43,7 @@ If the spline scheme proves better, align the terrain brush keys to it afterward
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 dotnet build && $G --headless --path . --import
 $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-checks, prints "Demo geometry: all ok"
+$G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 ```
 
@@ -83,13 +84,28 @@ scripted `--screenshot` scene. See the milestones.
   are trimmed/extended to where their lines cross.
 - Not yet: `Spiral` is stored on `Pi` but unused until S7. Validation (clamped → Warn) comes with S4.
 
-### ⬜ S2: Draw tool (mode 1) on terrain
-- Terrain picking through `IGround` (`Terrain.Raycast`). Click / double-click / Enter / RMB / Esc.
-- Auto-rounded corners, Alt hard corner (refused by profile), Shift+wheel / `[` `]` radius.
-- Preview ribbon (blue), built ribbon (profile colour), edges draped on the ground (sampled heights).
-- Cursor tag: length, heading, turn angle, radius. One undo stack for add/remove.
-- `--demo-draw`: scripted clicks for each test profile, then screenshot. Then **move the addon to
-  `packages/citysim_splines/`** (see tech decisions).
+### ✅ S2: Draw tool (mode 1) on terrain
+- `IGround` (Core interface: `Raycast`, `GetHeight`) + `TerrainGround` (Godot impl over `citysim_terrain`'s
+  `Terrain.Raycast`/`GetHeightAtMap`). Kept to those two members — the `HeightsChanged` re-conform hook is S8.
+- `DrawSession` (Core): the in-progress PI list, a small undo/redo stack scoped to the current draw only (RMB /
+  Ctrl+Z pop the last PI; ROADMAP's "one undo stack for add/remove" is this, not the graph-command undo of S4,
+  which doesn't exist yet), and the pending corner radius (Shift+wheel / `[` `]`, clamped to `MinRadius`).
+- `SplineDrawTool` (Godot `Node`, mirrors `TerrainToolController`'s input-dispatch shape): click places a PI,
+  double-click/Enter finishes, RMB undoes or cancels, Esc cancels. Alt+click asks for a hard corner; if the
+  profile disallows it (`AllowHardCorners == false`) a red hint flashes on the cursor tag and a normal corner is
+  placed instead, per DESIGN.md.
+- `RibbonRenderer` + `RibbonGeometry` (Core slices, Godot `SurfaceTool`→`ArrayMesh`): blue preview ribbon while
+  drawing, profile-coloured built ribbon on finish, edges draped on the ground via `IGround.GetHeight`. Full
+  rebuild each frame for the preview, once for a built spline — no incremental updates until S11.
+- `DrawCursorTag`: length, heading, turn angle at the last corner, pending radius, next to the mouse.
+- No graph yet (S4): built splines are a plain in-memory `(Profile, Alignment)` list on `SplineDrawTool`, each
+  with one permanent ribbon mesh — not persisted, not connected to any future graph.
+- `--demo-draw`: drives `SplineDrawTool`'s API directly (no simulated input) for each of the 6 test profiles,
+  checks each one built, prints `Demo draw: all ok`. Composes with `--screenshot=`/`--cam=` as usual.
+- Snapping (Ctrl angle-steps, node/edge/guide snaps — S3), Anarchy, and grade%/speed readout (S7/S8) are not
+  implemented; `Alignment.Rebuild()`'s existing tangent-length clamp is the only limit enforced.
+- Not yet done: the addon hasn't moved to `packages/citysim_splines/` — do that once this has been tried in
+  Godot and looks right (see tech decisions).
 
 ### ⬜ S3: Snapping and guides
 - Providers in `DESIGN.md` order, exact values, screen-pixel catch distance, snap tag, Space to disable, a toggle row
@@ -199,3 +215,7 @@ version:
 - 2026-09-29: Terrain shaping is built into the addon, driven by a per-profile section template with cut/fill
   slopes. It is applied on build and on edit release, with **no preview**, because a per-frame terrain edit is
   too costly. It is one undo step with the spline, and the ground stays shaped when a spline is deleted.
+- 2026-09-29: S2's undo is scoped to the current in-progress draw only (add/remove a PI); undoing a *finished*
+  spline needs the graph-command stack from S4 and isn't implemented yet. `IGround` stays at two members
+  (`Raycast`, `GetHeight`) until S8 needs `HeightsChanged`. "Built" splines in S2 are a plain rendering list, not
+  graph data — replaced wholesale once S4 lands.

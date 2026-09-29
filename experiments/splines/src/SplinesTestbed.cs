@@ -16,18 +16,29 @@ public partial class SplinesTestbed : Node
     public SplineProfile? Profile { get; private set; }
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
 
+    private SplineOptionsBar? _bar;
+
     public override void _Ready()
     {
         Profiles = LoadProfiles(ProfileDir);
 
         var layer = new CanvasLayer { Name = "SplineUi" };
         AddChild(layer);
-        var bar = new SplineOptionsBar();
-        layer.AddChild(bar);
-        bar.SetProfiles(Profiles);
-        Profile = bar.Profile;
-        bar.ProfileChanged += p => { Profile = p; GD.Print($"Splines: profile {p.Id}"); };
-        bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
+        _bar = new SplineOptionsBar();
+        layer.AddChild(_bar);
+        _bar.SetProfiles(Profiles);
+        Profile = _bar.Profile;
+        _bar.ProfileChanged += p => { Profile = p; GD.Print($"Splines: profile {p.Id}"); };
+        _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
+    }
+
+    /// <summary>Selects a profile in the options bar (and fires the same event a click would) — used by
+    /// <c>--demo-draw</c> to switch profiles without simulating UI input.</summary>
+    public void SelectProfile(SplineProfile profile)
+    {
+        if (_bar is null) return;
+        for (int i = 0; i < Profiles.Count; i++)
+            if (Profiles[i] == profile) { _bar.SelectIndex(i); Profile = profile; return; }
     }
 
     /// <summary>Every <see cref="SplineProfile"/> <c>.tres</c> in a folder, sorted by file name.</summary>

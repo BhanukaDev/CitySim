@@ -49,6 +49,39 @@
       "stopAtEntry": false
     },
     {
+      "name": "Splines: Play",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "splines: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/splines"],
+      "cwd": "${workspaceFolder}/experiments/splines",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Splines: Play (draw demo)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "splines: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/splines", "--", "--demo-draw"],
+      "cwd": "${workspaceFolder}/experiments/splines",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Splines: Open Godot editor",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "splines: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/splines", "--editor"],
+      "cwd": "${workspaceFolder}/experiments/splines",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
       // Attach to a game you started from the Godot editor (pick the Godot process).
       "name": "Attach to Godot",
       "type": "coreclr",

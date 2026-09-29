@@ -45,6 +45,63 @@
       "command": "mkdir -p screenshots && \"$GODOT\" --path . -- --screenshot=\"$PWD/screenshots/latest.png\" --screenshot-frames=120 && open screenshots/latest.png",
       "dependsOn": "terrain: build",
       "problemMatcher": []
+    },
+    {
+      "label": "splines: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "-nologo", "-v", "q", "/property:GenerateFullPaths=true"],
+      "options": { "cwd": "${workspaceFolder}/experiments/splines" },
+      "problemMatcher": "$msCompile",
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "splines: headless check",
+      "detail": "Run 200 frames without a window and print errors and timings",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . --quit-after 200",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/splines",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "splines: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "splines: demo-geometry",
+      "detail": "Run --demo-geometry (S1 Core self-check)",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . --quit-after 200 -- --demo-geometry",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/splines",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "splines: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "splines: demo-draw",
+      "detail": "Run --demo-draw (S2 self-check)",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . --quit-after 200 -- --demo-draw",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/splines",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "splines: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "splines: screenshot",
+      "detail": "Render 120 frames and save screenshots/latest.png",
+      "type": "shell",
+      "command": "mkdir -p screenshots && \"$GODOT\" --path . -- --screenshot=\"$PWD/screenshots/latest.png\" --screenshot-frames=120 && open screenshots/latest.png",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/splines",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "splines: build",
+      "problemMatcher": []
     }
   ]
 }

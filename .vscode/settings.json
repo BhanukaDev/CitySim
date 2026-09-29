@@ -1,4 +1,5 @@
 {
+  // experiments/splines/SplinesExp.slnx also exists; switch to it via the C# Dev Kit status-bar solution picker.
   "dotnet.defaultSolution": "experiments/terrain/TerrainExp.sln",
   "files.exclude": {
     "**/.godot": true,

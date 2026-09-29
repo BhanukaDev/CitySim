@@ -58,6 +58,15 @@ public partial class SplineOptionsBar : PanelContainer
         if (profiles.Count > 0) _profilePicker.Select(0);
     }
 
+    /// <summary>Selects a profile by index and fires <see cref="ProfileChanged"/> (unlike <c>OptionButton.Select</c>,
+    /// which doesn't emit a signal on its own) — used by <c>--demo-draw</c> to switch profiles programmatically.</summary>
+    public void SelectIndex(int index)
+    {
+        if (index < 0 || index >= _profiles.Count) return;
+        _profilePicker.Select(index);
+        ProfileChanged?.Invoke(_profiles[index]);
+    }
+
     public void SetMode(DrawMode mode)
     {
         _modeButtons[mode].SetPressedNoSignal(true);

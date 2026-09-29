@@ -1,0 +1,70 @@
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+
+namespace CitySim.Splines;
+
+/// <summary>
+/// One in-progress Draw-tool session (DESIGN.md → Draw tool, mode 1): the PIs placed so far, and a small undo/redo
+/// stack scoped to this draw (ROADMAP.md S2: "one undo stack for add/remove"; the fuller graph-command undo is S4).
+/// Discarded on cancel or finish. Core-only: no Godot, no terrain.
+/// </summary>
+public sealed class DrawSession
+{
+    private readonly List<Pi> _pis = new();
+    private readonly Stack<Pi> _redo = new();
+
+    public IReadOnlyList<Pi> Pis => _pis;
+    public bool IsEmpty => _pis.Count == 0;
+
+    /// <summary>Radius offered to the next corner placed (Shift+wheel / <c>[</c> <c>]</c>).</summary>
+    public float PendingRadius { get; private set; }
+
+    /// <summary>Clears the draw and resets the pending radius to the profile's default.</summary>
+    public void Reset(float defaultRadius)
+    {
+        _pis.Clear();
+        _redo.Clear();
+        PendingRadius = defaultRadius;
+    }
+
+    /// <summary>Places a PI (start or corner). <paramref name="hard"/> is only honoured by the caller after it has
+    /// already checked <c>ProfileRules.AllowHardCorners</c> — this class doesn't know about profiles.</summary>
+    public void Place(Vector2 position, bool hard)
+    {
+        _pis.Add(new Pi(position, hard ? 0 : PendingRadius, Hard: hard));
+        _redo.Clear();
+    }
+
+    /// <summary>RMB / Ctrl+Z: pops the last PI. False when there was nothing to pop (caller cancels the draw).</summary>
+    public bool Undo()
+    {
+        if (_pis.Count == 0) return false;
+        _redo.Push(_pis[^1]);
+        _pis.RemoveAt(_pis.Count - 1);
+        return true;
+    }
+
+    /// <summary>Ctrl+Shift+Z / Ctrl+Y: restores the last undone PI. False when there's nothing to redo.</summary>
+    public bool Redo()
+    {
+        if (_redo.Count == 0) return false;
+        _pis.Add(_redo.Pop());
+        return true;
+    }
+
+    /// <summary>Sets the pending radius, clamped to the profile's <c>MinRadius</c>.</summary>
+    public void SetPendingRadius(float radius, float minRadius) => PendingRadius = MathF.Max(radius, minRadius);
+
+    /// <summary>The placed PIs plus a floating end point at <paramref name="cursor"/> (not yet committed) — for the
+    /// preview ribbon.</summary>
+    public Alignment BuildPreview(Vector2 cursor)
+    {
+        var pis = new List<Pi>(_pis) { new(cursor) };
+        return new Alignment(pis);
+    }
+
+    /// <summary>The finished alignment (no cursor point). Call on double-click/Enter once <see cref="Pis"/> has at
+    /// least two points.</summary>
+    public Alignment Finish() => new(_pis);
+}
