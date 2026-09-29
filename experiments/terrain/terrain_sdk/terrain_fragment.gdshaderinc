@@ -132,6 +132,21 @@ void fragment() {
 	t.noise_fine = edge_noise(world_pos.xz, edge_noise_scale) + 0.5;
 	t.noise_patchy = edge_noise(world_pos.xz, patchy_noise_scale) + 0.5;
 
+	// How wet the ground looks: the sim's wet paint, a band at the waterline, and rain over the whole map (flat ground a
+	// little more, since it drains slowest). Rain puddles collect on flat ground in patches once it's wet enough.
+	float flat_ground = 1.0 - smoothstep(puddle_max_slope * 0.5, puddle_max_slope, t.slope);
+	// Damp bank beside the water: fully wet for the first 20 % of wet_shore_band, fading out by its end, with a
+	// noisy edge so it isn't a clean stripe.
+	float bank_d = wg.r * 255.0 / 4.0 + (t.noise_patchy - 0.5) * wet_shore_band * 0.8;
+	float waterline = has_water_ground ? 1.0 - smoothstep(wet_shore_band * 0.2, wet_shore_band, bank_d) : 0.0;
+	float rain = global_wetness * mix(0.8, 1.0, 1.0 - smoothstep(10.0, 35.0, t.slope));
+	float puddle_p = ramp((global_wetness - puddle_start) / max(1.0 - puddle_start, 0.01));
+	// Where water gathers: gully and stream beds, and the ground around lakes and rivers (not hilltops).
+	float low_ground = max(1.0 - ramp((t.gully - 2.0) / 14.0), 1.0 - ramp((t.shore - 6.0) / 24.0));
+	float puddle = puddle_p > 0.0 ? flat_ground * low_ground
+			* smoothstep(0.62 - 0.2 * puddle_p, 0.66 - 0.2 * puddle_p, t.noise_patchy) : 0.0;
+	t.wet_look = clamp(max(max(t.wet, waterline) * wet_amount, max(rain, puddle)), 0.0, 1.0);
+
 	// --- Automatic ground: the base, the theme's rules and the erosion slots, bottom to top ---
 	vec4 w[MATERIAL_PACKS];
 	w[0] = vec4(1.0, 0.0, 0.0, 0.0);
@@ -174,6 +189,8 @@ void fragment() {
 
 	float dist = length(world_pos - CAMERA_POSITION_WORLD);
 	float far_t = smoothstep(far_blend_start, far_blend_end, dist);
+	// Far away puddles are smaller than a pixel: fade them into plain wet ground (no sparkling specks).
+	puddle *= 1.0 - smoothstep(far_blend_start * 4.0, far_blend_end * 4.0, dist);
 
 	// --- Sample and height-blend ---
 	vec3 col[4];
@@ -214,6 +231,21 @@ void fragment() {
 	albedo = mix(albedo, albedo * vec3(1.06, 1.0, 0.88), clamp(mv * 2.0 + 0.5, 0.0, 1.0) * macro_strength * 2.0);
 	float breakup = texture(macro_noise, world_pos.xz / breakup_scale + vec2(0.13, 0.57)).r - 0.5;
 	albedo *= 1.0 + breakup * breakup_strength * 2.0;
+	// Wet ground is darker; puddles a little more (standing water over the ground).
+	float wet_lum = dot(albedo, vec3(0.299, 0.587, 0.114));
+	albedo = max(mix(vec3(wet_lum), albedo, 1.0 + wet_saturation * t.wet_look), vec3(0.0));
+	albedo *= 1.0 - wet_darken * t.wet_look;
+	albedo = mix(albedo, puddle_color, puddle * puddle_tint) * (1.0 - puddle_darken * puddle);
+	// Smoother where wet, so it reflects the sky and catches the sun glint in light(). The fine noise jitters the
+	// roughness so the glint glitters in patches (light() only sees ROUGHNESS).
+	float rough = roughness;
+	float spec = 0.2;
+	if (wet_shine) {
+		float sparkle = mix(1.0, smoothstep(0.35, 0.65, t.noise_fine), glint_sparkle);
+		rough = mix(roughness, mix(wet_roughness, 1.0, 0.35 * (1.0 - sparkle)), t.wet_look);
+		rough = mix(rough, puddle_roughness, puddle);
+		spec = mix(mix(0.2, wet_specular, t.wet_look), puddle_specular, puddle);
+	}
 
 	vec3 col_out = albedo;
 	if (slot_debug >= 0) col_out = mix(albedo * 0.35, vec3(1.0, 0.3, 0.6), debug_cov);
@@ -227,7 +259,7 @@ void fragment() {
 	if (terrain_debug == 1) col_out = debug_material_color(top_i[0]) * (0.75 + 0.25 * n.y);
 	if (ground_debug > 0) {
 		float v = ground_debug == 1 ? clamp(1.0 - t.shore / 64.0, 0.0, 1.0) : ground_debug == 2 ? gm.g
-				: ground_debug == 3 ? gm.b : ground_debug == 4 ? gm.a : t.wet;
+				: ground_debug == 3 ? gm.b : ground_debug == 4 ? gm.a : ground_debug == 5 ? t.wet : t.wet_look;
 		col_out = vec3(v * v);
 	}
 
@@ -312,10 +344,17 @@ void fragment() {
 		vec2 drift = vec2(TIME * edge_fog_drift, TIME * edge_fog_drift * 0.6);
 		float billow = texture(macro_noise, world_pos.xz / edge_fog_noise_scale + drift).r * 0.65
 				+ texture(macro_noise, world_pos.xz / (edge_fog_noise_scale * 0.37) - drift * 1.7 + 0.43).r * 0.35;
-		float d = edge_distance(world_pos.xz) - billow * edge_fog_wobble;
+		// With the horizon ring the corners stay square, so the band meets the ring's (which fades outward from the border).
+		vec2 rel_sq = world_pos.xz - terrain_origin;
+		vec2 dd_sq = min(rel_sq, terrain_size - rel_sq);
+		float d = (horizon_enabled ? min(dd_sq.x, dd_sq.y) : edge_distance(world_pos.xz)) - billow * edge_fog_wobble;
 		fog = 1.0 - smoothstep(0.0, edge_fog_width, d);
 		fog *= fog;
-		fog = max(fog, step(edge_distance(world_pos.xz), 0.0));
+		// With the horizon ring the band is lighter (the ring's hills carry on past the border); without it everything
+		// outside the bounds is fog.
+		// (It only hides the seam up close; from far out it would frame the map, so it fades with the camera distance.)
+		if (horizon_enabled) fog *= horizon_edge_fog * (1.0 - smoothstep(3000.0, 15000.0, length(world_pos - CAMERA_POSITION_WORLD)));
+		else fog = max(fog, step(edge_distance(world_pos.xz), 0.0));
 		fog_col *= 1.0 + (billow - 0.5) * edge_fog_cloudiness * 2.0;
 	} else {
 		// No fog: a thin line on the border, square corners, the same width in pixels at any distance.
@@ -331,8 +370,8 @@ void fragment() {
 	ALBEDO = col_out * (1.0 - fog);
 	NORMAL = normalize((VIEW_MATRIX * vec4(normal_ws, 0.0)).xyz);
 	EMISSION = glow * (1.0 - fog) + fog_col * fog;
-	ROUGHNESS = mix(roughness, 1.0, fog);
-	SPECULAR = 0.2 * (1.0 - fog);
+	ROUGHNESS = mix(rough, 1.0, fog);
+	SPECULAR = spec * (1.0 - fog);
 }
 
 #ifndef TERRAIN_CUSTOM_LIGHT
@@ -349,5 +388,12 @@ void light() {
 	// Painterly shadows: where light falls off, add a cool-tinted fill rather than grey.
 	float shade = 1.0 - d * ATTENUATION;
 	DIFFUSE_LIGHT += shadow_tint * shade * shadow_tint_strength * 0.12;
+	// Sun glint on wet, smooth ground: a crisp toon highlight. Dry ground (roughness ~0.9) gets none.
+	float smooth_g = 1.0 - smoothstep(0.2, 0.6, ROUGHNESS);
+	if (wet_shine && smooth_g > 0.0) {
+		float nh = max(dot(NORMAL, normalize(LIGHT + VIEW)), 0.0);
+		float g = smoothstep(0.5, 0.6, pow(nh, glint_size * mix(0.4, 1.0, smooth_g)));
+		SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * g * glint_strength * smooth_g * max(ndl, 0.0);
+	}
 }
 #endif

@@ -23,7 +23,8 @@ namespace CitySim.Debug;
 /// --demo-falls (a made-up map with a cliff and two falls),
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
 /// --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, map metres), --water-speed=n, --water-run=seconds (simulate that long right away),
-/// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt; (debug views), --demo-themes,
+/// --pollute=kg/s (the --demo-water stream carries pollutant), --stream-flow=m³/s (its flow, default 40), --view=materials|cost|slot:&lt;n&gt;|wetlook (debug views), --demo-themes,
+/// --sea=level (a Sea source at that level), --edge=line|fog|horizon (the map edge's look), --rain[=intensity] (it starts raining: the ground wets over sim time), --wetness=x (the whole map's wetness at once, 0-1),
 /// --demo-scale[=cells], --flat[=height], --preset=name, --seed=n, --show-generator, --load=path, --water-cells=n (water grid side cap; 2048 = old 14 m on 28.7 km),
 /// --heightmap=path[,min,max], --game (handled by MainMenu),
 /// --bake-theme=id|all (bake a theme's textures, previews and include, then quit; see ThemeBaker; run --import after) and
@@ -115,6 +116,27 @@ public partial class DebugOverlay : CanvasLayer
                     w.SetSources(w.Sources.Append(new WaterSource(w.NextSourceId(), WaterSourceKind.Stream, v[0], v[1], 20f, 0f, FlowRate: v[2])));
                 }).CallDeferred();
             }
+            else if (arg.StartsWith("--rain") && Terrain is not null)
+            {
+                // --rain[=intensity]: it starts raining (the ground wets over the Weather's ramp time, on sim time).
+                Terrain.Weather.Raining = true;
+                if (arg.StartsWith("--rain=") && float.TryParse(arg["--rain=".Length..], System.Globalization.CultureInfo.InvariantCulture, out float rain))
+                    Terrain.Weather.Intensity = rain;
+            }
+            else if (arg.StartsWith("--wetness=") && Terrain is not null
+                     && float.TryParse(arg["--wetness=".Length..], System.Globalization.CultureInfo.InvariantCulture, out float wetness))
+                Terrain.Weather.SetWetness(wetness);
+            else if (arg.StartsWith("--sea=") && float.TryParse(arg["--sea=".Length..], System.Globalization.CultureInfo.InvariantCulture, out float seaLevel))
+                // --sea=level: a Sea source at that level on the map's first border (e.g. to check the sea past the border).
+                Callable.From(() =>
+                {
+                    if (Terrain?.Water is not { } w) return;
+                    w.SetSources(w.Sources.Append(new WaterSource(w.NextSourceId(), WaterSourceKind.Sea, 0f, 0f, 0f, seaLevel)));
+                }).CallDeferred();
+            else if (arg.StartsWith("--edge=") && Terrain is not null
+                     && System.Enum.TryParse<EdgeStyle>(arg["--edge=".Length..], ignoreCase: true, out var edge))
+                // --edge=line|fog|horizon: the map edge's look (after the mode's default is set in Terrain._Ready).
+                Callable.From(() => Terrain.EdgeStyle = edge).CallDeferred();
             else if (arg == "--no-tool")
                 _demoNoTool = true;
             else if (arg == "--water-arrows")
@@ -154,6 +176,7 @@ public partial class DebugOverlay : CanvasLayer
                 if (v == "materials") Terrain.DebugView = Terrain.MaterialDebugView;
                 else if (v == "cost") Terrain.DebugView = Terrain.CostDebugView;
                 else if (v.StartsWith("slot:") && int.TryParse(v[5..], out int slot)) Terrain.SlotDebug = slot;
+                else if (v == "wetlook") Terrain.GroundDebug = Terrain.WetLookDebugView;
             }
             else if (arg == "--demo-themes")
                 Callable.From(RunThemeDemo).CallDeferred();

@@ -21,9 +21,9 @@ public partial class WaterPanel : PanelContainer
 
     private Button _play = null!;
     private OptionButton _speed = null!;
-    private HSlider _evaporation = null!, _paint = null!, _fade = null!;
-    private Label _evaporationValue = null!, _paintValue = null!, _fadeValue = null!, _stats = null!;
-    private CheckButton _openEdges = null!, _show = null!, _arrows = null!;
+    private HSlider _evaporation = null!, _paint = null!, _fade = null!, _rainIntensity = null!;
+    private Label _evaporationValue = null!, _paintValue = null!, _fadeValue = null!, _rainValue = null!, _stats = null!;
+    private CheckButton _openEdges = null!, _show = null!, _arrows = null!, _rain = null!;
     private bool _syncing;
     private double _refresh, _noteTime;
     private string _note = "";
@@ -92,6 +92,17 @@ public partial class WaterPanel : PanelContainer
         _fade = Slider(grid, "Paint Fades", 0, 168, 1, "Simulated hours until dry ground loses its wet paint (0 = never)",
             out _fadeValue, v => Edit(s => s with { PaintFadeHours = (float)v }));
 
+        _rain = new CheckButton { Text = "Raining", FocusMode = FocusModeEnum.None,
+            TooltipText = "The ground wets over ~10 sim-minutes while it rains and dries over ~2 sim-hours after.\nLook only for now: no water is added to the simulation." };
+        _rain.Toggled += on => { if (!_syncing && Terrain is { } t) t.Weather.Raining = on; };
+        Row(grid, "Rain", _rain);
+        _rainIntensity = Slider(grid, "Intensity", 0, 1, 0.05, "How wet the ground gets while it rains (puddles on flat ground from ~0.55)",
+            out _rainValue, v =>
+            {
+                if (Terrain is { } t) t.Weather.Intensity = (float)v;
+                _rainValue.Text = $"{v:0.00}";
+            });
+
         _openEdges = new CheckButton { Text = "Open", FocusMode = FocusModeEnum.None, TooltipText = "Water runs off the map at its edges (off: the edges are walls)" };
         _openEdges.Toggled += on => Edit(s => s with { OpenEdges = on });
         Row(grid, "Map Edges", _openEdges);
@@ -158,6 +169,8 @@ public partial class WaterPanel : PanelContainer
             $"Deepest {st.MaxDepth:0.0} m · fastest {st.MaxSpeed:0.0} m/s\n" +
             $"Running at × {sim.SimRatio:0.#} (sim time {TimeSpan.FromSeconds(sim.SimTime):hh\\:mm\\:ss})\n" +
             (st.Pollution > 0.001 ? $"Pollutant: {st.Pollution:0.#} kg\n" : "") +
+            (Terrain is { } t && (t.Weather.Raining || t.Weather.Wetness > 0.005f)
+                ? $"Ground wetness {t.Weather.Wetness:0.00}{(t.Weather.Raining ? " (raining)" : " (drying)")}\n" : "") +
             $"{sim.Width}² cells of {sim.CellSize:0.#} m · {st.ActiveTiles} active, {st.SleepingTiles} sleeping tiles · " +
             $"{st.AllocatedTiles} in memory ({st.AllocatedMb:0} MB) · " +
             $"{sim.StepMs:0.00} ms per substep, {st.Substeps} per tick";
@@ -181,6 +194,12 @@ public partial class WaterPanel : PanelContainer
         _arrows.SetPressedNoSignal(Terrain?.FlowArrows ?? false);
         _openEdges.SetPressedNoSignal(s.OpenEdges);
         _show.SetPressedNoSignal(Terrain?.ShowWater ?? true);
+        if (Terrain is { } terrain)
+        {
+            _rain.SetPressedNoSignal(terrain.Weather.Raining);
+            _rainIntensity.Value = terrain.Weather.Intensity;
+            _rainValue.Text = $"{terrain.Weather.Intensity:0.00}";
+        }
         _syncing = false;
     }
 

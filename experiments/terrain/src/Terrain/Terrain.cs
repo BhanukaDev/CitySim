@@ -53,8 +53,8 @@ public partial class Terrain : Node3D
         }
     }
     private TerrainTheme? _defaultTheme;
-    /// <summary>Fog-only material for the ring around the map; gets the theme's edge fog settings.</summary>
-    [Export] public Material? SkirtMaterial { get; set; }
+    /// <summary>The ring around the map (<c>terrain_horizon.gdshader</c>); gets the theme's edge fog and horizon settings.</summary>
+    [Export] public Material? HorizonMaterial { get; set; }
     /// <summary>Water surfaces (<c>water.gdshader</c>); each drawn page gets a copy with its own data texture.</summary>
     [Export] public Material? WaterMaterial { get; set; }
 
@@ -78,6 +78,14 @@ public partial class Terrain : Node3D
         set { _slotDebug = value; _render?.SetParam("slot_debug", value); }
     }
 
+    /// <summary>Shows one ground mask in greyscale: 1 shore, 2 gully, 3 wear, 4 deposit, 5 wet paint, 6 wet look; 0 off.</summary>
+    public int GroundDebug
+    {
+        get => _groundDebug;
+        set { _groundDebug = value; _render?.SetParam("ground_debug", value); }
+    }
+    public const int WetLookDebugView = 6;
+
     /// <summary>The shader code Terrain3D draws with (the theme's shader with its own includes inlined).</summary>
     public string? DrawnShaderCode => _liveShader?.Code;
 
@@ -85,13 +93,15 @@ public partial class Terrain : Node3D
     public Callable RegenerateButton => Callable.From(Generate);
 
     private Terrain3DBridge? _render;
-    private TerrainSkirt? _skirt;
-    private bool _skirtDirty;
+    private TerrainHorizon? _horizon;
+    private bool _horizonDirty;
+    private float? _horizonSea;
+    private double _horizonCooldown;
     private VertexRect _heightDirty = VertexRect.Empty, _splatDirty = VertexRect.Empty;
     private double _paramCopyTimer;
     // Runtime copy of the theme's shader with its own (relative) includes inlined; what Terrain3D draws. See ThemeShaderCode.
     private Shader? _liveShader;
-    private int _debugView, _slotDebug = -1;
+    private int _debugView, _slotDebug = -1, _groundDebug;
     private string? _newMapTheme;
     // The last theme warning, so the editor's twice-a-second refresh doesn't repeat it.
     private string? _lastThemeWarning;
@@ -165,22 +175,71 @@ public partial class Terrain : Node3D
     /// <summary>Raised when <see cref="Water"/> is replaced (a new map).</summary>
     public event System.Action? WaterChanged;
 
-    private bool _edgeFog = true;
+    private EdgeStyle _edgeStyle = EdgeStyle.Horizon;
     /// <summary>
-    /// The fog bank at the map's edge (and the fog skirt around it). On in game mode; the Map Editor starts with it off so
-    /// the creator sees the ground up to the border (the shader draws a thin line there), and can switch it on to preview.
-    /// Display only, not saved with the map.
+    /// What the map's edge looks like: <see cref="EdgeStyle.Horizon"/> in game mode (hills past the border in haze, a light
+    /// fog band on it); the Map Editor starts on <see cref="EdgeStyle.Line"/> so the creator sees the ground up to the border,
+    /// and can switch to preview the others. Display only, not saved with the map.
     /// </summary>
-    public bool EdgeFog
+    public EdgeStyle EdgeStyle
     {
-        get => _edgeFog;
-        set { _edgeFog = value; ApplyEdgeFog(); }
+        get => _edgeStyle;
+        set { _edgeStyle = value; ApplyEdgeFog(); }
     }
 
     private void ApplyEdgeFog()
     {
-        _render?.SetParam("edge_fog_enabled", _edgeFog);
-        if (_skirt is not null) _skirt.Visible = _edgeFog;
+        _render?.SetParam("edge_fog_enabled", _edgeStyle != EdgeStyle.Line);
+        _render?.SetParam("horizon_enabled", _edgeStyle == EdgeStyle.Horizon);
+        if (_horizon is not null) _horizon.Visible = _edgeStyle != EdgeStyle.Line;
+        (HorizonMaterial as ShaderMaterial)?.SetShaderParameter("horizon_mix", _edgeStyle == EdgeStyle.Horizon ? 1f : 0f);
+        if (_waterSurface is not null) _waterSurface.EdgeFade = _edgeStyle == EdgeStyle.Horizon ? 2f : 250f;
+    }
+
+    /// <summary>Keeps the horizon's sea at the Sea source's level (rebuilding the ring when it changes).</summary>
+    private void UpdateHorizonSea()
+    {
+        float? sea = null;
+        if (Water is { } sim)
+            foreach (var src in sim.Sources)
+                if (src.Kind == WaterSourceKind.Sea) { sea = src.Level; break; }
+        if (sea == _horizonSea) return;
+        _horizonSea = sea;
+        if (HorizonMaterial is ShaderMaterial hm)
+        {
+            hm.SetShaderParameter("has_sea", sea.HasValue);
+            hm.SetShaderParameter("sea_level", sea ?? 0f);
+        }
+        if (_horizon is not null) _horizon.SeaLevel = sea;
+        _horizonDirty = true;
+    }
+
+    /// <summary>Rain: the whole map's ground wetness (look only). Stepped on the water sim's time in <see cref="_Process"/>.</summary>
+    public Weather Weather { get; } = new();
+    private float _pushedWetness = -1f;
+    private double _lastSimTime = -1;
+
+    private bool _wetShine = true;
+    /// <summary>Wet ground shine (graphics setting): off keeps wet ground darker but matte, with no sun glint.</summary>
+    public bool WetShine
+    {
+        get => _wetShine;
+        set { _wetShine = value; _render?.SetParam("wet_shine", value); }
+    }
+
+    /// <summary>Steps <see cref="Weather"/> by the sim time that passed and pushes the wetness when it changed.</summary>
+    private void UpdateWeather()
+    {
+        if (Water is { } sim)
+        {
+            double now = sim.SimTime;
+            if (_lastSimTime >= 0 && now > _lastSimTime) Weather.Step(now - _lastSimTime);
+            _lastSimTime = now;
+        }
+        if (System.Math.Abs(Weather.Wetness - _pushedWetness) < 0.002f) return;
+        _pushedWetness = Weather.Wetness;
+        _render?.SetParam("global_wetness", _pushedWetness);
+        (HorizonMaterial as ShaderMaterial)?.SetShaderParameter("global_wetness", _pushedWetness);
     }
 
     private bool _showWater = true;
@@ -198,7 +257,7 @@ public partial class Terrain : Node3D
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
         // The Godot editor previews themes with their fog; in the app it follows the mode.
-        _edgeFog = Engine.IsEditorHint() || MapSession.Mode == AppMode.Game;
+        _edgeStyle = Engine.IsEditorHint() || MapSession.Mode == AppMode.Game ? EdgeStyle.Horizon : EdgeStyle.Line;
         Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
         WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://native/water/bin");
         if (Engine.IsEditorHint()) Generate();
@@ -259,13 +318,18 @@ public partial class Terrain : Node3D
             _paramCopyTimer = 0;
             ApplyTheme();
         }
-        if (_skirtDirty)
+        UpdateHorizonSea();
+        // At most twice a second: a 28.7 km ring takes ~50 ms, so strokes along the border don't rebuild every frame.
+        _horizonCooldown -= delta;
+        if (_horizonDirty && _horizonCooldown <= 0)
         {
-            _skirtDirty = false;
-            _skirt?.Rebuild();
+            _horizonDirty = false;
+            _horizon?.Rebuild();
+            _horizonCooldown = 0.5;
         }
         PushDirty();
         PushWaterGround();
+        UpdateWeather();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
     }
 
@@ -468,6 +532,7 @@ public partial class Terrain : Node3D
         _waterSurface = new WaterSurface { Name = "Water", Visible = _showWater };
         AddChild(_waterSurface);
         _waterSurface.Init(Water, WaterMaterial, map);
+        _waterSurface.EdgeFade = _edgeStyle == EdgeStyle.Horizon ? 2f : 250f;
         _markers = new WaterSourceMarkers { Name = "WaterSources", Visible = false };
         AddChild(_markers);
         _markers.Init(this, Water);
@@ -602,7 +667,7 @@ public partial class Terrain : Node3D
         _render?.Free();
         _render = null;
         foreach (var child in GetChildren())
-            if (child is TerrainSkirt or WaterSurface or WaterSourceMarkers or WaterFlowArrows or WaterPreview)
+            if (child is TerrainHorizon or WaterSurface or WaterSourceMarkers or WaterFlowArrows or WaterPreview)
                 child.Free();
         _waterSurface = null;
         _markers = null;
@@ -625,12 +690,15 @@ public partial class Terrain : Node3D
         _render = Terrain3DBridge.Create(this, Map, Splat, _liveShader);
         ApplyTheme();
 
-        _skirt = new TerrainSkirt();
-        _skirt.Init(Map, _render.RenderedX - 1, _render.RenderedZ - 1);
-        _skirt.MaterialOverride = SkirtMaterial;
-        AddChild(_skirt);
-        _skirt.Rebuild();
-        _skirtDirty = false;
+        _horizon = new TerrainHorizon();
+        _horizon.Init(Map, _render.RenderedX - 1, _render.RenderedZ - 1);
+        _horizon.MaterialOverride = HorizonMaterial;
+        _horizon.Relief = HorizonRelief();
+        _horizon.SeaLevel = _horizonSea;
+        AddChild(_horizon);
+        _horizon.Rebuild();
+        _horizonDirty = false;
+        GD.Print($"Terrain: horizon ring {_horizon.LastVertexCount} vertices, heights {_horizon.LastHeightRange.Min:0}..{_horizon.LastHeightRange.Max:0} m, built in {_horizon.LastBuildMs:0.0} ms");
         ApplyEdgeFog();
 
         GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms");
@@ -825,9 +893,9 @@ public partial class Terrain : Node3D
     /// <summary>Marks heights in the given inclusive vertex range as edited.</summary>
     public void MarkDirty(int minX, int minZ, int maxX, int maxZ)
     {
-        // The skirt follows the border heights, so edits touching the border move it too.
+        // The horizon follows the border heights, so edits touching the border move it too.
         if (_render is not null && (minX <= 0 || minZ <= 0 || maxX >= _render.RenderedX - 1 || maxZ >= _render.RenderedZ - 1))
-            _skirtDirty = true;
+            _horizonDirty = true;
         var rect = new VertexRect(minX, minZ, maxX, maxZ);
         _heightDirty = _heightDirty.Union(rect);
         Water?.GroundChanged(rect);
@@ -904,26 +972,56 @@ public partial class Terrain : Node3D
         _render.SetParam("slot_slope", slope);
         _render.SetParam("terrain_debug", _debugView);
         _render.SetParam("slot_debug", _slotDebug);
+        _render.SetParam("ground_debug", _groundDebug);
         UpdateMaterialRange();
         ApplyEdgeFog();
+        _render.SetParam("wet_shine", _wetShine);
+        _render.SetParam("global_wetness", Weather.Wetness);
+        _pushedWetness = Weather.Wetness;
 
-        if (SkirtMaterial is ShaderMaterial skirt && skirt.Shader is not null)
-            foreach (var u in skirt.Shader.GetShaderUniformList())
+        if (HorizonMaterial is ShaderMaterial hm && hm.Shader is not null)
+        {
+            foreach (var u in hm.Shader.GetShaderUniformList())
             {
                 string name = u.AsGodotDictionary()["name"].AsString();
+                if (HorizonRuntimeParams.Contains(name)) continue;
                 var value = sm.GetShaderParameter(name);
                 if (value.VariantType == Variant.Type.Nil) value = RenderingServer.ShaderGetParameterDefault(shader.GetRid(), name);
-                if (value.VariantType != Variant.Type.Nil) skirt.SetShaderParameter(name, value);
+                if (value.VariantType != Variant.Type.Nil) hm.SetShaderParameter(name, value);
             }
+            hm.SetShaderParameter("albedo_height_array", albedo);
+            hm.SetShaderParameter("material_tint", tints);
+            hm.SetShaderParameter("material_params", prms);
+            hm.SetShaderParameter("global_wetness", Weather.Wetness);
+        }
+        if (_horizon is not null && HorizonRelief() is var relief && relief != _horizon.Relief)
+        {
+            _horizon.Relief = relief;
+            _horizonDirty = true;
+        }
         ThemeChanged?.Invoke();
     }
+
+    // The theme's hill height past the border (a uniform, so it's tuned with the rest of the theme).
+    private float HorizonRelief()
+    {
+        if (Theme?.Material is not { Shader: { } shader } sm) return 0.35f;
+        var v = sm.GetShaderParameter("horizon_relief");
+        if (v.VariantType == Variant.Type.Nil) v = RenderingServer.ShaderGetParameterDefault(shader.GetRid(), "horizon_relief");
+        return v.VariantType == Variant.Type.Nil ? 0.35f : v.AsSingle();
+    }
+
+    // Horizon uniforms Terrain sets itself (not copied from the theme).
+    private static readonly System.Collections.Generic.HashSet<string> HorizonRuntimeParams =
+        ["horizon_mix", "terrain_origin", "terrain_size", "albedo_height_array", "material_tint", "material_params",
+         "has_sea", "sea_level", "global_wetness"];
 
     // Uniforms the game sets while running; a theme switch leaves them alone.
     private static readonly System.Collections.Generic.HashSet<string> RuntimeParams =
     [
         "height_min", "height_max", "terrain_origin", "terrain_size", "albedo_height_array", "normal_array", "material_tint",
         "material_params", "slot_edge", "slot_slope", "terrain_debug", "slot_debug", "ground_debug", "show_grid", "show_contours",
-        "water_ground", "water_ground_cell", "has_water_ground", "edge_fog_enabled",
+        "water_ground", "water_ground_cell", "has_water_ground", "edge_fog_enabled", "global_wetness", "wet_shine", "horizon_enabled",
     ];
 
     /// <summary>
@@ -952,5 +1050,21 @@ public partial class Terrain : Node3D
         // Edge fog follows the drawn area (the last heightmap row and column aren't drawn).
         _render.SetParam("terrain_origin", new Vector2(GlobalPosition.X, GlobalPosition.Z));
         _render.SetParam("terrain_size", new Vector2((_render.RenderedX - 1) * Map.CellSize, (_render.RenderedZ - 1) * Map.CellSize));
+        if (HorizonMaterial is ShaderMaterial hm)
+        {
+            hm.SetShaderParameter("terrain_origin", new Vector2(GlobalPosition.X, GlobalPosition.Z));
+            hm.SetShaderParameter("terrain_size", new Vector2((_render.RenderedX - 1) * Map.CellSize, (_render.RenderedZ - 1) * Map.CellSize));
+        }
     }
+}
+
+/// <summary>What the map's edge looks like (<see cref="Terrain.EdgeStyle"/>).</summary>
+public enum EdgeStyle
+{
+    /// <summary>The ground up to the border, with a thin line on it (the Map Editor).</summary>
+    Line,
+    /// <summary>A fog bank swallows the border; past it only fog.</summary>
+    Fog,
+    /// <summary>Low hills carry on past the border into the haze, with a light fog band on the border (game mode).</summary>
+    Horizon,
 }

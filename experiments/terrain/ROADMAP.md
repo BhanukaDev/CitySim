@@ -75,7 +75,8 @@ $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render
 #   --demo-generate (generator timing, preview vs full, tiling, one-step undo of live updates),
 #   --demo-erosion (erosion per preset, repeatability, lakes obey the spill rule, one-step undo), --erode[=light|medium|heavy],
 #   --show-erosion (open the Erosion & Lakes panel), --theme=<id> (switch the map's terrain theme), --show-theme (Theme panel),
-#   --view=materials|cost|slot:<n> (debug views), --demo-themes (paint across theme switches, map file v3/v2),
+#   --view=materials|cost|slot:<n>|wetlook (debug views), --demo-themes (paint across theme switches, map file v3/v2),
+#   --rain[=intensity] (it starts raining), --wetness=x (whole-map wetness at once), --edge=line|fog|horizon, --sea=level (a Sea source),
 #   --demo-water (water self-checks + tool check, then a stream/river/lake on the map, 15 sim-minutes at once),
 #   --demo-falls (1.8 km made-up map: plateau sloping 5 %, 25 m cliff, a narrow and a wide fall into a sea; try --cam=1150,1000,160,40,20),
 #   --show-water (Water panel), --hide-water, --water-speed=n, --water-run=seconds (simulate that long at once, 2 s in),
@@ -516,25 +517,36 @@ Authoring guide: `terrain_sdk/README.md`.
 - Not done / next (**M3.6**): loading themes from mod `.pck` files in `user://mods`, a modder template project, frozen lake
   water (lakes still use one water shader for every theme), a theme preview button that launches the game on the theme.
 
-### ⬜ M3.7: Wet ground look (idea, to try here)
-Ground the water has painted wet should look wet, not just sandy: darker, smoother, and catching the sun. Today the
-"Wet ground" slot (M5.5) only swaps the material, and the whole terrain is one matte roughness (0.9) with no sun
-highlight at all: the custom `light()` in `terrain_fragment.gdshaderinc` adds diffuse light only.
-- **Driven by `t.wet`** (the sim's wet paint, already sampled for the Wet slot), so it covers the same ground and dries
-  off the same way. Optionally a little from the shore distance too, for the band right at the waterline.
-- **Smoother and more specular where wet**: roughness 0.9 → ~0.3 and specular up, so the sky reflects on it.
-- **Sun glint in `light()`**: a crisp, toon-style highlight (like the water's sparkles), only where the ground is
-  smooth. `light()` can read `ROUGHNESS`, so no extra varying is needed. Broken up by the fine noise the shader already
-  computes, so it glitters in patches rather than shining like plastic.
-- **Darker albedo where wet** (damp sand reads darker), which does as much as the shine.
-- **Theme parameters**: amount, glint size/strength, darkening, set per theme in the Godot inspector (winter: icy
-  glints), like the other theme uniforms. Keep the defaults subtle: stylized looks turn plastic when too shiny.
-- **Cost (estimate)**: close to free. No new texture samples (the wet value is already read), a few multiply-adds, and
-  one dot product for the sun per pixel. The sky reflection is already computed (specular 0.2 today); lower roughness
-  only samples a sharper level. Well under 1 % of frame time. Measure before/after at a close shoreline view.
-- **Not planned**: screen-space reflections (the wet ground mirroring hills). A whole-screen post effect that can
-  cost several ms, and the sky reflection plus glint suits the style better. At most a later high-quality option.
-- **Graphics setting**: "Wet ground shine" on/off (see Graphics settings below). Off = today's matte look.
+### 🔶 M3.7: Wet ground look + rain (implemented, waiting for the user to test)
+Wet ground looked the same as dry ground apart from the Wet slot's material swap (one matte roughness of 0.9, and a
+`light()` with diffuse only). It now reads darker, richer and smoother, and catches the sun. The user asked for a
+**global wetness** too, so rain can wet the whole map.
+- **`t.wet_look`** (new in `TerrainInputs`, 0–1): max(wet paint or the waterline band × `wet_amount`, rain). The damp bank
+  beside the water is `wet_shore_band` m (16; fully wet for the first 20 %, then a long fade, noisy edge) of the sim's distance
+  to water (each metre above the water counts 4, so steep banks stay narrow). At 3 m it sat almost entirely under the
+  water's edge and couldn't be seen (user); 12 m still barely showed; 25 m covered the whole sand strip, so no dry sand
+  was left (user). 16 m leaves dry sand at the grass side. Rain is `global_wetness`, a little stronger on flat
+  ground. The Wet *slot* still uses `t.wet` only, so rain doesn't turn the map to sand.
+- **Look** (`terrain_fragment.gdshaderinc`): saturation +`wet_saturation` (0.3), albedo × (1 − `wet_darken` 0.5),
+  roughness → `wet_roughness` (0.5), specular 0.2 → `wet_specular` (0.3). The fine noise jitters the roughness
+  (`glint_sparkle`), so the glint glitters in patches. First try (0.35 darken, 0.35 roughness, 0.5 specular): the sky
+  reflection cancelled the darkening (only ~11 % darker on screen), so it's more matte and darker now.
+- **Sun glint** in the default `light()`: a toon highlight (`smoothstep` on N·H^`glint_size` 150, `glint_strength` 0.8),
+  only where roughness < 0.6, added to `SPECULAR_LIGHT`.
+- **Puddles** once `global_wetness` > `puddle_start` (0.55): patches (patchy noise) on flat (< `puddle_max_slope` 4°), low
+  ground (near gully/stream beds or water, not hilltops: the first try put them on flat hilltops, where they read as frost),
+  tinted toward `puddle_color`, darker, roughness 0.12. Faded out past 4 × the far blend distance (no specks far away).
+- **Rain** (`src/Water/Weather.cs`, engine-agnostic): `Raining`, `Intensity`, wetness rising over `RampMinutes` (10) and
+  drying over `DryHours` (2), on **sim time** (paused/sped with the water sim). `Terrain.Weather`, pushed as
+  `global_wetness` when it changes. Look only (no water in the sim yet; that's M5.3's rain event) and **not saved** with the map.
+  Water panel: **Rain** switch + **Intensity** slider, wetness in the stats.
+- `Terrain.WetShine` → `wet_shine` (off: darker but matte, no glint): the "Wet ground shine" graphics setting.
+- Themes: winter has less darkening, crisper icy glints and a pale puddle colour. SDK README lists the WetGround group.
+- Debug: `--rain[=intensity]`, `--wetness=x`, `--view=wetlook` (`ground_debug` 6).
+- Checked: dry ground renders as before (max 2/255 difference against the previous commit); `--demo-water`,
+  `--demo-themes` ok. Screenshots at wetness 0 / 0.5 / 1 (`--cam=1720,1900,90,30,200`, `--cam=1300,700,120,20,290` for
+  the glint). Cost not measured precisely (FPS in windowed screenshot runs is too noisy); no new texture samples.
+- Not done: SSR (not planned), rain drops/streaks on screen, darker sky and cloud shadows while it rains.
 
 ### Graphics settings (plan for the game)
 The experiment tries visual features; the game exposes the optional ones in a **Graphics settings** menu so players
@@ -551,10 +563,11 @@ can switch them off (or pick a quality) on weaker hardware. Build each optional 
   Custom.
 
 Candidates so far (tick when the switch exists):
-- [ ] Wet ground shine (M3.7): bool.
+- [x] Wet ground shine (M3.7): bool (`Terrain.WetShine`; no menu yet).
 - [ ] Water quality (M5.4–M5.6): enum. Low = no caustics, no white-water streaks; High = everything. The far-fall bias
   stays on at every level (it fixes a bug, it isn't an effect).
 - [ ] Water mesh detail: enum on the near LOD (1 or 2 vertices per cell, M5.4).
+- [ ] Horizon ring (M6 3e): bool, off = the Fog edge (`Terrain.EdgeStyle`).
 - [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows. (The on/off per mode from 3a is a mode rule, not a setting.)
 - [ ] Effect draw distance (caustics, glints): number, later if needed.
 - [ ] Flow arrows are an editor aid, not a graphics setting (stay a tool option).
@@ -754,7 +767,7 @@ User: shallow water (streams, small rivers) changed colour and shape a lot with 
 - Dams: an obstacle height layer in the sim (`cs_water_set_obstacles`), gates later. Buildings: damage from depth/velocity.
 - ~~Ground masks from the simulated water (sand along real rivers).~~ Done in M5.5 (wet paint, shore distance).
 
-### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3b, 3d, 3f, 3h done; next 3c)
+### 🔶 M6: Performance & scale (phases 0–2 done; phase 3: 3a, 3b, 3d, 3e, 3f, 3h done; next 3c)
 Target (user, revised 2026-09-28): the map **stops at 28,672 m** (8192 cells × 3.5 m, an "8k" heightmap), sculptable and
 buildable, on an 8 GB M1. **No 70 km background**: 28.7 km is already ~2× CS2's buildable side (4096 × 3.5 m ≈ 14.3 km),
 4× its area. The effort goes into quality and performance at 28.7 km instead (phase 3). Why 28.7 km: 3.5 m is CS2's
@@ -880,10 +893,31 @@ Phases (tick off as they land):
     play stays at 7. The fog skirt now runs out to 150 km so its end stays out of frame. Screenshots: 28.7 km at 43 km in
     both modes, 60 FPS (editor) / 50 (game); `--demo-camera` all ok. Known, not new: mountain tops right on the border
     poke above the fog skirt as small specks (in game mode).
-  - [ ] **3e. Horizon ring** (the old nice-to-have): a cheap low-poly ring a few km wide past the border, heights from the
-    edge plus noise, fading into the fog. No second `HeightMap`, no sim, not editable. Replaces the flat fog skirt in game
-    mode. Optional later: an unbuildable strip *inside* the heightmap (e.g. 1.5 km, a rule, not a grid change; could become
-    CS-style unlockable tiles with M7).
+  - [x] **3e. Horizon ring** (implemented, waiting for the user to test). Low hills past the border fading into haze, in
+    game mode instead of the flat fog skirt; a light fog band stays on the border (user's choice).
+    - **Edge styles** (`Terrain.EdgeStyle`, replaces the `EdgeFog` bool): **Line** (Map Editor default), **Fog** (the M3.1
+      bank), **Horizon** (game default). Bottom bar: the **Edge** button cycles them. Flag `--edge=line|fog|horizon`.
+    - **Mesh** (`TerrainSkirt` → `src/Terrain/TerrainHorizon.cs`): same inner loop (the border vertices), loops out to 6 km
+      then the fog tail to 150 km; outer loops are coarser (segments ~6 % of the distance, ≤ 250 m) and zipped together.
+      Two heights per vertex: Y = horizon, UV2.x = the old sinking fog floor, picked by `horizon_mix` (no rebuild to switch).
+      Horizon height = border height averaged along the border over 0.6 × distance, + fbm noise (×2, ±1) × relief growing
+      over 2 km, + a rise toward 6 km; relief = max(`horizon_relief` 0.35 × height range, 200 m). Under the sea where the
+      border is (Sea source level, `--sea=level` to add one). Rebuilds: at most 2/s.
+    - **Shader** (`shaders/terrain_horizon.gdshader`, replaces `terrain_skirt.gdshader`): lit like the terrain (same
+      `light()`), ground = the theme's `horizon_flat_material`/`horizon_steep_material` (by slope) at far tiling, fading to
+      the texture's average colour from 300 m to 1.5 km (the tiling showed as dots on far hills), × `horizon_tint`; sea in
+      `horizon_sea_color` where below the Sea source; haze from `horizon_haze_start` (400 m) to `_end` (7 km). New SDK group
+      `Horizon`; Terrain copies matching uniforms to the ring's material (runtime ones: origin/size, material arrays, sea).
+    - **Border band**: `horizon_edge_fog` (0.25) with square corners (the rounded fog corners left a pale wedge), fading out
+      with camera distance 3–15 km (from far out it framed the map), none over the sea (the map's water has none either).
+      The water's border fade is 2 m in Horizon (was 250 m, which showed the seabed along the border).
+    - Measured: 3.6 km ring 14k vertices, 14 ms; 28.7 km ~111k vertices, 54 ms. FPS at the 43 km whole-map view: 59–62.
+    - Screenshots: 3.6 km default from inside (skyline of hazy hills), island + sea from above and at 500 m, 28.7 km
+      Mountains whole map and at the border; Fog and Line modes unchanged. `--demo-sculpt/-paint/-channel/-themes/-camera/-water` ok.
+    - Not done: building the ring off the main thread (54 ms hitch on 28.7 km border strokes, 2/s at most); the ring's sea
+      doesn't animate; the ring ignores theme hooks (grass tint by height), so its colour can differ slightly from the map's
+      edge; the Edge button's label doesn't follow `--edge`. Later: an unbuildable strip *inside* the heightmap
+      (e.g. 1.5 km, a rule, not a grid change; could become CS-style unlockable tiles with M7).
   - [x] **3f. Finer water grid on big maps** (implemented, waiting for the user to test). 28.7 km water runs on **7 m cells**
     (4097², `WaterSim.MaxCells` 2048 → 4096; smaller maps stay on 3.5 m). User: it's a game, so looks and feel beat
     physical accuracy.
@@ -945,8 +979,6 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - Clean public API surface; document it here before merging into the main game
 
 ### Nice-to-have / ideas
-- Edge-of-map: the M3.1 skirt is flat fog. A real fake-terrain ring (low-poly hills fading into the fog) could replace it
-  (now planned as M6 phase 3e)
 - Camera: double-click to focus
 
 ---
@@ -1030,3 +1062,6 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - 2026-09-28 (M6 phase 3f): **looks and feel over physical accuracy** (user: "this is a game not a water sim"). Sim
   changes are judged by close-up screenshots and what players notice, e.g. water cell ground halfway between the
   mean and the lowest vertex, chosen because streams stay in their beds.
+- 2026-09-29 (M3.7, M6 3e): **rain is look only for now** (global wetness darkens/shines the ground; sim water from rain is
+  M5.3) and **weather isn't saved** with the map. **Horizon ring keeps a light fog band** on the border in game mode (user's
+  choice over a seamless border); the old fog bank stays as the Fog edge style.

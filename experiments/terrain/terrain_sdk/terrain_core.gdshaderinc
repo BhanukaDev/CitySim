@@ -72,8 +72,8 @@ uniform vec4 slot_slope[9];
 uniform int terrain_debug = 0;
 // Shows one slot's coverage (slot index), -1 off.
 uniform int slot_debug = -1;
-// 1 shore, 2 gully, 3 wear, 4 deposit, 5 wet paint: shows one ground mask in greyscale instead of the ground.
-uniform int ground_debug : hint_range(0, 5) = 0;
+// 1 shore, 2 gully, 3 wear, 4 deposit, 5 wet paint, 6 wet look (paint + rain): shows one ground mask in greyscale.
+uniform int ground_debug : hint_range(0, 6) = 0;
 // Ground marks from the water simulation (WaterSim, cs_water_read_ground in native/water/water.h), one texel per water
 // cell from the terrain origin: R distance to water (m × 4 / 255), G wet paint (how long water has stood there).
 uniform sampler2D water_ground : filter_linear, repeat_disable;
@@ -121,9 +121,44 @@ uniform float terminator_strength : hint_range(0.0, 1.0) = 0.3;
 uniform vec3 shadow_tint : source_color = vec3(0.62, 0.72, 1.0);
 uniform float shadow_tint_strength : hint_range(0.0, 1.0) = 0.5;
 
+group_uniforms WetGround;
+// Wet ground reads darker, smoother and catches the sun. Driven by the sim's wet paint (TerrainInputs.wet), the band at
+// the waterline, and the whole map's wetness from rain (global_wetness, set by the game). Keep it subtle: too shiny
+// turns plastic.
+// How much the sim's wet paint counts (0 = only rain wets the ground).
+uniform float wet_amount : hint_range(0.0, 1.0) = 1.0;
+// Width (m) of the damp bank beside water: fully wet near the water, fading out by this distance (each metre above
+// the water counts as 4, so steep banks stay narrower).
+uniform float wet_shore_band = 16.0;
+// Albedo multiplier lost when fully wet (damp soil and sand are darker).
+uniform float wet_darken : hint_range(0.0, 0.8) = 0.5;
+// Wet ground's colour gets richer (more saturated) by this much.
+uniform float wet_saturation : hint_range(0.0, 1.0) = 0.3;
+uniform float wet_roughness : hint_range(0.0, 1.0) = 0.5;
+uniform float wet_specular : hint_range(0.0, 1.0) = 0.3;
+// Sun glint on smooth ground (toon highlight in light()): strength, and its size (higher = smaller, crisper).
+uniform float glint_strength : hint_range(0.0, 4.0) = 0.8;
+uniform float glint_size : hint_range(1.0, 400.0) = 150.0;
+// 0 = the glint shines evenly, 1 = only in scattered patches (fine noise).
+uniform float glint_sparkle : hint_range(0.0, 1.0) = 0.6;
+// Rain: from this global wetness, flat low ground (below puddle_max_slope degrees, near stream beds, gullies and water)
+// collects puddles in patches.
+uniform float puddle_start : hint_range(0.0, 1.0) = 0.55;
+uniform float puddle_max_slope = 4.0;
+uniform float puddle_roughness : hint_range(0.0, 1.0) = 0.12;
+// Puddles: sky reflection (specular) and how much darker than wet ground (standing water over dark mud).
+uniform float puddle_specular : hint_range(0.0, 1.0) = 0.35;
+uniform float puddle_darken : hint_range(0.0, 0.8) = 0.35;
+// Puddles take on this colour (muddy water) by puddle_tint.
+uniform vec3 puddle_color : source_color = vec3(0.30, 0.33, 0.36);
+uniform float puddle_tint : hint_range(0.0, 1.0) = 0.5;
+// Set by the game: the whole map's wetness from rain (0-1), and the Wet ground shine graphics setting.
+uniform float global_wetness : hint_range(0.0, 1.0) = 0.0;
+uniform bool wet_shine = true;
+
 group_uniforms EdgeFog;
 // A fog bank that swallows the map border, so its hard edges and corners never show. Everything outside
-// the bounds (the TerrainSkirt ring) is pure fog; inside, the ground fades into it near the border.
+// the bounds (the TerrainHorizon ring in Fog mode) is pure fog; inside, the ground fades into it near the border.
 // Set by the game (Terrain.EdgeFog): on in game mode, off in the Map Editor unless previewing.
 uniform bool edge_fog_enabled = true;
 uniform vec3 edge_fog_color : source_color = vec3(0.80, 0.85, 0.95);
@@ -140,6 +175,26 @@ uniform float edge_fog_drift = 0.002;
 // With the fog off (the Map Editor's default), a thin line marks the border instead, about this many pixels wide.
 uniform vec3 edge_line_color : source_color = vec3(1.0, 0.95, 0.8);
 uniform float edge_line_pixels = 2.0;
+
+group_uniforms Horizon;
+// The horizon ring (TerrainHorizon, shaders/terrain_horizon.gdshader): low-poly hills past the map border that fade into
+// the haze, shown in game mode instead of the plain fog bank. Terrain.cs copies these to the ring's material.
+// Set by the game: on when the ring is shown; the fog bank at the border then thins to horizon_edge_fog.
+uniform bool horizon_enabled = false;
+uniform float horizon_edge_fog : hint_range(0.0, 1.0) = 0.25;
+// Hill height past the border, as a share of the map's height range (read when the ring is built).
+uniform float horizon_relief : hint_range(0.0, 1.0) = 0.35;
+// The ring's ground: this material on flat ground, horizon_steep_material (-1 none) above horizon_steep_slope degrees,
+// both multiplied by horizon_tint.
+uniform int horizon_flat_material = 0;
+uniform int horizon_steep_material = -1;
+uniform float horizon_steep_slope = 28.0;
+uniform vec3 horizon_tint : source_color = vec3(1.0);
+// Metres past the border where the haze starts and where the ring is lost in it.
+uniform float horizon_haze_start = 400.0;
+uniform float horizon_haze_end = 7000.0;
+// The sea past the border (where the map has a Sea source).
+uniform vec3 horizon_sea_color : source_color = vec3(0.10, 0.22, 0.30);
 
 group_uniforms Grid;
 uniform bool show_grid = false;
@@ -186,6 +241,7 @@ struct TerrainInputs {
 	float wear;         // how hard running water scours (log stream power; ~10% of an eroded map is above 1.8)
 	float deposit;      // sediment settling where water slows: fans and deltas (~1% of the ground is above 1.2)
 	float wet;          // 0-1: how long simulated water has stood or run here (fades slowly once dry)
+	float wet_look;     // 0-1: how wet the ground looks (wet paint, the waterline band and rain); darkens and shines it
 	float noise_large;  // 0-1, patches a few hundred metres across
 	float noise_medium; // 0-1, ~150 m
 	float noise_fine;   // 0-1, ~10 m

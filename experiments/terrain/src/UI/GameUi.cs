@@ -86,13 +86,23 @@ public partial class GameUi : CanvasLayer
                 if (_themePanel.Visible) _themePanel.Close(); else OpenTheme();
             });
 
-            // The editor shows the ground up to the border; this previews the fog bank the game hides it behind.
+            // The editor shows the ground up to the border; this previews what the game shows past it.
             if (Tools?.Terrain is { } terrain)
             {
-                Button? fog = null;
-                fog = _bar.AddToggle("Edge Fog", "Preview the fog at the map's edge, as in the game (the editor shows the border instead)",
-                    () => terrain.EdgeFog = fog!.ButtonPressed);
-                fog.SetPressedNoSignal(terrain.EdgeFog);
+                Button? edge = null;
+                void Show()
+                {
+                    edge!.Text = $"Edge: {terrain.EdgeStyle}";
+                    edge.SetPressedNoSignal(terrain.EdgeStyle != TerrainSystem.EdgeStyle.Line);
+                }
+                edge = _bar.AddToggle("Edge", "The map's edge, cycling: Line (the border, the editor's default), Fog (a fog bank),\n" +
+                    "Horizon (hills past the border fading into haze, as in the game)", () =>
+                {
+                    terrain.EdgeStyle = (TerrainSystem.EdgeStyle)(((int)terrain.EdgeStyle + 1) % 3);
+                    Show();
+                });
+                edge.CustomMinimumSize = new Vector2(120f, edge.CustomMinimumSize.Y);
+                Show();
             }
         }
 

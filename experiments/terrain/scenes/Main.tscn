@@ -5,7 +5,7 @@
 [ext_resource type="Script" path="res://src/Debug/DebugOverlay.cs" id="4_debug"]
 [ext_resource type="Script" path="res://src/Tools/TerrainToolController.cs" id="5_tools"]
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
-[ext_resource type="Shader" path="res://shaders/terrain_skirt.gdshader" id="9_skirt"]
+[ext_resource type="Shader" path="res://shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://materials/water.tres" id="10_water"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
@@ -18,8 +18,8 @@ height = 512
 seamless = true
 noise = SubResource("FastNoiseLite_macro")
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_skirt"]
-shader = ExtResource("9_skirt")
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_horizon"]
+shader = ExtResource("9_horizon")
 shader_parameter/macro_noise = SubResource("NoiseTexture2D_macro")
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
@@ -64,7 +64,7 @@ directional_shadow_max_distance = 1500.0
 
 [node name="Terrain" type="Node3D" parent="."]
 script = ExtResource("1_terrain")
-SkirtMaterial = SubResource("ShaderMaterial_skirt")
+HorizonMaterial = SubResource("ShaderMaterial_horizon")
 WaterMaterial = ExtResource("10_water")
 
 [node name="CityCamera" type="Node3D" parent="." node_paths=PackedStringArray("Terrain")]

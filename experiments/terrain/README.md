@@ -29,7 +29,7 @@ Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-fram
 - `src/Terrain/Terrain.cs`: owns the map, world-space queries, edit hooks (pushed to the renderer once per frame)
 - `src/Terrain/Terrain3DBridge.cs`: the render copy in the Terrain3D addon (`addons/terrain_3d/`, MIT); the only file
   that calls Terrain3D
-- `src/Terrain/TerrainSkirt.cs`, `shaders/terrain_skirt.gdshader`: fog ring hiding the map edge
+- `src/Terrain/TerrainHorizon.cs`, `shaders/terrain_horizon.gdshader`: the ring past the map edge (horizon hills in haze, or a fog floor)
 - `native/erosion/`: C++ library (plain C ABI, no Godot) for droplet + thermal erosion, draining hollows and finding
   lakes. `bin/` is gitignored: build with `native/erosion/build.sh` (first checkout, and after changing the C++)
 - `src/Terrain/Erosion/`: engine-agnostic C# side (settings, `ErosionSim`, `Lakes`/`LakeMap`, function-pointer calls

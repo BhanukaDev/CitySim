@@ -18,6 +18,7 @@ noise = SubResource("FastNoiseLite_macro")
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_theme"]
 shader = ExtResource("4_shader")
 shader_parameter/macro_noise = SubResource("NoiseTexture2D_macro")
+shader_parameter/horizon_steep_material = 6
 
 [sub_resource type="Resource" id="mat_grass"]
 script = ExtResource("2_material")

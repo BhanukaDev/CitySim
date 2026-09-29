@@ -26,6 +26,14 @@ shader_parameter/terminator_strength = 0.2
 shader_parameter/shadow_tint = Color(0.55, 0.66, 1, 1)
 shader_parameter/shadow_tint_strength = 0.7
 shader_parameter/edge_fog_color = Color(0.86, 0.9, 0.97, 1)
+shader_parameter/horizon_steep_material = 5
+shader_parameter/wet_darken = 0.25
+shader_parameter/wet_saturation = 0.1
+shader_parameter/wet_roughness = 0.35
+shader_parameter/glint_strength = 1.2
+shader_parameter/glint_size = 250.0
+shader_parameter/glint_sparkle = 0.8
+shader_parameter/puddle_color = Color(0.55, 0.62, 0.7, 1)
 
 [sub_resource type="Resource" id="mat_snow"]
 script = ExtResource("2_material")

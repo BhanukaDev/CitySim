@@ -88,6 +88,7 @@ The four strongest materials are then sampled and height-blended.
 | `wear` | How hard water scours. On an eroded map about 10% of the ground is above 1.8 |
 | `deposit` | Sediment: fans and deltas. About 1% of the ground is above 1.2 |
 | `wet` | 0–1: how long the simulated water has stood or run here. Rises over the Water panel's Wet Paint minutes, fades over Paint Fades hours once dry |
+| `wet_look` | 0–1: how wet the ground *looks* (wet paint, the band at the waterline and rain). The SDK already darkens and shines it; use it for extras (e.g. ice) |
 | `noise_large`, `noise_medium`, `noise_fine`, `noise_patchy` | 0–1 noise with patches of about 700 m, 150 m, 10 m and 35 m |
 
 **Helpers**:
@@ -105,6 +106,7 @@ uniforms can be tuned the same way:
 |---|---|
 | Style | Detail contrast, saturation, normal strength, height blend, roughness |
 | Lighting | Wrap, toon bands, terminator and shadow tints |
+| WetGround | How wet ground looks: darkening, saturation, roughness and sky reflection, the sun glint (size, strength, sparkle) and rain puddles. `global_wetness` and `wet_shine` are set by the game |
 | EdgeFog | The fog along the map edge |
 | Tiling | Far blend distance, noise sizes |
 

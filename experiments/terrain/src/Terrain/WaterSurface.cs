@@ -50,6 +50,21 @@ public partial class WaterSurface : Node3D
     private long _published = -1;
     private double _sinceTick;
 
+    private float _edgeFade = 250f;
+    /// <summary>
+    /// Metres over which the water fades out toward the border (into the edge fog). The horizon ring's sea carries on past
+    /// the border, so there it's only a couple of metres.
+    /// </summary>
+    public float EdgeFade
+    {
+        get => _edgeFade;
+        set
+        {
+            _edgeFade = value;
+            foreach (var page in _pages) page?.Material.SetShaderParameter("edge_fade", value);
+        }
+    }
+
     public void Init(WaterSim sim, Material? material, HeightMap ground)
     {
         _sim = sim;
@@ -86,6 +101,7 @@ public partial class WaterSurface : Node3D
         mat.SetShaderParameter("cell_size", sim.CellSize);
         mat.SetShaderParameter("map_size", _mapSize);
         mat.SetShaderParameter("map_origin", _mapOrigin);
+        mat.SetShaderParameter("edge_fade", _edgeFade);
         var tiles = new MeshInstance3D?[_tilesPerPage * _tilesPerPage];
         for (int tz = 0; tz < _tilesPerPage; tz++)
             for (int tx = 0; tx < _tilesPerPage; tx++)
