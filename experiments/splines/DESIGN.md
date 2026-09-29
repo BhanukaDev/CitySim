@@ -1,0 +1,275 @@
+# Splines: Design
+
+The spec for the shared spline addon: what the player does, how it's stored, and what a network type can change.
+`ROADMAP.md` has the build order and status. The storyboard (every control below drawn as a still) is
+`docs/spline-controls.html`, also published at https://claude.ai/code/artifact/84122d18-d480-4230-b047-de480dfda51e.
+
+## Scope: a generic addon
+
+The addon draws, stores, edits and validates **splines on the terrain**, and shapes the ground under them. It knows nothing about roads, rails or canals.
+Everything specific to a network comes from a **profile** (rules as data) and from **hooks** the consuming project
+provides (meshes, lanes, costs, terrain shaping).
+
+```
+packages/citysim_splines/        the addon (planned; built from this experiment, like citysim_terrain)
+  src/Core/                      engine-agnostic: graph, alignment geometry, fillet, snapping, validation, undo. No Godot types.
+  src/Godot/                     tools, input, preview rendering, HUD, profile resources, terrain adapter
+experiments/splines/             the testbed: every tool and rule, with placeholder profiles and flat-ribbon visuals
+experiments/roads/ rails/ canals/   consumers: real profiles, meshes, junction art, simulation data
+```
+
+Rules for staying generic:
+- No network names in the addon code. "Street", "Rail" and the rest exist only as profile files in the consumers,
+  plus test copies in this experiment.
+- Everything that differs between networks is a profile field or a hook. If a consumer needs an `if (isRail)`,
+  add a profile field instead.
+- Core stays free of Godot types (`System.Numerics` only), the same as `HeightMap`, so it ports to the main game and
+  can run in headless checks.
+- Each segment carries a `CustomData` slot for the consumer (lanes, speed, zoning, pollution), which the addon stores,
+  saves and copies on split/merge but never reads.
+
+## Data model
+
+### Graph
+- **Node**: a junction or an end. It holds a position and the list of edges meeting there.
+- **Edge**: runs between two nodes and owns one **alignment** and one **vertical profile**. It references a profile
+  by id. Its `CustomData` belongs to the consumer.
+- Crossing or ending on an edge splits it and adds a node. Deleting an edge whose node is left with exactly two
+  straight-through edges of the same profile merges them back into one.
+
+### Alignment: points of intersection (PIs), not Béziers
+An edge is stored the way civil engineers lay out a road: a polyline of **PIs** (the corner points the player clicked).
+Each interior PI has:
+- `Radius`: the arc that rounds that corner (0 = hard corner).
+- `Spiral`: transition length in and out (a clothoid; 0 = plain arc).
+- `Hard`: the player asked for a sharp corner (Alt).
+
+Geometry is derived: straights, then spiral + arc + spiral at each PI. We don't use Béziers because:
+- The radius is exact and constant. It's the number the rules, the HUD and rail speed need.
+- Offsets of lines and arcs are still lines and arcs, so parallel networks come out exact.
+- Editing stays simple: move a point or change a radius. There are no tangent handles to keep in sync.
+- All four draw modes produce PIs (see below), so there's one representation.
+
+If a radius doesn't fit between its neighbours, the corner is **clamped** to the largest radius that fits
+(the tangent length is at most half of each neighbouring leg, or the whole leg at an end). The clamped value is
+stored as `EffectiveRadius`, and validation flags it.
+
+Queries on an alignment: length, position / tangent / curvature at a distance, closest point, sampling at a spacing,
+offset curve, intersection with another alignment, and minimum radius over a range.
+
+### Vertical profile
+This is a list of `(distance, height, mode)` stations along the edge. `mode` is `Ground` (follow the terrain),
+`Absolute`, or `Offset` (relative to the ground). Grade between stations is derived. PgUp/PgDn while drawing adds or
+changes the station at the current point.
+
+`Ground` doesn't mean "copy every bump". The spline's height line is the ground sampled along the centre, then
+**averaged over `GroundSmoothing` and limited to `MaxGrade`**. A street (20 m) hugs the hills. A rail line (400 m)
+runs straight through them on cuts and embankments, like Transport Fever 2. This answers the top CS1 complaint that
+roads build "masses of ground" instead of climbing hills. The terrain is then shaped to meet that line (below). The spline height is
+the top of the section: the road surface, or a canal's bank top.
+
+## Terrain shaping
+
+The addon shapes the ground under and around a spline. It is generic: the profile's **section template** decides the
+shape, so roads, rail embankments, canals and building pads all use the same code.
+
+### Section template (profile)
+- `Section`: points across the spline, `(offset from centre, height relative to the spline)`, mirrored on both sides.
+  - Road: `(0, 0) (6, 0) (10, -0.2)`, a 12 m flat top plus a 4 m shoulder falling slightly.
+  - Rail: `(0, 0) (3, 0) (4.5, -0.6)`, a ballast bed.
+  - Canal: `(0, -3) (3, -3) (6, 0) (7, 0)`, a 6 m bed 3 m deep, sloped banks, and a towpath lip.
+  - Fence / wall: no section (`Shaping = None`), so it just drapes on the ground.
+- `CutSlope`, `FillSlope`: the angle at which the section's outer edge blends back into the natural ground, cutting
+  down into a hill or building an embankment out over a dip. Roads use 1:2 (≈ 27°) for both.
+- `Edge`: `Slope` blends out at the cut/fill slope. `Wall` ends the section in retaining walls, with no slope,
+  for tight or steep spots. `Auto` uses walls only where the cut or fill is higher than `WallAbove`. Walls are
+  consumer visuals (`ISplineVisual`), and the addon only reports where they are and how tall.
+- `Shaping`: `Section` or `None`. The options bar has a **Shape ground** toggle, defaulting to the profile's
+  setting, so the player can lay a road on the ground as is (Network Anarchy's "no terrain change").
+
+### How it's applied
+- **When:** once, when a spline is **built** (finish) and when an Edit **drag is released**. There's no live
+  preview, so drawing never touches the heightmap. This is deliberate: a per-frame terrain edit re-uploads large
+  Terrain3D regions and wakes the water. The cursor tag may show the largest cut/fill along the centre
+  (`cut 4 m · fill 6 m`), computed from a few ground samples. That's cheap text, not a preview.
+- **What:** for each terrain vertex in the corridor, find the closest point on the alignment (station `s`,
+  offset `d`).
+  - Inside the section, the height is `spline height(s) + section(|d|)`.
+  - Outside it, the height moves from the section edge toward the natural ground at `CutSlope` (ground above) or
+    `FillSlope` (ground below), and stops where it meets the ground.
+  - Where two corridors overlap, the vertex takes the closer spline.
+- **Junctions:** a node's footprint is flattened as a plate at the node height, so arms meet cleanly. Edges next
+  to a moved node are re-shaped with it.
+- **Undo:** the spline command and its terrain change are **one undo step** (`terrain.BeginEdit()` inside the same
+  command).
+- **Delete:** the ground **stays shaped**, as in Cities: Skylines. The player sculpts it back if they want.
+- **Water:** nothing special. The terrain package updates water, lakes and ground masks after any edit, so a
+  canal cut fills with water on its own if it connects to a water source.
+- The shaping math is Core code working on a small height-grid interface (`IHeightEdit`: read, write, cell size).
+  The Godot side hands it the terrain's `edit.Heights`.
+
+## Profiles (`SplineProfile`)
+
+A Godot `Resource` wrapping a plain-C# `ProfileRules` record. Consumers create one `.tres` per network type. The
+numbers are game feel, not engineering standards.
+
+| Field | Meaning | Street | Highway | Rail | Canal | Fence |
+|---|---|---|---|---|---|---|
+| `Width` | corridor width (snapping, junction cut-back, collision) | 12 m | 24 m | 5 m | 14 m | 0.3 m |
+| `DefaultRadius` | corner radius a new corner gets | 16 m | 300 m | 500 m | 40 m | 0 |
+| `MinRadius` | lower limit (below = invalid unless Anarchy) | 10 m | 200 m | 300 m | 25 m | 0 |
+| `AllowHardCorners` | Alt-click makes a sharp corner | yes | no | no | no | yes (default) |
+| `SpiralLength` | transition in/out of each arc | 0 | 60 m | 80 m | 0 | 0 |
+| `JunctionKind` | `Node` (any branch), `Turnout` (tangent branch only), `Join` (no junction shape), `None` | Node | Turnout (ramps) | Turnout | Node | Join |
+| `MinJunctionAngle` | smallest angle between arms at a `Node` junction | 30° | n/a | n/a | 45° | 0° |
+| `TurnoutMaxAngle` | largest branch angle for `Turnout` | n/a | 8° | 6.3° (1:9) | n/a | n/a |
+| `MaxGrade` | steepest slope | 12 % | 5 % | 2.5 % | 0 % | follows ground |
+| `SnapLength` | length step | 8 m | 8 m | 8 m | 8 m | 2 m |
+| `SpeedFromRadius` | show a speed readout from `v = √(a·R)` with lateral `a` | off | on, a = 2.0 | on, a = 2.2 | off | off |
+| `ParallelPresets` | named offset sets for Parallel mode | – | carriageways | twin track | towpath | – |
+| `VerticalMode` | default station mode | Ground | Ground | Ground | Absolute (level water) | Ground |
+| `Shaping` | shape the ground with `Section` | Section | Section | Section | Section | None |
+| `Section` | cross-section points (see Terrain shaping) | flat 12 m + shoulder | flat 24 m + shoulder | ballast bed | 3 m deep channel | – |
+| `CutSlope` / `FillSlope` | blend angle back to natural ground | 1:2 / 1:2 | 1:2 / 1:3 | 1:1.5 / 1:2 | 1:2 / 1:2 | – |
+| `GroundSmoothing` | how far along the line the ground is averaged for `Ground` stations (short = hugs hills) | 20 m | 250 m | 400 m | level | 0 (exact) |
+| `Edge` | how the section meets the ground: `Slope`, `Wall`, or `Auto` (walls above `WallAbove`) | Auto, 3 m | Slope | Auto, 4 m | Auto, 2 m | – |
+| `MaxCutFill` | above this the edge turns amber ("consider a bridge or tunnel") | 8 m | 15 m | 15 m | 6 m | – |
+| `SnapProviders` | which snaps and guides this profile offers | all | all | all | all | no parallel |
+
+Profiles can also restrict which other profiles they connect to (a canal doesn't join a road; a road crosses a canal
+only as a bridge). That's `ConnectsTo`, a list of profile ids or tags.
+
+## Player controls
+
+One Draw tool with four modes and one Edit tool. Camera keys are unchanged from the terrain experiment
+(WASD, Q/E, R/F, Z/X, wheel, middle-drag).
+
+### Draw tool
+| Input | Action |
+|---|---|
+| LMB | place a point (start / corner) |
+| Double-click, Enter | finish the spline |
+| RMB | remove the last point; with none left, cancel |
+| Esc | cancel the spline; again leaves the tool |
+| Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
+| Shift+wheel, `[` `]` | radius of the corner being placed (clamped to `MinRadius` unless Anarchy) |
+| Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° |
+| Space (hold) | all snapping off |
+| `1`–`4` | Draw · Curve · Freehand · Grid |
+| `P` | Parallel on/off; wheel changes the offset, Alt flips the side |
+| PgUp / PgDn | elevation step (1 / 2.5 / 5 / 10 m, chosen in the options bar) |
+| Ctrl+A | Anarchy: ignore radius, angle and grade limits (the result shows red but is built) |
+| Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y | undo / redo |
+
+**Modes** all produce PIs:
+1. **Draw**: each click is a PI with the profile's `DefaultRadius`. This is the default mode.
+2. **Curve**: CS-style three clicks: start, bend, end. The bend is the PI, and the radius is the largest one that
+   fits, so the arc passes near the bend point.
+3. **Freehand**: hold LMB and drag. Samples are simplified (Ramer–Douglas–Peucker) into PIs, and each PI gets a
+   radius fitted to the stroke, clamped to the profile.
+4. **Grid**: corner, width, depth (three clicks). Makes a block of edges with 90° `Node` junctions. Sizes snap to
+   `SnapLength`.
+
+### Edit tool (`M`)
+| Input | Action |
+|---|---|
+| LMB on a spline | select it: shows PIs, nodes and a radius knob on each corner |
+| Drag a PI / node | move it; connected edges follow and keep their radii |
+| Drag a radius knob | change that corner's radius (same limits as drawing) |
+| Alt + drag a PI | snap it onto the line through its neighbours (straighten) |
+| RMB on a PI / node | radial menu: Smooth · Hard corner · Straighten · Delete |
+| Drag on empty ground | box select; drag the selection to move it |
+| Delete | delete the selection |
+
+### Feedback
+- **Colours**: blue preview / valid, amber warning (still buildable: clamped radius, tight junction), red invalid
+  (below a hard limit without Anarchy, or collision), and grey/asphalt for built.
+- **Cursor tag**: segment length, heading, turn angle at the last corner, corner radius, and grade %. It adds speed
+  when `SpeedFromRadius` is on. Mono font, next to the cursor.
+- **Snap tag**: names the snap or guide that caught ("extension", "parallel · 24 m gap", "node", "336 m · 42 × 8 m").
+- **Cut/fill tag** (profiles with shaping): the largest cut and fill along the centre, e.g. `cut 4 m · fill 6 m`.
+- **Issue list**: validation results in plain words with the fix ("22°, min 30° · Ctrl+A allows").
+
+## Snapping and guides
+
+Snap providers run in priority order and the first hit wins, unless Space is held. Snapped values are **exact**
+(90.0°, 336.0 m), not "near". Catch distances are in **screen pixels** (~8 px), so snapping feels the same at every zoom.
+
+### Guides
+A guide is a dashed line the cursor can lock onto. Guides are **only shown when aligned**: nothing is drawn until the
+cursor comes within catch distance of one. Then that guide lights up (at most two at once) with a tag saying what
+it is. Guides come from edges and nodes near the cursor (on screen, within ~400 m).
+
+| Guide | What it is | Tag |
+|---|---|---|
+| **Extension** | A straight edge end continues past its end node. An arc end continues along its end tangent. | `extension` |
+| **Node alignment** | A line through another node, along that node's edge directions and square to them, and along the current leg's reference directions (the start edge's heading, and 90° to it). It lights up when the cursor lines up with the node, like Figma's smart guides. | `aligned · Elm St node` |
+| **Parallel** | A line alongside a nearby edge at a clean spacing: edge-to-edge gap = 0, then steps of `SnapLength` (one lot, 8 m), measured between the two corridors' sides (half widths added). It follows arcs as concentric arcs, so a new road can run alongside a curve. | `parallel · 24 m gap` |
+| **Perpendicular** | A line square to a nearby edge, through the cursor. The foot point on the edge is a snap target too. | `90° to edge` |
+| **Equal length** | Not a line: a tick on the current leg when its length equals the previous leg's, or a nearby edge's. | `= 64 m` |
+
+**Guide crossings** (e.g. extension × node alignment, or parallel × perpendicular) are the strongest guide snap. The
+point where two guides meet is where a planned grid wants the next corner.
+
+### Priority
+1. Existing node (radius ~ half the profile width)
+2. Existing edge (T-junction point, closest point on the alignment)
+3. Guide crossing
+4. Single guide: extension, node alignment, parallel, perpendicular
+5. Angle relative to the edge you started from: 90°, then 45° (soft, on by default)
+6. Ctrl: absolute 15° / 5° steps (this overrides 3–5)
+7. Length in `SnapLength` steps along the current leg, and equal length
+
+Guides rank **below** nodes and edges and never override Ctrl angle steps. In CS2, guide snapping "can often break
+grids if left on", and players turn it off. Keeping guides low in priority, exact and shown only when aligned is the
+answer to that.
+
+Each snap and each guide type toggles in the options bar, as in CS2. A profile can switch providers off
+(`SnapProviders`), so a fence doesn't offer parallel-to-highway guides unless it wants them.
+
+## Junctions
+- They form automatically when a new edge ends on, or crosses, an edge whose profile is in `ConnectsTo`.
+- `Node` kind: splits both edges. Arms are cut back from the node centre so the corners fit. The addon computes the
+  **junction footprint** (the arm cut-backs and curb corner arcs from the arm widths and the smaller arm's
+  `DefaultRadius`). The consumer draws it.
+- `Turnout` kind: a branch has to leave tangentially, within `TurnoutMaxAngle`. A square attempt shows red, and the
+  tool offers the nearest legal turnout as a ghost.
+- `Join` kind: edges meet at a shared node with no footprint (fences, walls).
+- An angle below `MinJunctionAngle` is amber (buildable). Anarchy removes the check.
+- A crossing that isn't allowed by `ConnectsTo` is red, or becomes a bridge/tunnel if the vertical gap is enough
+  (later milestone).
+
+## Validation
+
+Each edge and node gets a list of issues `{Severity: Warn|Invalid, Code, Message, Where}`. The checks are: radius
+(clamped → Warn, below `MinRadius` → Invalid), junction angle, turnout angle, grade, self-overlap, overlap with
+other corridors, and too-short edges. Anarchy downgrades Invalid to Warn. Validation is pure Core code, so headless
+checks can run it.
+
+## Hooks for consumers
+
+These are C# events and interfaces on the Godot side, with plain data only:
+- `EdgeAdded / EdgeChanged / EdgeRemoved(edgeId)`, `NodeChanged(nodeId)`, and `GraphReplaced` (load/undo). They fire
+  once per frame, batched, like the terrain's `HeightsChanged`.
+- `ISplineVisual`: the consumer builds the mesh for an edge or a junction footprint. The testbed ships a flat-ribbon
+  visual.
+- `ISplineCost` (optional): cost per metre, per junction, per grade, for the HUD.
+- `CorridorOf(edgeId)`: polygon + heights, for the consumer's zoning and placement. (Terrain shaping is built in:
+  see Terrain shaping.)
+- `ShapingOverride` (optional): a consumer can replace or post-process the section per edge. For example, a road
+  experiment might widen the section where a bus stop sits.
+- Custom data copies across split/merge through `ISplineDataPolicy` (the default copies it unchanged).
+- The terrain goes through an `IGround` adapter (`Raycast`, `GetHeight`, `HeightsChanged` → re-conform `Ground`
+  stations). The Godot side implements it with `citysim_terrain`, so Core never references the terrain.
+
+## Undo, save
+
+- Every tool action is one command on the graph (add / remove / move / set radius / split / merge). There's one undo
+  stack, and a spline edit that also shapes terrain joins the terrain's undo step.
+- Save: a versioned graph file (nodes, edges, PIs, stations, profile ids, custom data blobs), next to the `.csmap`.
+  Profile ids are strings so mods can add profiles.
+
+## Deliberately later
+Lanes, markings and traffic rules (TM:PE, Intersection Marking Tool territory) belong to the consumers. The addon
+only stores their custom data. Also deferred: roundabout and prefab junction placement, bridges and tunnels, the
+Replace/Upgrade tool, and copy/paste of whole layouts. Each is a milestone once the basics are in.

@@ -15,7 +15,9 @@ profiled hot paths.
 ## Experiments
 - `experiments/terrain/`: terrain system and the in-app Map Editor. **Read `experiments/terrain/ROADMAP.md` first.** It has
   status, next steps, build/verify commands and decisions. Update it when a milestone changes.
-- `experiments/splines/`: splines for roads, canals, walls and fences (just started: terrain only, `--demo-edit`).
+- `experiments/splines/`: testbed for the **generic** spline addon (roads, rails, canals, fences, walls build on it as
+  separate consumer experiments). **Read `experiments/splines/ROADMAP.md` first**, then `DESIGN.md` (the spec).
+  Feature first, performance later (milestone S11).
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

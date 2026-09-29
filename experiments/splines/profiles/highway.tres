@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="SplineProfile" format=3]
+
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+Id = "highway"
+DisplayName = "Highway"
+Color = Color(0.30, 0.32, 0.38, 1)
+Width = 24
+DefaultRadius = 300
+MinRadius = 200
+AllowHardCorners = false
+SpiralLength = 60
+SnapLength = 8
+ParallelPresets = "carriageways:-16,16"
+JunctionKind = 1
+MinJunctionAngle = 0
+TurnoutMaxAngle = 8
+VerticalMode = 0
+MaxGradePercent = 5
+GroundSmoothing = 250
+SpeedFromRadius = true
+LateralAccel = 2.0
+Shaping = 0
+Section = PackedVector2Array(0, 0, 12, 0, 16, -0.3)
+CutSlope = 2
+FillSlope = 3
+Edge = 0
+WallAbove = 0
+MaxCutFill = 15

@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="SplineProfile" format=3]
+
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+Id = "rail"
+DisplayName = "Rail"
+Color = Color(0.55, 0.40, 0.30, 1)
+Width = 5
+DefaultRadius = 500
+MinRadius = 300
+AllowHardCorners = false
+SpiralLength = 80
+SnapLength = 8
+ParallelPresets = "twin track:-4.5,4.5"
+JunctionKind = 1
+MinJunctionAngle = 0
+TurnoutMaxAngle = 6.3
+VerticalMode = 0
+MaxGradePercent = 2.5
+GroundSmoothing = 400
+SpeedFromRadius = true
+LateralAccel = 2.2
+Shaping = 0
+Section = PackedVector2Array(0, 0, 3, 0, 4.5, -0.6)
+CutSlope = 1.5
+FillSlope = 2
+Edge = 2
+WallAbove = 4
+MaxCutFill = 15

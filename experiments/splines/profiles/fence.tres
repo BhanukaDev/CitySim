@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="SplineProfile" format=3]
+
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+Id = "fence"
+DisplayName = "Fence"
+Color = Color(0.75, 0.62, 0.40, 1)
+Width = 0.3
+DefaultRadius = 0
+MinRadius = 0
+AllowHardCorners = true
+SpiralLength = 0
+SnapLength = 2
+SnapProviders = 991
+JunctionKind = 2
+MinJunctionAngle = 0
+TurnoutMaxAngle = 0
+VerticalMode = 0
+MaxGradePercent = -1
+GroundSmoothing = 0
+SpeedFromRadius = false
+Shaping = 1
+Section = PackedVector2Array()
+CutSlope = 0
+FillSlope = 0
+Edge = 0
+WallAbove = 0
+MaxCutFill = 0

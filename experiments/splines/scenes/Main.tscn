@@ -4,6 +4,8 @@
 [ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Camera/CityCamera.cs" id="2_camera"]
 [ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Debug/ScreenshotCapture.cs" id="4_capture"]
 [ext_resource type="Script" path="res://src/EditDemo.cs" id="5_demo"]
+[ext_resource type="Script" path="res://src/Demos/GeometryDemo.cs" id="6_geometry"]
+[ext_resource type="Script" path="res://src/SplinesTestbed.cs" id="7_testbed"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
@@ -84,3 +86,9 @@ CityCamera = NodePath("../CityCamera")
 [node name="EditDemo" type="Node" parent="." node_paths=PackedStringArray("Terrain")]
 script = ExtResource("5_demo")
 Terrain = NodePath("../Terrain")
+
+[node name="GeometryDemo" type="Node" parent="."]
+script = ExtResource("6_geometry")
+
+[node name="SplinesTestbed" type="Node" parent="."]
+script = ExtResource("7_testbed")

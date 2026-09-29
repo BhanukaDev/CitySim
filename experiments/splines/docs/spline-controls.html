@@ -1,0 +1,529 @@
+<title>Spline Controls</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC; --contour:#CCD6C7;
+  --asphalt:#57616B; --paint:#F4F1E6; --accent:#2463D1; --accent-soft:rgba(36,99,209,.14); --warn:#C07A00; --bad:#C23A2B;
+  --water:#4F8DB8; --bank:#A9B69F; --ballast:#A39B8F; --steel:#3B4247; --fence:#6E5A40;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739; --contour:#24302D;
+  --asphalt:#65707A; --paint:#E9E5D7; --accent:#6A9CF2; --accent-soft:rgba(106,156,242,.18); --warn:#E5A430; --bad:#E7654F;
+  --water:#3F7FAD; --bank:#3E4B3B; --ballast:#6F695F; --steel:#B4BBC0; --fence:#BE9F74;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739; --contour:#24302D;
+  --asphalt:#65707A; --paint:#E9E5D7; --accent:#6A9CF2; --accent-soft:rgba(106,156,242,.18); --warn:#E5A430; --bad:#E7654F;
+  --water:#3F7FAD; --bank:#3E4B3B; --ballast:#6F695F; --steel:#B4BBC0; --fence:#BE9F74;
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding:0 20px}
+main{max-width:1120px;margin:0 auto;padding-block:36px 64px;display:grid;gap:52px}
+header{display:grid;gap:10px;max-width:70ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 56px/0.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:68ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:18px}
+.sec-head{display:grid;gap:6px}
+.sec-head p{color:var(--muted)}
+.frames{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.frames.pair{grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
+.frames.three{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+figure svg{display:block;width:100%;height:auto;background:var(--map)}
+figcaption{padding:10px 12px 12px;display:grid;gap:4px;align-content:start;font-size:13.5px;color:var(--muted)}
+figcaption h3{color:var(--ink)}
+.step{font:500 11px/1 var(--mono);color:var(--accent);letter-spacing:.06em}
+kbd{font:500 11.5px/1 var(--mono);padding:2px 5px 3px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--paper);color:var(--ink);white-space:nowrap}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:760px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td{font-variant-numeric:tabular-nums}
+td:first-child{font-weight:600}
+tr:last-child td{border-bottom:0}
+.num{font-family:var(--mono);font-size:12.5px}
+.note{font-size:13.5px;color:var(--muted);max-width:80ch}
+.two{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.keys{display:grid;gap:8px 20px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));font-size:14px}
+.keys div{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:baseline;padding-block:6px;border-bottom:1px solid var(--line)}
+.src{columns:2 320px;gap:28px;font-size:13.5px;color:var(--muted);padding-left:18px;margin:0}
+.src li{margin-bottom:6px;break-inside:avoid}
+.src b{color:var(--ink);font-weight:600}
+a{color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.sw{width:18px;height:4px;border-radius:2px;display:inline-block}
+/* svg */
+svg text{font-family:var(--mono)}
+.t-tag{font-size:8.5px;fill:var(--ink)}
+.t-small{font-size:7.5px;fill:var(--muted)}
+.t-lbl{font-size:8.5px;fill:var(--muted)}
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">CitySim · splines experiment · step 1</span>
+  <h1>Spline Controls</h1>
+  <p class="lede">How a player draws roads, rails, canals, fences and walls with one shared spline tool. Every frame below is a still of the proposed control scheme. Each network type brings its own curve rules. The hands stay the same.</p>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--accent)"></i>preview / valid</span>
+    <span><i class="sw" style="background:var(--warn)"></i>warning, still buildable</span>
+    <span><i class="sw" style="background:var(--bad)"></i>not allowed</span>
+    <span><i class="sw" style="background:var(--asphalt)"></i>built</span>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head"><h2>Drawing a road, click by click</h2>
+  <p>A single Draw tool. You click points and every corner rounds itself to the network's corner radius, so three clicks give a smooth bend. There are no separate curve handles to fiddle with. This mode is the default.</p></div>
+  <div class="frames" id="story"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Four ways to shape a curve</h2>
+  <p>Keys <kbd>1</kbd>–<kbd>4</kbd> switch mode. Draw covers most roads. Curve is the CS-style mode for exact arcs. Freehand is for organic country lanes and rivers-to-be. Grid lays out city blocks.</p></div>
+  <div class="frames" id="modes"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Same three clicks, six networks</h2>
+  <p>The clicks are identical in every frame. The network profile decides the result: a street can take a tight corner, a highway sweeps, and a rail line wants more room than the clicks give it, so it takes the largest curve that fits and flags it amber. A fence keeps the hard corner.</p></div>
+  <div class="frames three" id="nets"></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Profile</th><th>Design speed</th><th>Min radius</th><th>Default corner</th><th>Hard corners</th><th>Transition curve</th><th>Junctions</th><th>Max grade</th></tr></thead>
+    <tbody>
+      <tr><td>Street</td><td class="num">40 km/h</td><td class="num">10 m</td><td class="num">16 m</td><td>Yes (<kbd>Alt</kbd>)</td><td>None</td><td>Any angle ≥ 30°</td><td class="num">12 %</td></tr>
+      <tr><td>Avenue</td><td class="num">60 km/h</td><td class="num">40 m</td><td class="num">60 m</td><td>No</td><td>None</td><td>≥ 45°</td><td class="num">8 %</td></tr>
+      <tr><td>Highway</td><td class="num">100 km/h</td><td class="num">200 m</td><td class="num">300 m</td><td>No</td><td class="num">60 m spiral</td><td>Ramps only, tangent</td><td class="num">5 %</td></tr>
+      <tr><td>Rail</td><td class="num">120 km/h</td><td class="num">300 m</td><td class="num">500 m</td><td>No</td><td class="num">80 m spiral</td><td>Turnouts only</td><td class="num">2.5 %</td></tr>
+      <tr><td>Canal</td><td class="num">boats</td><td class="num">25 m</td><td class="num">40 m</td><td>No</td><td>None</td><td>≥ 45°</td><td class="num">0 % (locks)</td></tr>
+      <tr><td>Fence / wall</td><td class="num">n/a</td><td class="num">0 m</td><td class="num">0 m</td><td>Yes, default</td><td>None</td><td>Joins, no geometry</td><td>Follows ground</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">These numbers are game-feel values, not engineering standards, and they live in the profile resource, so a mod or a new road type can change them. The player can raise a corner above the default with <kbd>Shift</kbd>+wheel. Going below the minimum needs Anarchy (<kbd>Ctrl</kbd>+<kbd>A</kbd>) and shows red. Rail and highway speed is worked out from the tightest radius on the line, the way Transport Fever 2 does it.</p>
+  <div class="two" id="curv"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Snapping</h2>
+  <p>Snaps are exact values, so a 90° snap lands on 90.0°, not 89.6°. A small tag says which snap is active, so the tool never feels like it has a mind of its own. Hold <kbd>Space</kbd> to draw with no snapping.</p></div>
+  <div class="frames" id="snap"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Guides to other roads and nodes</h2>
+  <p>Guides show only when you line up with something, at most two at a time, each with a tag saying why. CS2 draws guides too, but players turn them off because they pull roads off the grid. Here guides rank below lots and angles, give exact values, and each type has its own toggle.</p></div>
+  <div class="frames three" id="guides"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Junctions</h2>
+  <p>Junctions appear automatically wherever a new spline ends on, or crosses, an existing one. The profile decides what counts as a legal junction.</p></div>
+  <div class="frames three" id="junc"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Editing after the fact</h2>
+  <p>This is Move It in miniature, built into the game. Press <kbd>M</kbd> or click a built spline with the Edit tool. You fix a junction by dragging it, without bulldozing and redrawing.</p></div>
+  <div class="frames three" id="edit"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Parallel and elevation</h2>
+  <p>Parallel draws several networks at once, which suits a road with a canal alongside, twin rail tracks, or a wall along a street. Elevation moves up or down in fixed steps while you draw.</p></div>
+  <div class="frames three" id="par"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Shaping the ground</h2>
+  <p>When a spline is built, the ground is shaped to the network's cross-section, cut into hills and filled over dips, then blended back to natural ground at the section's slope. It happens once, on build or when an edit drag is released. There's no live preview, so drawing never touches the terrain. The ground stays shaped if the spline is deleted.</p></div>
+  <div class="frames pair" id="shape"></div>
+  <p class="note">CS1 players complain that roads pile up <q>masses of ground</q> instead of climbing hills, and CS2 players that even small slopes reshape whole neighbourhoods. Transport Fever 2 averages bumps into a straight line and falls back to embankments. So how closely a line hugs the ground is a profile setting: streets hug, rails smooth.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Keys and mouse</h2>
+  <p>Camera keys stay as they are in the terrain experiment (WASD, Q/E, Z/X, middle-drag). Modifiers follow what CS1 players learned from Precision Engineering.</p></div>
+  <div class="keys">
+    <div><span><kbd>LMB</kbd></span><span>Place a point · start or continue</span></div>
+    <div><span><kbd>Double-click</kbd> <kbd>Enter</kbd></span><span>Finish the spline</span></div>
+    <div><span><kbd>RMB</kbd></span><span>Remove last point (CS style: one step back)</span></div>
+    <div><span><kbd>Esc</kbd></span><span>Cancel spline, then leave tool</span></div>
+    <div><span><kbd>Alt</kbd> + click</span><span>Hard corner (if the profile allows it)</span></div>
+    <div><span><kbd>Shift</kbd>+wheel · <kbd>[</kbd> <kbd>]</kbd></span><span>Corner radius (matches terrain brush size)</span></div>
+    <div><span><kbd>Ctrl</kbd> hold</span><span>15° angle steps · <kbd>Ctrl</kbd>+<kbd>Shift</kbd> 5°</span></div>
+    <div><span><kbd>Space</kbd> hold</span><span>Snapping off</span></div>
+    <div><span><kbd>1</kbd>–<kbd>4</kbd></span><span>Draw · Curve · Freehand · Grid</span></div>
+    <div><span><kbd>M</kbd></span><span>Edit tool (nodes, handles, radial menu)</span></div>
+    <div><span><kbd>P</kbd></span><span>Parallel on/off · wheel for offset · <kbd>Alt</kbd> flips side</span></div>
+    <div><span><kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>Elevation step up / down</span></div>
+    <div><span><kbd>Ctrl</kbd>+<kbd>A</kbd></span><span>Anarchy: ignore min radius, angle, slope</span></div>
+    <div><span><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></span><span>Undo / redo</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>What this draws on</h2>
+  <p>What CS1/CS2 and their mods do, and what players say they like or miss.</p></div>
+  <ul class="src">
+    <li><b>CS2 tool modes</b>: Straight, Simple curve (3 clicks), Complex curve (4), Continuous, Grid, Replace. Parallel offset 0.25–12 cells, elevation steps 1.25 to 10 m. <a href="https://cs2.paradoxwikis.com/Roads">CS2 wiki: Roads</a></li>
+    <li><b>CS2 snapping</b>: seven toggles (geometry, 8 m cell length, 90°, building sides, guidelines, zone grid, all). Guides show slope %. <a href="https://cs2.paradoxwikis.com/Editor:_Snapping_and_Tool_Modes">CS2 wiki: Snapping</a> · <a href="https://www.paradoxinteractive.com/games/cities-skylines-ii/features/road-tools">Paradox feature highlight</a></li>
+    <li><b>Player complaints</b>: near-miss snaps (179.6° instead of 180°), guide snapping fights curved roads, zone-grid wedges. <a href="https://forum.paradoxplaza.com/forum/threads/180-and-90-degree-hard-snapping.1608414/">Paradox forum</a> · <a href="https://steamcommunity.com/app/949230/discussions/0/3937895063002896431/">Steam thread</a></li>
+    <li><b>Precision Engineering</b> (CS1): angle, length and height readouts. Ctrl gives 5° snaps, Shift more info, Alt snaps to guides. <a href="https://github.com/Simie/PrecisionEngineering">GitHub</a></li>
+    <li><b>Move It</b>: move, clone and align nodes and curve control points, and fix junctions without bulldozing. <a href="https://mods.paradoxplaza.com/mods/74324/Windows">Paradox Mods</a></li>
+    <li><b>Node Controller</b>: per-node offset, shift, twist, stretch, flatten, bend, crosswalks. <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2472062376">Workshop</a></li>
+    <li><b>Parallel Road Tool</b>: any networks at set horizontal and vertical offsets with overlay preview. Alt flips side, wheel sets offset. <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=1440928803">Workshop</a></li>
+    <li><b>Network Anarchy / Fine Road Tool</b>: no slope, height or collision limits, sharp junction angles. <b>Network Multitool</b>: straighten, even slope, fillet between roads, arrange in a circle.</li>
+    <li><b>Road Builder</b> (CS2): assemble custom road cross-sections in one menu and save them for reuse. <a href="https://www.pcgamesn.com/cities-skylines-2/new-mod-for-road-building">PCGamesN</a></li>
+    <li><b>Guides</b>: CS2 guideline snapping <q>can often break grids if left on</q>, and players disable it with building-side and geometry snaps to keep zoning aligned. <a href="https://cs2.paradoxwikis.com/Editor:_Snapping_and_Tool_Modes">CS2 wiki</a> · <a href="https://steamcommunity.com/app/949230/discussions/0/4031346570755725071/">Steam thread</a></li>
+    <li><b>Terrain under roads</b>: CS1 roads build <q>masses of ground underneath</q> instead of following hills, and Network Anarchy's Ground mode is the workaround. CS2 terrain morphing is <q>more extreme</q> and breaks zoning grids. Its retaining walls are an upgrade with bugs at the ends. <a href="https://steamcommunity.com/sharedfiles/filedetails/comments/2474567113">Network Anarchy comments</a> · <a href="https://steamcommunity.com/app/949230/discussions/0/4030223998569878055/">Terrain Levelling Is Awful</a> · <a href="https://www.pcgamer.com/cities-skylines-2s-weird-terrain-quirks-mean-youll-need-to-start-landscaping-immediately/">PC Gamer</a> · <a href="https://forum.paradoxplaza.com/forum/threads/strange-shadow-ground-behavior-with-retaining-walls.1725067/">Paradox forum</a></li>
+    <li><b>Transport Fever 2 terrain</b>: roads follow terrain by default. Bumps are averaged into a straight line, with an embankment, bridge or tunnel when too steep. There are two embankment slopes (a gentle default and a steep fallback when space is tight). <a href="https://www.transportfever2.com/wiki/doku.php?id=modding%3Atracksstreets">TF2 modding wiki</a> · <a href="https://steamcommunity.com/app/1066780/discussions/0/3183489348311212039/">hug terrain thread</a></li>
+    <li><b>Transport Fever 2</b>: track tool auto-arcs into existing track and shows the speed limit from curve radius live. <a href="https://wiki.transportfever2.com/doku.php?id=gamemanual%3Astreetstracks">TF2 wiki</a></li>
+  </ul>
+</section>
+</main>
+
+<script>
+const NS='http://www.w3.org/2000/svg';
+function E(tag,a,p){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e}
+function T(p,x,y,s,cls,anchor){const e=E('text',{x,y,class:cls||'t-tag','text-anchor':anchor||'start'},p);e.textContent=s;return e}
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1]], add=(a,b)=>[a[0]+b[0],a[1]+b[1]], mul=(a,s)=>[a[0]*s,a[1]*s];
+const len=a=>Math.hypot(a[0],a[1]), nrm=a=>mul(a,1/len(a)), f=n=>n.toFixed(1);
+
+// Polyline with fillets. radii[i] for interior point i (0 = hard). Returns path + per-corner info.
+function fillet(P,radii){
+  let d=`M${f(P[0][0])} ${f(P[0][1])}`;const info=[];
+  for(let i=1;i<P.length-1;i++){
+    const u=nrm(sub(P[i-1],P[i])),v=nrm(sub(P[i+1],P[i]));
+    const phi=Math.acos(Math.max(-1,Math.min(1,u[0]*v[0]+u[1]*v[1])));
+    let r=radii[i]||0;
+    if(!r){d+=` L${f(P[i][0])} ${f(P[i][1])}`;info.push({r:0,phi,P:P[i]});continue}
+    const lp=len(sub(P[i-1],P[i]))*(i>1?.5:1), ln=len(sub(P[i+1],P[i]))*(i<P.length-2?.5:1);
+    let t=r/Math.tan(phi/2),cl=false;const tm=Math.min(lp,ln);
+    if(t>tm){t=tm;cl=true}
+    const re=t*Math.tan(phi/2),A=add(P[i],mul(u,t)),B=add(P[i],mul(v,t));
+    const d1=mul(u,-1),cr=d1[0]*v[1]-d1[1]*v[0];
+    d+=` L${f(A[0])} ${f(A[1])} A${f(re)} ${f(re)} 0 0 ${cr>0?1:0} ${f(B[0])} ${f(B[1])}`;
+    const b=nrm(add(u,v)),mid=add(P[i],mul(b,re/Math.sin(phi/2)-re));
+    info.push({r:re,want:r,clamped:cl,phi,A,B,mid,P:P[i]});
+  }
+  const L=P[P.length-1];d+=` L${f(L[0])} ${f(L[1])}`;return{d,info};
+}
+function svg(host,title,step,cap,build){
+  const fig=document.createElement('figure');
+  const s=E('svg',{viewBox:'0 0 320 200',role:'img','aria-label':title});fig.appendChild(s);
+  contours(s,title.length);
+  build(s);
+  const fc=document.createElement('figcaption');
+  fc.innerHTML=(step?`<span class="step">${step}</span>`:'')+`<h3>${title}</h3><span>${cap}</span>`;
+  fig.appendChild(fc);document.getElementById(host).appendChild(fig);
+}
+function contours(s,seed){
+  for(let k=0;k<5;k++){let d='';for(let x=-10;x<=330;x+=10){const y=30+k*38+9*Math.sin(x/47+seed*.7+k)+5*Math.sin(x/19+k*2.1);d+=(x<0?'M':'L')+x+' '+f(y)}
+  E('path',{d,fill:'none',stroke:'var(--contour)','stroke-width':1},s)}
+}
+const W={street:9,avenue:13,highway:16};
+function net(s,d,type,state){
+  const g=E('g',{},s),o={fill:'none','stroke-linecap':'round','stroke-linejoin':'round'};
+  const halo=c=>E('path',{...o,d,stroke:c,'stroke-width':(W[type]||12)+5,opacity:.55},g);
+  if(state==='warn')halo('var(--warn)');if(state==='bad')halo('var(--bad)');
+  if(state==='ghost'){E('path',{...o,d,stroke:'var(--accent)','stroke-width':W[type]||9,opacity:.28},g);E('path',{...o,d,stroke:'var(--accent)','stroke-width':1.2,'stroke-dasharray':'4 3'},g);return g}
+  if(type==='street'||type==='avenue'||type==='highway'){
+    E('path',{...o,d,stroke:'var(--asphalt)','stroke-width':W[type]},g);
+    if(type==='highway'){E('path',{...o,d,stroke:'var(--paint)','stroke-width':1.6},g);E('path',{...o,d,stroke:'var(--asphalt)','stroke-width':.6},g)}
+    else E('path',{...o,d,stroke:'var(--paint)','stroke-width':.8,'stroke-dasharray':'4 4'},g);
+  }else if(type==='rail'){
+    E('path',{...o,d,stroke:'var(--ballast)','stroke-width':9},g);
+    E('path',{...o,d,stroke:'var(--steel)','stroke-width':7,'stroke-dasharray':'1.2 2.6','stroke-linecap':'butt',opacity:.5},g);
+    E('path',{...o,d,stroke:'var(--steel)','stroke-width':3.6},g);
+    E('path',{...o,d,stroke:'var(--ballast)','stroke-width':1.6},g);
+  }else if(type==='canal'){
+    E('path',{...o,d,stroke:'var(--bank)','stroke-width':15},g);E('path',{...o,d,stroke:'var(--water)','stroke-width':10},g);
+  }else if(type==='fence'){
+    E('path',{...o,d,stroke:'var(--fence)','stroke-width':1.4},g);
+    E('path',{...o,d,stroke:'var(--fence)','stroke-width':4,'stroke-dasharray':'1.4 9','stroke-linecap':'butt'},g);
+  }
+  return g;
+}
+function node(s,p,kind){E('circle',{cx:p[0],cy:p[1],r:kind==='big'?4.5:3.2,fill:'var(--panel)',stroke:kind==='warn'?'var(--warn)':'var(--accent)','stroke-width':1.6},s)}
+function click(s,p,n){E('circle',{cx:p[0],cy:p[1],r:6,fill:'var(--accent)'},s);T(s,p[0],p[1]+2.8,String(n),'t-tag','middle').setAttribute('style','fill:#fff;font-size:8px')}
+function tag(s,x,y,txt,kind){
+  const w=txt.length*5.2+10,c=kind==='warn'?'var(--warn)':kind==='bad'?'var(--bad)':kind==='key'?'var(--muted)':'var(--accent)';
+  const g=E('g',{},s);E('rect',{x,y:y-10,width:w,height:14,rx:3,fill:'var(--panel)',stroke:c,'stroke-width':1},g);
+  T(g,x+5,y,txt).setAttribute('style',`fill:${c==='var(--muted)'?'var(--ink)':c}`);return g;
+}
+function cursor(s,x,y){E('path',{d:`M${x} ${y} l0 12 l3 -3 l3.5 6.5 l2.2 -1.1 l-3.4 -6.3 l4.4 -.4 z`,fill:'var(--ink)',stroke:'var(--panel)','stroke-width':.8},s)}
+function dash(s,a,b,c,w){E('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:c||'var(--accent)','stroke-width':w||1,'stroke-dasharray':'3 3'},s)}
+const line=(a,b)=>`M${a[0]} ${a[1]} L${b[0]} ${b[1]}`;
+
+/* ---------- Story ---------- */
+const main=[[20,50],[300,50]], S0=[70,50], S1=[140,160], S2=[290,150];
+svg('story','Click to start','Step 1','Click an existing road to branch off it. A dashed preview follows the mouse with length and angle beside the cursor.',s=>{
+  net(s,line(...main),'street');
+  E('path',{d:line(S0,[118,128]),stroke:'var(--accent)','stroke-width':1.3,'stroke-dasharray':'4 3',fill:'none'},s);
+  node(s,S0,'big');cursor(s,118,128);tag(s,128,120,'62 m · 90°');tag(s,78,72,'snap: 90° to road').setAttribute('opacity',.9);
+});
+svg('story','Click a corner','Step 2','The second click is a corner. It rounds itself to the street default (16 m) as you move on. Shift+wheel or [ ] grows or shrinks the radius live.',s=>{
+  net(s,line(...main),'street');
+  const {d,info}=fillet([S0,S1,[250,152]],[0,18]);net(s,d,'street','ghost');
+  node(s,S0);const m=info[0].mid;E('circle',{cx:m[0],cy:m[1],r:5,fill:'none',stroke:'var(--accent)','stroke-width':1.4},s);
+  E('circle',{cx:S1[0],cy:S1[1],r:2,fill:'var(--accent)'},s);
+  cursor(s,250,152);tag(s,80,176,'R 36 m');tag(s,190,136,'Shift+wheel','key');
+});
+svg('story','Hold Alt for a hard corner','Step 2, variant','Streets and fences accept a sharp corner. Rails and highways refuse it and keep their minimum curve, with a red hint.',s=>{
+  net(s,line(...main),'street');
+  net(s,fillet([S0,S1,[250,152]],[0,0]).d,'street','ghost');node(s,S0);
+  E('rect',{x:S1[0]-3,y:S1[1]-3,width:6,height:6,fill:'var(--panel)',stroke:'var(--accent)','stroke-width':1.5},s);
+  cursor(s,250,152);tag(s,150,176,'Alt · hard corner');tag(s,178,118,'96° turn');
+});
+svg('story','Double-click to finish','Step 3','The road is built with a T-junction at the start. RMB before finishing removes the last point, one step at a time.',s=>{
+  net(s,line(...main),'street');net(s,fillet([S0,S1,S2],[0,18]).d,'street');
+  E('circle',{cx:S0[0],cy:S0[1],r:9,fill:'none',stroke:'var(--accent)','stroke-width':1.2,'stroke-dasharray':'2 2'},s);
+  node(s,S2);tag(s,88,40,'T-junction · 90°');tag(s,198,178,'Total 334 m');
+});
+
+/* ---------- Modes ---------- */
+svg('modes','Draw · auto-round','Key 1','Click corners and each one gets the profile radius. It is the fastest way to a clean, rounded road and covers most of what players draw.',s=>{
+  const P=[[25,170],[90,60],[190,150],[300,40]];const {d,info}=fillet(P,[0,30,30]);net(s,d,'street');
+  P.forEach((p,i)=>click(s,p,i+1));info.forEach(c=>dash(s,c.A,c.P,'var(--muted)',.6)||dash(s,c.P,c.B,'var(--muted)',.6));
+  tag(s,196,188,'R 60 m · auto');
+});
+svg('modes','Curve · three clicks','Key 2','CS-style. Click start, bend and end for an exact single arc, with the control lines shown while placing. Good for ramps and river bridges.',s=>{
+  const A=[30,170],C=[160,20],B=[295,165];
+  dash(s,A,C,'var(--muted)',.7);dash(s,C,B,'var(--muted)',.7);
+  net(s,`M${A} Q${C} ${B}`,'avenue');click(s,A,1);click(s,C,2);click(s,B,3);tag(s,120,120,'Bend point');
+});
+svg('modes','Freehand · drag','Key 3','Hold and drag. The raw stroke (dotted) is simplified into a few nodes with smooth curves, so it can still be edited later like any spline.',s=>{
+  let raw='',fit=[];for(let i=0;i<=60;i++){const t=i/60,x=25+t*275,y=160-120*t+38*Math.sin(t*Math.PI*1.6);
+    const n=3.5*Math.sin(i*1.9)+2.2*Math.sin(i*.73);raw+=(i?'L':'M')+f(x)+' '+f(y+n);if(i%15==0)fit.push([x,y])}
+  E('path',{d:raw,fill:'none',stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'1 2.5'},s);
+  let d=`M${fit[0]}`;for(let i=0;i<fit.length-1;i++){const p0=fit[i-1]||fit[i],p1=fit[i],p2=fit[i+1],p3=fit[i+2]||p2;
+    const c1=add(p1,mul(sub(p2,p0),1/6)),c2=sub(p2,mul(sub(p3,p1),1/6));d+=` C${f(c1[0])} ${f(c1[1])} ${f(c2[0])} ${f(c2[1])} ${f(p2[0])} ${f(p2[1])}`}
+  net(s,d,'street');fit.forEach(p=>node(s,p));tag(s,200,190,'60 samples → 5 nodes');
+});
+svg('modes','Grid · three clicks','Key 4','Corner, width, then drag sideways for depth. Block size snaps to 8 m lots. The grid inherits the rotation of the first edge.',s=>{
+  const o=[40,40],ux=nrm([10,1.3]),uy=[-ux[1],ux[0]],Wd=240,H=130;
+  const pt=(a,b)=>add(o,add(mul(ux,a),mul(uy,b)));
+  for(let a=0;a<=Wd;a+=80)net(s,line(pt(a,0),pt(a,H)),'street');
+  for(let b=0;b<=H;b+=65)net(s,line(pt(0,b),pt(Wd,b)),'street');
+  click(s,pt(0,0),1);click(s,pt(Wd,0),2);click(s,pt(Wd,H),3);tag(s,110,193,'3 × 2 blocks · 160 × 130 m');
+});
+
+/* ---------- Networks ---------- */
+const C3=[[20,178],[160,48],[300,178]];
+const nets=[
+  ['street','Street',8,'Tight 16 m corner. Alt makes it square.'],
+  ['avenue','Avenue',30,'60 m corner. Wider road, gentler turn.'],
+  ['highway','Highway',150,'300 m sweep, eased in with a spiral.'],
+  ['rail','Rail',250,'Wants 500 m, only has room for less. Builds the widest arc that fits, amber, with its speed.'],
+  ['canal','Canal',20,'40 m corner. Water level stays flat.'],
+  ['fence','Fence / wall',0,'Keeps the hard corner. Posts follow the ground.'],
+];
+nets.forEach(([type,name,r,cap])=>svg('nets',name,null,cap,s=>{
+  const {d,info}=fillet(C3,[0,r]);const c=info[0];const warn=c.clamped;
+  net(s,d,type,warn?'warn':null);C3.forEach((p,i)=>click(s,p,i+1));
+  const R=Math.round(c.r*2);
+  if(type==='fence')tag(s,178,50,'hard corner · 94°');
+  else if(type==='rail'){const v=Math.round(3.6*Math.sqrt(2.2*R));tag(s,172,50,`R ${R} m (wants 500)`,'warn');tag(s,172,68,`≈ ${v} km/h`,'warn')}
+  else if(type==='highway'){tag(s,178,50,`R ${R} m + 60 m spiral`)}
+  else tag(s,178,50,`R ${R} m`);
+}));
+
+/* curvature charts */
+function curvChart(title,cap,pts,lbl){
+  const fig=document.createElement('figure');const s=E('svg',{viewBox:'0 0 320 140',role:'img','aria-label':title});fig.appendChild(s);
+  E('rect',{x:0,y:0,width:320,height:140,fill:'var(--panel)'},s);
+  const X=x=>40+x*2.6,Y=y=>110-y*70;
+  for(let k=0;k<=1;k+=.5)E('line',{x1:40,x2:300,y1:Y(k),y2:Y(k),stroke:'var(--line)','stroke-width':.8},s);
+  E('line',{x1:40,x2:300,y1:110,y2:110,stroke:'var(--muted)','stroke-width':1},s);
+  T(s,34,Y(1)+3,'1/R','t-lbl','end');T(s,34,113,'0','t-lbl','end');T(s,300,128,'distance along spline →','t-lbl','end');
+  const d='M'+pts.map(([x,y])=>`${f(X(x))} ${f(Y(y))}`).join(' L');
+  E('path',{d:d+` L${X(100)} 110 L40 110 Z`,fill:'var(--accent-soft)',stroke:'none'},s);
+  E('path',{d,fill:'none',stroke:'var(--accent)','stroke-width':2,'stroke-linejoin':'round'},s);
+  lbl(s,X,Y);
+  const fc=document.createElement('figcaption');fc.innerHTML=`<h3>${title}</h3><span>${cap}</span>`;fig.appendChild(fc);
+  document.getElementById('curv').appendChild(fig);
+}
+curvChart('Street and canal corners: plain arcs','Curvature jumps straight to 1/R. That is fine at low speed and it is what the Draw tool builds by default.',
+  [[0,0],[30,0],[30,1],[70,1],[70,0],[100,0]],(s,X,Y)=>{T(s,X(50),Y(1)-6,'arc','t-small','middle')});
+curvChart('Highway and rail: spiral in, spiral out','Curvature ramps up over the transition length (a clothoid), so vehicles don\'t jerk. The profile sets the length. The player only clicks corners.',
+  [[0,0],[20,0],[38,1],[62,1],[80,0],[100,0]],(s,X,Y)=>{T(s,X(29),Y(.5)-6,'spiral','t-small','end');T(s,X(50),Y(1)-6,'arc','t-small','middle');T(s,X(71),Y(.5)-6,'spiral','t-small','start')});
+
+/* ---------- Snap ---------- */
+svg('snap','Extension guide','On by default','Existing roads project dashed guides past their ends. Where your cursor crosses one, the point locks and the tag says why.',s=>{
+  net(s,line([20,60],[150,60]),'street');node(s,[150,60]);dash(s,[150,60],[315,60]);
+  net(s,line([20,140],[120,140]),'street');dash(s,[120,140],[315,140],'var(--muted)',.7);
+  net(s,line([240,185],[240,60]),'street','ghost');E('circle',{cx:240,cy:60,r:6,fill:'none',stroke:'var(--accent)','stroke-width':1.5},s);
+  cursor(s,241,61);tag(s,172,40,'guide · 90°');tag(s,248,112,'80 m');
+});
+svg('snap','Angle steps','Hold Ctrl','Ctrl snaps the heading to 15° steps, or 5° with Shift as well. Without it you get soft 45°/90° snaps relative to the road you started from.',s=>{
+  const c=[70,150];for(let a=0;a<=180;a+=15){const r=a%45?58:78,rad=-a*Math.PI/180;
+    E('line',{x1:c[0],y1:c[1],x2:c[0]+r*Math.cos(rad),y2:c[1]+r*Math.sin(rad),stroke:a%45?'var(--contour)':'var(--line)','stroke-width':a%45?1:1.3},s)}
+  const e=[c[0]+200*Math.cos(-Math.PI/6),c[1]+200*Math.sin(-Math.PI/6)];
+  net(s,line(c,e),'avenue','ghost');node(s,c);cursor(s,e[0],e[1]);tag(s,150,120,'30.0° · Ctrl');
+});
+svg('snap','Lengths and nodes','Default','The length snaps to 8 m (one lot) so zoning fits exactly. Near an existing node the end sticks to it, shown by the ring.',s=>{
+  net(s,line([200,30],[200,180]),'street');node(s,[200,105]);
+  const a=[30,105],b=[200,105];net(s,line(a,b),'street','ghost');node(s,a);
+  for(let x=30;x<=200;x+=16)E('line',{x1:x,x2:x,y1:113,y2:119,stroke:'var(--accent)','stroke-width':1},s);
+  E('circle',{cx:200,cy:105,r:10,fill:'none',stroke:'var(--accent)','stroke-width':1.5},s);
+  tag(s,60,140,'336 m · 42 × 8 m');tag(s,212,95,'snap: node');
+});
+
+/* ---------- Junctions ---------- */
+svg('junc','Crossing makes a junction','Automatic','Drawing across a road splits both and adds a 4-way node. Curb corners take the smaller road\'s corner radius.',s=>{
+  net(s,line([20,110],[300,110]),'avenue');net(s,line([160,20],[160,190]),'street');
+  E('circle',{cx:160,cy:110,r:14,fill:'none',stroke:'var(--accent)','stroke-width':1.2,'stroke-dasharray':'2 2'},s);
+  tag(s,180,85,'4-way · 90°');
+});
+svg('junc','Angle too sharp','Warning','Below the profile\'s junction angle it turns amber and tells you the fix. Anarchy builds it anyway, like Network Anarchy does.',s=>{
+  net(s,line([20,150],[300,150]),'street');
+  const a=[120,150],b=[120+170*Math.cos(-22*Math.PI/180),150+170*Math.sin(-22*Math.PI/180)];
+  net(s,line(a,b),'street','warn');node(s,a,'warn');
+  E('path',{d:`M${a[0]+34} ${a[1]} A34 34 0 0 0 ${f(a[0]+34*Math.cos(-22*Math.PI/180))} ${f(a[1]+34*Math.sin(-22*Math.PI/180))}`,fill:'none',stroke:'var(--warn)','stroke-width':1.2},s);
+  tag(s,130,176,'22°, min 30° · Ctrl+A allows','warn');
+});
+svg('junc','Rail branches by turnout','Rail profile','Rails only leave a line tangentially, through a switch. A square branch shows red. The tool offers the nearest legal turnout as a ghost.',s=>{
+  net(s,line([15,150],[305,150]),'rail');
+  net(s,line([140,150],[140,40]),'rail','bad');
+  net(s,'M100 150 C170 150 220 140 300 70','rail','ghost');
+  tag(s,150,50,'90° not allowed','bad');tag(s,198,176,'turnout 1:9 · R 300 m');
+});
+
+/* ---------- Edit ---------- */
+svg('edit','Drag a node','M, then drag','Connected segments follow and keep their corner radii. The old shape stays as a faint outline until you release.',s=>{
+  const P=[[20,160],[150,60],[300,150]],Q=[[20,160],[170,100],[300,150]];
+  net(s,fillet(P,[0,24]).d,'street','ghost');net(s,fillet(Q,[0,24]).d,'street');
+  node(s,[20,160]);node(s,[300,150]);node(s,[170,100],'big');
+  E('path',{d:'M150 62 L166 94',stroke:'var(--accent)','stroke-width':1.2,'marker-end':'url(#arr)'},s);
+  const m=E('marker',{id:'arr',viewBox:'0 0 6 6',refX:5,refY:3,markerWidth:6,markerHeight:6,orient:'auto'},E('defs',{},s));E('path',{d:'M0 0 L6 3 L0 6 z',fill:'var(--accent)'},m);
+  tag(s,180,80,'+22 m');
+});
+svg('edit','Drag a radius knob','Corners','Each corner has a knob in the middle of its curve. Drag it in or out to change that corner\'s radius, with the same limits as drawing. Alt-drag the corner point to straighten it.',s=>{
+  const P=[[25,175],[160,40],[295,175]];
+  net(s,fillet(P,[0,25]).d,'avenue','ghost');const {d,info}=fillet(P,[0,70]);net(s,d,'avenue');
+  dash(s,P[0],P[1],'var(--muted)',.6);dash(s,P[1],P[2],'var(--muted)',.6);
+  E('circle',{cx:160,cy:40,r:2.2,fill:'var(--muted)'},s);
+  const m=info[0].mid;E('circle',{cx:m[0],cy:m[1],r:5.5,fill:'var(--panel)',stroke:'var(--accent)','stroke-width':1.8},s);
+  cursor(s,m[0]+2,m[1]+2);node(s,P[0]);node(s,P[2]);tag(s,184,100,'R 50 → 140 m');
+});
+svg('edit','Right-click a node','Radial menu','Four actions under the thumb: Smooth, Hard corner, Straighten, Delete. They cover most Node Controller and Multitool use without opening a panel.',s=>{
+  net(s,fillet([[20,170],[160,100],[300,170]],[0,20]).d,'street');
+  const c=[160,92];E('circle',{cx:c[0],cy:c[1],r:52,fill:'var(--panel)',stroke:'var(--line)','stroke-width':1,opacity:.96},s);
+  [['Smooth',-90],['Hard',0],['Straight',90],['Delete',180]].forEach(([t,a],i)=>{const r=a*Math.PI/180,p=[c[0]+32*Math.cos(r),c[1]+32*Math.sin(r)];
+    const x=T(s,p[0],p[1]+3,t,'t-tag','middle');if(i==0)x.setAttribute('style','fill:var(--accent);font-weight:500');if(i==3)x.setAttribute('style','fill:var(--bad)')});
+  node(s,c,'big');
+});
+
+/* ---------- Parallel & elevation ---------- */
+function arc(c,r,a0,a1){const p=a=>[c[0]+r*Math.cos(a),c[1]+r*Math.sin(a)];const s=p(a0),e=p(a1);return `M${f(s[0])} ${f(s[1])} A${r} ${r} 0 0 1 ${f(e[0])} ${f(e[1])}`}
+svg('par','One stroke, three networks','P, wheel for offset','Road in the middle, canal at +12 m and a fence at −9 m, as a Parallel preset. Each copy keeps its own profile rules.',s=>{
+  const c=[160,250],a0=-2.5,a1=-.64;
+  net(s,arc(c,190,a0,a1),'canal');net(s,arc(c,165,a0,a1),'street');net(s,arc(c,146,a0,a1),'fence');
+  tag(s,12,24,'canal +12 m');tag(s,120,118,'road');tag(s,210,190,'fence −9 m');
+});
+svg('par','Twin track','Rail preset','Two rails at 4.5 m spacing. The inner line gets a smaller radius, which the tool accounts for when it works out speed.',s=>{
+  const c=[40,260];net(s,arc(c,220,-1.52,-.25),'rail');net(s,arc(c,203,-1.52,-.25),'rail');
+  tag(s,180,60,'4.5 m · R 440/406 m');
+});
+svg('par','Elevation steps','PgUp / PgDn','Side view. Each press lifts the next point one step (1, 2.5, 5 or 10 m). The tag shows grade, amber above the profile\'s limit.',s=>{
+  E('path',{d:'M0 160 C60 150 110 170 170 158 S260 150 320 162 L320 200 L0 200 Z',fill:'var(--bank)',opacity:.55},s);
+  const P=[[20,152],[120,128],[220,108],[300,108]];
+  E('path',{d:'M'+P.map(p=>p.join(' ')).join(' L'),fill:'none',stroke:'var(--asphalt)','stroke-width':5,'stroke-linejoin':'round'},s);
+  for(let x=140;x<=290;x+=30)E('line',{x1:x,x2:x,y1:x<220?128-(x-120)*.2:108,y2:165,stroke:'var(--muted)','stroke-width':1.5},s);
+  P.forEach(p=>node(s,p));tag(s,70,112,'+5 m · 5 %');tag(s,170,92,'+10 m · 5 %');tag(s,238,90,'PgUp','key');
+});
+
+/* ---------- Guides ---------- */
+function hit(s,p,r){E('circle',{cx:p[0],cy:p[1],r:r||6,fill:'none',stroke:'var(--accent)','stroke-width':1.5},s)}
+svg('guides','Node alignment','Smart guide','The cursor lines up with a node on another road, so a guide runs from that node to the cursor. The new corner ends up exactly level with the existing junction.',s=>{
+  net(s,line([70,20],[70,190]),'street');net(s,line([20,70],[70,70]),'street');node(s,[70,70]);
+  net(s,line([180,190],[250,70]),'street','ghost');node(s,[180,190]);
+  dash(s,[70,70],[250,70]);hit(s,[250,70]);cursor(s,251,71);tag(s,120,58,'aligned · node');
+});
+svg('guides','Parallel to a road','Lot steps','A guide appears alongside a nearby road at 0, 8, 16 … m, measured side to side. Blocks between parallel roads come out a whole number of lots deep.',s=>{
+  net(s,line([20,60],[300,60]),'avenue');const y=60+6.5+20+4.5;
+  dash(s,[20,y],[310,y]);net(s,line([60,y],[250,y]),'street','ghost');node(s,[60,y]);cursor(s,251,y+1);
+  E('line',{x1:150,x2:150,y1:66.5,y2:y-4.5,stroke:'var(--accent)','stroke-width':1},s);
+  [66.5,y-4.5].forEach(v=>E('line',{x1:145,x2:155,y1:v,y2:v,stroke:'var(--accent)','stroke-width':1},s));
+  tag(s,158,82,'parallel · 40 m gap (5 lots)');
+});
+svg('guides','Parallel along a curve','Follows arcs','Beside a curved road the guide is a concentric arc, so a service road or canal can hug a highway bend at a fixed distance.',s=>{
+  const c=[160,300];net(s,arc(c,230,-2.35,-.79),'highway');
+  E('path',{d:arc(c,200,-2.35,-.79),fill:'none',stroke:'var(--accent)','stroke-width':1,'stroke-dasharray':'3 3'},s);
+  const p=[c[0]+200*Math.cos(-1.2),c[1]+200*Math.sin(-1.2)];
+  net(s,line([120,190],p),'street','ghost');node(s,[120,190]);hit(s,p);cursor(s,p[0]+1,p[1]+1);tag(s,p[0]-60,p[1]+22,'parallel · 24 m gap');
+});
+svg('guides','Perpendicular','Square to a road','A guide square to a nearby road, through the cursor. The foot point on that road is a snap too, which gives a clean T-junction at exactly 90.0°.',s=>{
+  const a=[20,150],b=[300,40];net(s,line(a,b),'avenue');
+  const d=nrm(sub(b,a)),n=[d[1],-d[0]],foot=add(a,mul(d,170)),q=add(foot,mul(n,-120));
+  dash(s,add(foot,mul(n,20)),add(foot,mul(n,-150)));net(s,line(q,foot),'street','ghost');node(s,q);hit(s,foot,8);
+  const k=9,c1=add(foot,mul(n,-k)),c2=add(c1,mul(d,k)),c3=add(foot,mul(d,k));
+  E('path',{d:`M${c1} L${c2} L${c3}`,fill:'none',stroke:'var(--accent)','stroke-width':1.2},s);
+  tag(s,foot[0]+14,foot[1]+18,'90° to edge');
+});
+svg('guides','Equal length','Tick, not a line','When the leg you are drawing matches the previous leg, or a nearby segment, a tick and a tag appear. It helps with even blocks and symmetric layouts.',s=>{
+  const A=[30,170],B=[30,70],C=[190,70];net(s,line(A,B),'street');node(s,A);node(s,B);
+  net(s,line(B,C),'street','ghost');cursor(s,C[0]+1,C[1]+1);
+  [[A,B,[1,0]],[B,C,[0,1]]].forEach(([p,q,o])=>{const m=mul(add(p,q),.5);E('line',{x1:m[0]-o[0]*7,y1:m[1]-o[1]*7,x2:m[0]+o[0]*7,y2:m[1]+o[1]*7,stroke:'var(--accent)','stroke-width':2},s)});
+  tag(s,56,124,'100 m');tag(s,96,96,'= 100 m');
+});
+svg('guides','Guide crossing','Strongest guide','Where two guides meet, the cursor locks harder than on either one alone. Here the extensions of two dead-end roads meet, which is where a planned grid wants its next corner.',s=>{
+  net(s,line([20,60],[130,60]),'street');node(s,[130,60]);dash(s,[130,60],[310,60]);
+  net(s,line([250,195],[250,150]),'street');node(s,[250,150]);dash(s,[250,150],[250,10]);
+  net(s,line([70,175],[250,60]),'street','ghost');node(s,[70,175]);
+  hit(s,[250,60],6);hit(s,[250,60],10);cursor(s,251,61);tag(s,150,40,'extension × extension');
+});
+
+/* ---------- Shaping ---------- */
+function xsec(title,step,cap,o){
+  svg('shape',title,step,cap,s=>{
+    const k=o.k||4,cx=160,base=o.base||120,X=m=>cx+m*k,Y=h=>base-h*k;
+    const sec=o.sec,H=o.H,De=sec[sec.length-1][0],He=H+sec[sec.length-1][1];
+    const secAt=d=>{for(let i=1;i<sec.length;i++)if(d<=sec[i][0]){const [a,ha]=sec[i-1],[b,hb]=sec[i];return H+ha+(hb-ha)*(d-a)/(b-a)}return He};
+    const shaped=m=>{const d=Math.abs(m),g=o.g(m);if(d<=De)return secAt(d);
+      if(o.wall)return g; return g>He?Math.min(g,He+(d-De)/o.cut):Math.max(g,He-(d-De)/o.fill)};
+    const ms=[];for(let x=-2;x<=322;x+=2)ms.push((x-cx)/k);
+    let nat='',sh='',cut='',fill='';
+    ms.forEach((m,i)=>{nat+=(i?'L':'M')+f(X(m))+' '+f(Y(o.g(m)));sh+=(i?'L':'M')+f(X(m))+' '+f(Y(shaped(m)))});
+    // earth under shaped line
+    E('path',{d:sh+` L322 200 L-2 200 Z`,fill:'var(--bank)',opacity:.55},s);
+    // cut/fill bands
+    let cutD='',fillD='';ms.forEach(m=>{const g=o.g(m),h=shaped(m);if(Math.abs(g-h)<.01)return;
+      const r=`M${f(X(m)-1)} ${f(Y(Math.max(g,h)))} h2 V${f(Y(Math.min(g,h)))} h-2 Z`;if(g>h)cutD+=r;else fillD+=r});
+    if(cutD)E('path',{d:cutD,fill:'var(--bad)',opacity:.22},s);
+    if(fillD)E('path',{d:fillD,fill:'var(--warn)',opacity:.35},s);
+    E('path',{d:nat,fill:'none',stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'3 3'},s);
+    E('path',{d:sh,fill:'none',stroke:'var(--ink)','stroke-width':1.2},s);
+    if(o.wall)[-1,1].forEach(sd=>{const g=o.g(sd*De);E('rect',{x:X(sd*De)-(sd<0?3:0),y:Y(Math.max(g,He)),width:3,height:Math.abs(g-He)*k,fill:'var(--steel)'},s)});
+    if(o.water!=null){const wx=sec[1][0]+(sec[2][0]-sec[1][0])*((o.water-sec[1][1])/(sec[2][1]-sec[1][1])),bed=Y(H+sec[1][1]),wl=Y(H+o.water);
+      E('path',{d:`M${f(X(-wx))} ${f(wl)} L${f(X(wx))} ${f(wl)} L${f(X(sec[1][0]))} ${f(bed)} L${f(X(-sec[1][0]))} ${f(bed)} Z`,fill:'var(--water)',opacity:.85},s)}
+    if(o.surface)E('line',{x1:X(-sec[1][0]),x2:X(sec[1][0]),y1:Y(H)-1.5,y2:Y(H)-1.5,stroke:'var(--asphalt)','stroke-width':3},s);
+    (o.tags||[]).forEach(t=>tag(s,...t));
+  });
+}
+xsec('Road across a slope','Cut + fill','Cut into the uphill side, fill on the downhill side, then back to the ground at 1:2. The flat top is the section template: 12 m of road and a 4 m shoulder.',
+  {k:7,base:105,g:m=>.2*m+.4*Math.sin(m/5),H:0,sec:[[0,0],[6,0],[10,-.2]],cut:2,fill:2,surface:1,
+   tags:[[222,70,'cut','bad'],[50,142,'fill','warn'],[12,190,'section: road 12 m + shoulder','key']]});
+xsec('Canal channel','Section template','The same code with a different template: a 6 m bed 3 m deep, sloped banks, and a towpath lip. Water fills it on its own once it connects to a source.',
+  {k:9,base:80,g:m=>.3*Math.sin(m/4)+.05*m,H:.4,sec:[[0,-3],[3,-3],[6,0],[7,0]],cut:2,fill:2,water:-.6,
+   tags:[[12,190,'section: bed 6 m · depth 3 m','key']]});
+xsec('Retaining walls','Edge option','On steep ground, slopes would eat half the hill. With the Wall edge option the section ends in walls instead, used automatically above a set cut or fill height.',
+  {k:7,base:105,g:m=>.45*m,H:0,sec:[[0,0],[6,0],[8,0]],wall:1,surface:1,cut:2,fill:2,
+   tags:[[228,70,'wall 3.6 m'],[40,150,'wall 3.6 m'],[12,190,'edge: wall above 3 m','key']]});
+svg('shape','Hug or smooth','Long section','Along the line, each profile sets how closely it follows the ground. A street smooths over 20 m and hugs the hills. Rail smooths over 400 m and holds 2.5 %, with cuts and embankments.',s=>{
+  const g=x=>100-22*Math.sin(x/55)-9*Math.sin(x/17+1)-6*Math.sin(x/8)+x*.05;
+  const avg=(w)=>x=>{let t=0,n=0;for(let d=-w;d<=w;d+=1){t+=g(Math.min(320,Math.max(0,x+d)));n++}return t/n};
+  const st=avg(4),rl=avg(80);const P=(fn)=>{let d='';for(let x=0;x<=320;x+=2)d+=(x?'L':'M')+x+' '+f(fn(x));return d};
+  E('path',{d:P(g)+' L320 200 L0 200 Z',fill:'var(--bank)',opacity:.45},s);
+  E('path',{d:P(g),fill:'none',stroke:'var(--muted)','stroke-width':1,'stroke-dasharray':'3 3'},s);
+  E('path',{d:P(st),fill:'none',stroke:'var(--asphalt)','stroke-width':2.4},s);
+  E('path',{d:P(rl),fill:'none',stroke:'var(--accent)','stroke-width':2.4},s);
+  tag(s,12,24,'street · 20 m smoothing','key');tag(s,178,190,'rail · 400 m, max 2.5 %');
+});
+</script>

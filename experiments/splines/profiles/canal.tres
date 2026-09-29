@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="SplineProfile" format=3]
+
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+Id = "canal"
+DisplayName = "Canal"
+Color = Color(0.25, 0.50, 0.70, 1)
+Width = 14
+DefaultRadius = 40
+MinRadius = 25
+AllowHardCorners = false
+SpiralLength = 0
+SnapLength = 8
+ParallelPresets = "towpath:-9,9"
+JunctionKind = 0
+MinJunctionAngle = 45
+TurnoutMaxAngle = 0
+VerticalMode = 1
+MaxGradePercent = 0
+GroundSmoothing = -1
+SpeedFromRadius = false
+Shaping = 0
+Section = PackedVector2Array(0, -3, 3, -3, 6, 0, 7, 0)
+CutSlope = 2
+FillSlope = 2
+Edge = 2
+WallAbove = 2
+MaxCutFill = 6

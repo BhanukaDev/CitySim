@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="SplineProfile" format=3]
+
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+Id = "street"
+DisplayName = "Street"
+Color = Color(0.55, 0.57, 0.62, 1)
+Width = 12
+DefaultRadius = 16
+MinRadius = 10
+AllowHardCorners = true
+SpiralLength = 0
+SnapLength = 8
+JunctionKind = 0
+MinJunctionAngle = 30
+TurnoutMaxAngle = 0
+VerticalMode = 0
+MaxGradePercent = 12
+GroundSmoothing = 20
+SpeedFromRadius = false
+Shaping = 0
+Section = PackedVector2Array(0, 0, 6, 0, 10, -0.2)
+CutSlope = 2
+FillSlope = 2
+Edge = 2
+WallAbove = 3
+MaxCutFill = 8
