@@ -8,7 +8,7 @@ namespace CitySim.Splines;
 
 /// <summary>
 /// <c>--demo-junctions</c> (S4): checks the graph, junctions and validation in Core on synthetic profiles: a T and a
-/// 4-way (splits, labels, footprint cut-backs and curbs), a too-sharp angle (Warn), a square rail branch (Invalid) and
+/// 4-way (splits, labels, footprint cut-backs and curbs), a crossing on a curve, a too-sharp angle (Warn), a square rail branch (Invalid) and
 /// its legal turnout ghost, a crossing through an existing junction, ConnectsTo refusing a canal, an overlap, a
 /// clamped radius, and split → merge round trips on a straight and on an arc. Prints each case, then
 /// <c>Demo junctions: all ok</c> or <c>FAILED</c>. Pure Core, no scene needed.
@@ -38,6 +38,7 @@ public partial class JunctionDemo : Node
     {
         TJunction();
         FourWay();
+        OnCurve();
         TooSharp();
         RailBranch();
         ThroughJunction();
@@ -87,6 +88,36 @@ public partial class JunctionDemo : Node
         Check("X: street cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "street").Max(c => c.CutBack), 28f);
         Check("X: avenue cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "avenue").Max(c => c.CutBack), 22f);
         Check("X: four curbs", f.Curbs.Count, 4);
+    }
+
+    /// <summary>A street crossing an avenue on its curve: the curbs touch each arm's real (curved) side, and the
+    /// footprint's arm ends sit exactly where the ribbons are cut back.</summary>
+    private void OnCurve()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(new Alignment(new[] { new Pi(V(0, 200)), new Pi(V(150, 0), 120), new Pi(V(300, 200)) }), Avenue);
+        var r = g.AddSpline(Line(V(125, -100), V(125, 300)), Street);
+        int centre = r.Nodes.Single(n => g.Arms(n).Count == 4);
+        var f = Junctions.Footprint(g, centre)!;
+        Check("Curve: four curbs", f.Curbs.Count, 4);
+        foreach (var c in f.Curbs)
+            foreach (var p in new[] { c.From, c.To })
+            {
+                // Each touch point is half a width off some arm's centre line (on its side, not its tangent line).
+                bool onSide = f.Cuts.Any(k =>
+                {
+                    var e = g.Edge(k.EdgeId);
+                    return MathF.Abs(MathF.Abs(e.Alignment.Curve.ClosestPoint(p).Offset) - e.Rules.Width / 2) < 0.05f;
+                });
+                Check($"Curve: curb touches a side at {p}", onSide);
+            }
+        foreach (var k in f.Cuts)
+        {
+            var e = g.Edge(k.EdgeId);
+            var at = e.Alignment.Curve.Sample(k.AtStart ? k.CutBack : e.Alignment.Length - k.CutBack).Position;
+            var l = at + SplineMath.Left(e.Alignment.Curve.Sample(k.AtStart ? k.CutBack : e.Alignment.Length - k.CutBack).Tangent) * (e.Rules.Width / 2);
+            Check($"Curve: outline has edge {k.EdgeId}'s cut corner", f.Outline.Any(o => Vector2.Distance(o, l) < 0.05f));
+        }
     }
 
     private void TooSharp()

@@ -54,7 +54,7 @@
       "request": "launch",
       "preLaunchTask": "splines: build",
       "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
-      "args": ["--path", "${workspaceFolder}/experiments/splines"],
+      "args": ["--path", "${workspaceFolder}/experiments/splines", "--", "--test-pad"],
       "cwd": "${workspaceFolder}/experiments/splines",
       "console": "internalConsole",
       "stopAtEntry": false

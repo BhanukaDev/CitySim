@@ -147,12 +147,17 @@ public sealed class RibbonRenderer
         foreach (var f in footprints.Values)
         {
             var st = NewStrip();
-            for (int i = 0; i < f.Outline.Count; i++)
-            {
-                st.AddVertex(Drape(f.Centre, Lift));
-                st.AddVertex(Drape(f.Outline[i], Lift));
-                st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], Lift));
-            }
+            var poly = f.Outline.Select(p => new Vector2(p.X, p.Y)).ToArray();
+            var tris = Geometry2D.TriangulatePolygon(poly);
+            if (tris.Length > 0)
+                foreach (int i in tris) st.AddVertex(Drape(f.Outline[i], Lift));
+            else // not a simple polygon (arms overlapping under Anarchy): a fan still covers most of it
+                for (int i = 0; i < f.Outline.Count; i++)
+                {
+                    st.AddVertex(Drape(f.Centre, Lift));
+                    st.AddVertex(Drape(f.Outline[i], Lift));
+                    st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], Lift));
+                }
             var widest = f.Cuts.Select(c => graph.Edge(c.EdgeId)).OrderByDescending(e => e.Rules.Width).First();
             AddSurface(mesh, st, colorOf(widest.Rules.Id), opaque: true);
         }

@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Camera/CityCamera.cs" id="2_camera"]
 [ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Debug/ScreenshotCapture.cs" id="4_capture"]
 [ext_resource type="Script" path="res://src/EditDemo.cs" id="5_demo"]
+[ext_resource type="Script" path="res://src/TestPad.cs" id="19_testpad"]
 [ext_resource type="Script" path="res://src/Demos/GeometryDemo.cs" id="6_geometry"]
 [ext_resource type="Script" path="res://src/SplinesTestbed.cs" id="7_testbed"]
 [ext_resource type="Script" path="res://src/Splines/Godot/SplineDrawTool.cs" id="8_drawtool"]
@@ -91,6 +92,10 @@ CityCamera = NodePath("../CityCamera")
 
 [node name="EditDemo" type="Node" parent="." node_paths=PackedStringArray("Terrain")]
 script = ExtResource("5_demo")
+Terrain = NodePath("../Terrain")
+
+[node name="TestPad" type="Node" parent="." node_paths=PackedStringArray("Terrain")]
+script = ExtResource("19_testpad")
 Terrain = NodePath("../Terrain")
 
 [node name="GeometryDemo" type="Node" parent="."]

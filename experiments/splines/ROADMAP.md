@@ -49,6 +49,7 @@ $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + buil
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --headless --path . --quit-after 200 -- --demo-junctions  # S4+: graph, junctions, validation, prints "Demo junctions: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
+$G --path . -- --test-pad[=2000]   # levels a sand-painted square (metres) at the map centre; "Splines: Play" uses it
 # S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
 $G --path . -- --flat --storyboard=corner --screenshot=out.png --cam=560,500,340,89,0   # --storyboard=list for names
 ```
@@ -232,6 +233,16 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
     two ends meeting at its node no longer count as a self-crossing. Checked in `--demo-junctions` (loop over own
     road → 4-way, ends on own road → T, one spline across itself → 4-way, solid station), `--demo-draw` (loop by
     clicks), `--storyboard=chain | chain-loop`.
+
+- **Fix (2026-09-30): junctions on curves** (from the user: "road curves don't render right in junctions"). The
+  footprint treated each arm as a straight line along its direction at the node, so on a curve the curbs, cut ends and
+  outline missed the real ribbons (notches, wedges, plates sticking out). `Junctions.Footprint` now follows each arm's
+  curve: the curb centre is where the two facing sides, pushed out by the curb radius, cross (1 m polylines, nearest
+  crossing to the node), a cut-back is a **station along the arm**, and the outline runs along the curved sides.
+  The outline isn't star-shaped any more, so `RibbonRenderer` triangulates it (`Geometry2D.TriangulatePolygon`, fan
+  as a fallback). A curb that doesn't fit within the cut-back cap is left out and adds no cut-back (before, both arms
+  were cut to the cap). Straight junctions are unchanged. `--demo-junctions` (Curve: curbs touch the real sides, the
+  outline has each cut corner), `--storyboard=junction-curved`.
 
 ### ⬜ S5: Edit tool
 - Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.

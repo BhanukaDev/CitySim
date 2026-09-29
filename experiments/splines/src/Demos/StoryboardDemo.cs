@@ -45,6 +45,7 @@ public partial class StoryboardDemo : Node
             ["junction-sharp"] = JunctionSharp,
             ["junction-turnout"] = JunctionTurnout,
             ["junction-canal"] = JunctionCanal,
+            ["junction-curved"] = JunctionCurved,
             ["continue"] = Continue,
             ["continue-built"] = ContinueBuilt,
             ["continue-mix"] = ContinueMix,
@@ -234,6 +235,16 @@ public partial class StoryboardDemo : Node
         Hover((250, 40));
     }
 
+    /// <summary>Junctions on curves: two curving streets crossing a curved avenue.</summary>
+    private void JunctionCurved()
+    {
+        Use("street");
+        BuildCurve("avenue", 120, (10, 170), (160, 30), (310, 170));
+        BuildCurve("street", 40, (40, 20), (110, 110), (70, 195));
+        BuildCurve("street", 40, (190, 195), (215, 110), (300, 60));
+        Hover((300, 20));
+    }
+
     /// <summary>A branch at 22° off a street (min 30°): amber, with the fix in the tag.</summary>
     private void JunctionSharp()
     {
@@ -336,6 +347,11 @@ public partial class StoryboardDemo : Node
     /// <summary>A built straight spline of <paramref name="id"/>'s profile.</summary>
     private void Build(string id, (float, float) a, (float, float) b) =>
         DrawTool!.AddBuiltForTest(Profile(id), new Alignment(new[] { new Pi(P(a)), new Pi(P(b)) }));
+
+    /// <summary>A built spline through <paramref name="pts"/>, every corner at <paramref name="radius"/>.</summary>
+    private void BuildCurve(string id, float radius, params (float, float)[] pts) =>
+        DrawTool!.AddBuiltForTest(Profile(id), new Alignment(pts.Select((p, i) =>
+            new Pi(P(p), i == 0 || i == pts.Length - 1 ? 0 : radius)).ToArray()));
 
     private void Click((float, float) at, bool hard = false)
     {

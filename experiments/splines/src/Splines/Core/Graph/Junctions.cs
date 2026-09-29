@@ -13,8 +13,9 @@ public readonly record struct ArmCut(int EdgeId, bool AtStart, float CutBack);
 
 /// <summary>
 /// A <see cref="JunctionKind.Node"/> junction's footprint (DESIGN.md → Junctions), as data for the consumer to draw:
-/// each arm's cut-back, the curb arcs between neighbouring arms, and the outline polygon (the arm ends and curbs in
-/// order, star-shaped around the node, so a fan from <see cref="Centre"/> fills it).
+/// each arm's cut-back (a station along the arm from the node), the curb arcs between neighbouring arms, and the
+/// outline polygon (each arm's curved sides, its cut end and the curbs, in order round the node). The outline isn't
+/// always star-shaped around <see cref="Centre"/> when arms curve, so triangulate it rather than fanning.
 /// </summary>
 public sealed record JunctionFootprint(int NodeId, Vector2 Centre, IReadOnlyList<ArmCut> Cuts, IReadOnlyList<Curb> Curbs, IReadOnlyList<Vector2> Outline)
 {
@@ -119,7 +120,9 @@ public static class Junctions
     /// <summary>
     /// The footprint of a <see cref="JunctionKind.Node"/> junction with three or more arms: between each pair of
     /// neighbouring arms, a curb arc tangent to their facing sides, with the narrower arm's
-    /// <see cref="ProfileRules.DefaultRadius"/>; each arm is cut back to where its curbs start. Null otherwise.
+    /// <see cref="ProfileRules.DefaultRadius"/>; each arm is cut back to where its curbs start. Arms are followed along
+    /// their real curves (not their direction at the node), so a junction on a curve meets the ribbons exactly: a
+    /// cut-back is a station along the arm, and the outline runs along each arm's curved sides. Null otherwise.
     /// </summary>
     public static JunctionFootprint? Footprint(SplineGraph g, int nodeId)
     {
@@ -128,53 +131,146 @@ public static class Junctions
         var centre = g.Node(nodeId).Position;
         var sorted = Sorted(arms);
         int n = sorted.Count;
+        var paths = sorted.Select(x => new ArmPath(g, x.Arm)).ToArray();
         var cut = new float[n];
         var curbs = new Curb?[n]; // curbs[i]: between arm i and arm i + 1
+        var curbAt = new (float From, float To)[n]; // the stations along arm i and arm i + 1 where curbs[i] touches them
 
         for (int i = 0; i < n; i++)
         {
             var (a, gap) = sorted[i];
-            var b = sorted[(i + 1) % n].Arm;
-            if (gap >= StraightGapDegrees) continue;
-            float wa = a.Rules.Width / 2, wb = b.Rules.Width / 2;
-            var narrow = a.Rules.Width < b.Rules.Width || (a.Rules.Width == b.Rules.Width && a.Rules.DefaultRadius <= b.Rules.DefaultRadius) ? a.Rules : b.Rules;
-            float r = narrow.DefaultRadius;
-            // The sides facing each other: a's side toward b (heading grows toward b), b's side toward a.
-            var sideA = centre + TowardNext(a.Direction) * wa;
-            var sideB = centre - TowardNext(b.Direction) * wb;
-            if (LineCross(sideA, a.Direction, sideB, b.Direction) is not { } x) continue;
-            float theta = gap * MathF.PI / 180f;
-            float tl = r / MathF.Tan(theta / 2);
-            var from = x + a.Direction * tl;
-            var to = x + b.Direction * tl;
-            cut[i] = MathF.Max(cut[i], Vector2.Dot(from - centre, a.Direction));
             int j = (i + 1) % n;
-            cut[j] = MathF.Max(cut[j], Vector2.Dot(to - centre, b.Direction));
+            var b = sorted[j].Arm;
+            if (gap >= StraightGapDegrees) continue;
+            var narrow = a.Rules.Width < b.Rules.Width || (a.Rules.Width == b.Rules.Width && a.Rules.DefaultRadius <= b.Rules.DefaultRadius) ? a.Rules : b.Rules;
+            float r = MathF.Max(narrow.DefaultRadius, 0);
+            // The curb's centre is r off both facing sides: where a's side toward b, pushed out by r, meets b's side
+            // toward a, pushed out by r. The nearest such point to the node wins.
+            var pa = paths[i].Side(+1, a.Rules.Width / 2 + r);
+            var pb = paths[j].Side(-1, b.Rules.Width / 2 + r);
+            if (FirstCross(pa, pb) is not { } hit) continue;
+            cut[i] = MathF.Max(cut[i], hit.SA);
+            cut[j] = MathF.Max(cut[j], hit.SB);
+            curbAt[i] = (hit.SA, hit.SB);
             if (r > 0)
-                curbs[i] = new Curb(x + Vector2.Normalize(a.Direction + b.Direction) * (r / MathF.Sin(theta / 2)), r, from, to);
+                curbs[i] = new Curb(hit.Point, r, paths[i].SidePoint(hit.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.SB, -1, b.Rules.Width / 2));
         }
 
         // Keep both ends of a short edge room: cap each cut-back at a share of its edge.
         for (int i = 0; i < n; i++)
-            cut[i] = Math.Clamp(cut[i], 0, g.Edge(sorted[i].Arm.EdgeId).Alignment.Length * MaxCutShare);
+            cut[i] = Math.Clamp(cut[i], 0, paths[i].Length * MaxCutShare);
 
+        // Round the outline: for each arm, its side toward the previous arm (from that curb out to the cut), the cut
+        // end, its side toward the next arm (back in to that curb), then the curb itself.
         var outline = new List<Vector2>();
         for (int i = 0; i < n; i++)
         {
-            var a = sorted[i].Arm;
-            float w = a.Rules.Width / 2;
-            var end = centre + a.Direction * cut[i];
-            outline.Add(end - TowardNext(a.Direction) * w);
-            outline.Add(end + TowardNext(a.Direction) * w);
-            if (curbs[i] is { } c && cut[i] >= Vector2.Dot(c.From - centre, a.Direction) - 1e-3f)
-            {
-                var b = sorted[(i + 1) % n].Arm;
-                bool fits = cut[(i + 1) % n] >= Vector2.Dot(c.To - centre, b.Direction) - 1e-3f;
-                if (fits) outline.AddRange(ArcPoints(c));
-            }
+            int prev = (i + n - 1) % n, j = (i + 1) % n;
+            float w = sorted[i].Arm.Rules.Width / 2;
+            bool prevFits = curbs[prev] is not null && Fits(prev);
+            bool nextFits = curbs[i] is not null && Fits(i);
+            outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : cut[i], cut[i]));
+            outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : cut[i]));
+            if (nextFits) outline.AddRange(ArcPoints(curbs[i]!.Value));
+
+            bool Fits(int k) => cut[k] >= curbAt[k].From - 1e-3f && cut[(k + 1) % n] >= curbAt[k].To - 1e-3f;
         }
         var cuts = sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
-        return new JunctionFootprint(nodeId, centre, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), outline);
+        return new JunctionFootprint(nodeId, centre, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline));
+    }
+
+    /// <summary>An arm's edge seen from the node: station 0 at the node, growing away from it.</summary>
+    private readonly struct ArmPath
+    {
+        /// <summary>Spacing of the side polylines the curbs are fitted to (a 1 m chord on R 60 is off by 2 mm).</summary>
+        private const float Step = 1f;
+
+        private readonly Curve _curve;
+        private readonly bool _atStart;
+
+        public ArmPath(SplineGraph g, Arm arm)
+        {
+            _curve = g.Edge(arm.EdgeId).Alignment.Curve;
+            _atStart = arm.AtStart;
+        }
+
+        public float Length => _curve.Length;
+
+        /// <summary>The centre point and the direction away from the node at station <paramref name="s"/>.</summary>
+        public (Vector2 Position, Vector2 Direction) At(float s)
+        {
+            var c = _curve.Sample(_atStart ? s : _curve.Length - s);
+            return (c.Position, _atStart ? c.Tangent : -c.Tangent);
+        }
+
+        /// <summary>The point <paramref name="offset"/> off the centre, on the side toward the next arm (+1) or the
+        /// previous one (−1).</summary>
+        public Vector2 SidePoint(float s, int side, float offset)
+        {
+            var (p, d) = At(s);
+            return p + TowardNext(d) * (side * offset);
+        }
+
+        /// <summary>The side at <paramref name="offset"/> as a polyline of (station, point), out to the cut-back cap.</summary>
+        public List<(float S, Vector2 P)> Side(int side, float offset)
+        {
+            float max = _curve.Length * MaxCutShare;
+            var pts = new List<(float, Vector2)>();
+            for (float s = 0; ; s += Step)
+            {
+                s = MathF.Min(s, max);
+                pts.Add((s, SidePoint(s, side, offset)));
+                if (s >= max) break;
+            }
+            return pts;
+        }
+
+        /// <summary>Points along a side from station <paramref name="s0"/> to <paramref name="s1"/> (either way round),
+        /// both ends included.</summary>
+        public IEnumerable<Vector2> SideRun(int side, float offset, float s0, float s1)
+        {
+            int k = Math.Max(1, (int)MathF.Ceiling(MathF.Abs(s1 - s0) / (Step * 2)));
+            if (MathF.Abs(s1 - s0) < 1e-3f) k = 0;
+            for (int i = 0; i <= k; i++)
+                yield return SidePoint(k == 0 ? s0 : s0 + (s1 - s0) * i / k, side, offset);
+        }
+    }
+
+    /// <summary>The crossing of two side polylines nearest the node (smallest station sum), with its stations.</summary>
+    private static CurveHit? FirstCross(List<(float S, Vector2 P)> a, List<(float S, Vector2 P)> b)
+    {
+        CurveHit? best = null;
+        for (int i = 0; i + 1 < a.Count; i++)
+        {
+            var (sa0, a0) = a[i];
+            var (sa1, a1) = a[i + 1];
+            for (int k = 0; k + 1 < b.Count; k++)
+            {
+                var (sb0, b0) = b[k];
+                var (sb1, b1) = b[k + 1];
+                if (best is { } bb && sa0 + sb0 >= bb.SA + bb.SB) break;
+                var da = a1 - a0;
+                var db = b1 - b0;
+                float den = SplineMath.Cross(da, db);
+                if (MathF.Abs(den) < 1e-9f) continue;
+                float t = SplineMath.Cross(b0 - a0, db) / den;
+                float u = SplineMath.Cross(b0 - a0, da) / den;
+                if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+                float sa = sa0 + (sa1 - sa0) * t, sb = sb0 + (sb1 - sb0) * u;
+                if (best is null || sa + sb < best.Value.SA + best.Value.SB)
+                    best = new CurveHit(sa, sb, a0 + da * t);
+            }
+        }
+        return best;
+    }
+
+    private static List<Vector2> Dedupe(List<Vector2> pts)
+    {
+        var result = new List<Vector2>(pts.Count);
+        foreach (var p in pts)
+            if (result.Count == 0 || Vector2.DistanceSquared(result[^1], p) > 1e-6f) result.Add(p);
+        if (result.Count > 1 && Vector2.DistanceSquared(result[0], result[^1]) <= 1e-6f) result.RemoveAt(result.Count - 1);
+        return result;
     }
 
     /// <summary>
@@ -269,11 +365,4 @@ public static class Junctions
 
     /// <summary>The unit normal on the side of an arm where the next arm (by heading) lies.</summary>
     private static Vector2 TowardNext(Vector2 dir) => new(-dir.Y, dir.X);
-
-    private static Vector2? LineCross(Vector2 p, Vector2 dp, Vector2 q, Vector2 dq)
-    {
-        float den = SplineMath.Cross(dp, dq);
-        if (MathF.Abs(den) < 1e-6f) return null;
-        return p + dp * (SplineMath.Cross(q - p, dq) / den);
-    }
 }
