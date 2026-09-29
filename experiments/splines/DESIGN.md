@@ -150,19 +150,19 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 ### Draw tool
 | Input | Action |
 |---|---|
-| LMB | place a point (start / corner) |
-| Double-click, Enter | finish the spline |
-| RMB | remove the last point; with none left, cancel |
-| Esc | cancel the spline; again leaves the tool |
+| LMB | place a point: the first starts, each later one **builds the leg up to it** at once (one undo step); the chain goes on from there, so only the leg to the cursor is a preview. On a dead end it also finishes |
+| Double-click, Enter | finish: end the chain (the legs are already built) |
+| RMB | stop: end the chain, dropping the preview leg (built legs stay) |
+| Esc | stop, as RMB; again leaves the tool |
 | Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
-| Shift+wheel, `[` `]` | radius of the live corner (the last point placed) and of the corners after it (clamped to `MinRadius` unless Anarchy) |
+| Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy) |
 | Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start) |
 | Space (hold) | all snapping off |
 | `1`–`4` | Draw · Curve · Freehand · Grid |
 | `P` | Parallel on/off; wheel changes the offset, Alt flips the side |
 | PgUp / PgDn | elevation step (1 / 2.5 / 5 / 10 m, chosen in the options bar) |
 | Ctrl+A | Anarchy: ignore radius, angle and grade limits (the result shows red but is built) |
-| Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y | undo / redo |
+| Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y | undo / redo; mid-draw, takes back the last built leg and steps back a point |
 
 **Modes** all produce PIs:
 1. **Draw**: each click is a PI with the profile's `DefaultRadius`. This is the default mode.
@@ -217,8 +217,8 @@ and arcs are laid on the ground plane so they follow the camera's perspective.
 - **Guides**: thick white dashes (3 px) from their source to just past the snap; the snap point gets a white ground
   ring (larger on a node, double on a guide crossing). Perpendicular: a right-angle mark at the foot. Parallel: a
   white gap bracket. The snap's pill (blue border) names it: `extension · ∡ 90°`, `parallel · 40 m gap (5 lots)`.
-- **Hints**: a stack of pills next to the cursor saying what each input does now: `LMB Place`, `RMB Undo`,
-  `Double-click Finish`, `Shift+wheel Radius`.
+- **Hints**: a stack of pills next to the cursor saying what each input does now: `LMB Place`, `RMB Stop`,
+  `Double-click Finish`, `Ctrl+Z Undo leg`, `Shift+wheel Radius`.
 - **Pills**: dark rounded (`#121418`, 86 %), white sans text, the key or symbol in accent blue `#6A9CF2`; amber
   `#E5A430` warn, red `#E7654F` refused. `∡` and `↔` are drawn as symbols. Pills never overlap (they nudge down).
 
@@ -266,7 +266,9 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
 (`SnapProviders`), so a fence doesn't offer parallel-to-highway guides unless it wants them; the bar greys those out.
 
 ## Junctions
-- They form automatically when a new edge ends on, or crosses, an edge whose profile is in `ConnectsTo`.
+- They form automatically when a new edge ends on, or crosses, an edge whose profile is in `ConnectsTo`, and where a
+  spline crosses or ends on **itself** (a loop, a figure eight, a chain coming back across its own first leg), for a
+  profile that joins its own kind.
 - A node's kind is the strictest of its arms' profiles: `Turnout`, then `Node`, then `Join`.
 - `Node` kind: splits both edges. Arms are cut back from the node centre so the corners fit. The addon computes the
   **junction footprint** (the arm cut-backs and curb corner arcs from the arm widths and the narrower arm's
@@ -315,8 +317,9 @@ These are C# events and interfaces on the Godot side, with plain data only:
 
 - Every tool action is one command on the graph (add / remove / move / set radius / split / merge). There's one undo
   stack, and a spline edit that also shapes terrain joins the terrain's undo step. (Implementation: whole-graph
-  snapshots, cheap because alignments are shared between them.) While drawing, Ctrl+Z pops the last point; with no
-  draw in progress it undoes the last graph command.
+  snapshots, cheap because alignments are shared between them.) Each leg a click builds is one command. While
+  drawing, Ctrl+Z takes back the last leg and the draw goes on from the point before; with no draw in progress it
+  undoes the last graph command.
 - Save: a versioned graph file (nodes, edges, PIs, stations, profile ids, custom data blobs), next to the `.csmap`.
   Profile ids are strings so mods can add profiles.
 

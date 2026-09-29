@@ -154,22 +154,31 @@ public partial class SplineOverlay : Control
     {
         var pis = preview.Pis;
 
+        // The cursor's point, and the first drawn one (the old road's leg sits before or after them when continuing).
+        int cur = pis.Count - (f.LeadOut ? 2 : 1), drawnFrom = f.LeadIn ? 1 : 0;
+        // Only the new part is outlined: from where the continued joint's corner starts to where the end one's ends.
+        float s0 = f.LeadIn ? preview.CornerStations(1).Start : 0;
+        float s1 = f.LeadOut ? preview.CornerStations(pis.Count - 2).End : preview.Length;
+
         // The ribbon's outline along both edges: amber with a warning (a corner that didn't fit), red when refused.
-        if (f.Rules is { Width: > 0.5f } rules)
+        if (f.Rules is { Width: > 0.5f } rules && s1 > s0)
         {
             var outline = f.Worst == Severity.Invalid ? Bad : f.Worst == Severity.Warn || preview.AnyClamped ? Warn : Line with { A = 0.9f };
+            int n = Math.Max(1, (int)MathF.Ceiling((s1 - s0) / 2f));
             foreach (float side in new[] { -1f, 1f })
             {
-                var edge = preview.Curve.Offset(side * rules.Width / 2f);
-                if (edge.Length > 0) SolidPolyline(edge.SampleEvery(2f).Select(s => s.Sample.Position).ToList(), outline, ThinWidth);
+                var pts = new List<NumVector2>(n + 1);
+                for (int k = 0; k <= n; k++)
+                {
+                    var sample = preview.Curve.Sample(s0 + (s1 - s0) * k / n);
+                    pts.Add(sample.Position + SplineMath.Left(sample.Tangent) * (side * rules.Width / 2f));
+                }
+                SolidPolyline(pts, outline, ThinWidth);
             }
         }
 
-        // The legs: thick white dashes from point to point (the tangent polygon the corners round off).
-        DashedPolyline(pis.Select(p => p.Position).ToList(), Line, LegWidth, LegDash, LegGap);
-
-        // The cursor's point, and the first drawn one (the old road's leg sits before or after them when continuing).
-        int cur = pis.Count - (f.LeadOut ? 2 : 1), drawnFrom = f.LeadIn ? 1 : 0;
+        // The legs: thick white dashes from point to point (the tangent polygon the corners round off), the new ones only.
+        DashedPolyline(pis.Skip(drawnFrom).Take(cur - drawnFrom + 1).Select(p => p.Position).ToList(), Line, LegWidth, LegDash, LegGap);
 
         // Corners: the angle arc between the two legs and its pill; the radius knob, or a square at a hard corner.
         int live = pis.Count - 2;
@@ -416,8 +425,12 @@ public partial class SplineOverlay : Control
             if (f.DeleteTarget is not null) _tags.Add(new PendingTag(at, "Delete", TagStyle.Plain, false, "Del"));
             return;
         }
-        _tags.Add(new PendingTag(at, "Undo", TagStyle.Plain, false, "RMB"));
-        if (f.SessionPis.Count >= 2) _tags.Add(new PendingTag(at, "Finish", TagStyle.Plain, false, "Double-click"));
+        _tags.Add(new PendingTag(at, "Stop", TagStyle.Plain, false, "RMB"));
+        if (f.SessionPis.Count >= 2)
+        {
+            _tags.Add(new PendingTag(at, "Finish", TagStyle.Plain, false, "Double-click"));
+            _tags.Add(new PendingTag(at, "Undo leg", TagStyle.Plain, false, "Ctrl+Z"));
+        }
         if (f.Preview is { } p && p.Pis.Count >= 3 && !p.Pis[^2].Hard) _tags.Add(new PendingTag(at, "Radius", TagStyle.Plain, false, "Shift+wheel"));
     }
 

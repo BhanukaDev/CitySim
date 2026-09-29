@@ -189,7 +189,7 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
     (the half-leg clamp rule from S1).
   - Overlap between edges that share a node is only caught when they leave it along the same line; a turnout's
     branch is exempt.
-  - Closing a loop onto the draw's own start isn't supported (snapping doesn't offer it); a self-crossing is red.
+  - A self-crossing is a junction now (draw-chain follow-up); only a profile that doesn't join itself shows it red.
   - The turnout ghost is offered for the first leg only; snapping still offers guides from profiles that can't connect.
   - `ConnectsTo` takes profile ids only (no tags yet).
   - Curb radius is the narrower arm's `DefaultRadius` (per the storyboard), so street curbs are 16 m. A separate
@@ -214,6 +214,24 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
     same-profile streets end to end are one road).
   - Open: in the user's screenshot, a road start sat near another road's end without joining. Check whether the node
     snap missed there.
+- **Follow-up (2026-09-30): each click builds its leg** (from the user). The Draw mode's preview is only the leg from
+  the last point to the cursor (Curve mode will preview two points). `DrawSession` is now a chain of placed points
+  (`Placed`, `LegTo`, point undo/redo); a click builds `[last, click]` through `SplineGraph.AddSpline` as one undo
+  step, and since the last point is a dead end of the road just built, the next leg *continues* it (the dead-end
+  follow-up above), so its corner rounds live with every corner rule. Refused legs place nothing. RMB/Esc stop (built
+  legs stay), double-click/Enter end the chain, Ctrl+Z mid-draw takes back a leg. A click on a dead end finishes.
+  Junction tags aren't repeated for a junction the chain passes back through; `Total` is the chain's drawn length.
+  The storyboard frames now show the built legs solid and only the last leg as a ghost; the HTML storyboard still
+  shows the whole draw as a ghost (update it when next touched). `--demo-draw` covers build-per-click, continue,
+  Ctrl+Z mid-draw and finish.
+  - Fix after play-test (`docs/draw-chain.html`): the whole continued road was drawn as the ghost, and a loop across
+    the chain's own road was refused as "crosses itself". Now `AddResult.SolidUntil`/`SolidFrom` mark the unchanged old
+    road (up to where the joint's corner starts); `RibbonRenderer.SetPreview` draws it solid in the profile colour and
+    only the rest as the ghost, and the overlay outlines and dashes only the new part. `AddSpline` turns every
+    self-crossing (and a leg ending on its own road) into a junction for a profile that joins itself; a loop edge's
+    two ends meeting at its node no longer count as a self-crossing. Checked in `--demo-junctions` (loop over own
+    road → 4-way, ends on own road → T, one spline across itself → 4-way, solid station), `--demo-draw` (loop by
+    clicks), `--storyboard=chain | chain-loop`.
 
 ### ⬜ S5: Edit tool
 - Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.
@@ -331,5 +349,8 @@ version:
   a corner of one edge and every drawing rule applies to it, with no special case for sharp angles (a 25° joint rounds
   and clamps like a drawn 25° corner). This is the one case where edges merge on add. Different profiles keep the node
   with a bend fill; width tapers come later.
+- 2026-09-30 (from the user): **Draw mode builds each leg on click**; double-click only ends the chain. One point is
+  ever in the preview in Draw mode (two in Curve mode later). RMB stops instead of removing a point; Ctrl+Z takes
+  back legs.
 - 2026-09-30 (S4): undo is whole-graph snapshots in `SplineNetwork` (simple, and cheap because alignments are
   shared); S8's terrain shaping will join the same step. Revisit in S11 if memory matters.

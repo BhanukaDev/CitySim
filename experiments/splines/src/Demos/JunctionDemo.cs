@@ -268,6 +268,31 @@ public partial class JunctionDemo : Node
         Check("continue stem: T kept", t.EdgeCount, 3);
         Check("continue stem: label", Junctions.Label(t, t.NodeAt(V(100, 0))!.Value) ?? "", "T-junction · 90°");
 
+        // The preview's solid part: the old road up to where the joint's corner starts (100 − 16 m).
+        Check("continue: solid until the corner", r.SolidUntil, 84f);
+
+        // A continued road crossing its own built part makes a 4-way there, like crossing any road.
+        var own = new SplineGraph();
+        own.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        var lp = own.AddSpline(new Alignment(new[] { new Pi(V(200, 0), 16), new Pi(V(200, -100), 16), new Pi(V(100, -100), 16), new Pi(V(100, 50)) }), Street);
+        int? x = own.NodeAt(V(100, 0));
+        Check("loop over own road: junction", x is not null);
+        Check("loop over own road: edges", own.EdgeCount, 3);
+        Check("loop over own road: label", x is { } xn ? Junctions.Label(own, xn) ?? "" : "", "4-way · 90°");
+        Check("loop over own road: no issues", Validation.Check(own).Count, 0);
+
+        // A leg ending on its own road makes a T there.
+        var tee = new SplineGraph();
+        tee.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        tee.AddSpline(new Alignment(new[] { new Pi(V(200, 0), 16), new Pi(V(200, -100), 16), new Pi(V(100, -100), 16), new Pi(V(100, 0)) }), Street);
+        Check("ends on own road: T", tee.NodeAt(V(100, 0)) is { } tn ? Junctions.Label(tee, tn) ?? "" : "", "T-junction · 90°");
+
+        // One spline drawn across itself: the same junction.
+        var fig = new SplineGraph();
+        fig.AddSpline(new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(200, 0), 16), new Pi(V(200, -100), 16), new Pi(V(100, -100), 16), new Pi(V(100, 50)) }), Street);
+        Check("crosses itself: 4-way", fig.NodeAt(V(100, 0)) is { } fn ? Junctions.Label(fig, fn) ?? "" : "", "4-way · 90°");
+        Check("crosses itself: no issues", Validation.Check(fig).Count, 0);
+
         // Another profile: the node stays, with a filled bend and no label.
         var mix = new SplineGraph();
         mix.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);

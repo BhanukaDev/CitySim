@@ -36,8 +36,11 @@ public sealed class RibbonRenderer
     }
 
     /// <summary>Rebuilds the preview ghost from the in-progress alignment, with a halo in the worst issue's colour
-    /// (a clamped corner is amber even before validation says so). Null clears it.</summary>
-    public void SetPreview(Alignment? alignment, float width, Severity? worst = null)
+    /// (a clamped corner is amber even before validation says so). Stations before <paramref name="solidUntil"/> and
+    /// after <paramref name="solidFrom"/> are road already built that the draw continues unchanged: they're drawn as
+    /// built, in <paramref name="solidColor"/>, and only the rest is the ghost. Null clears it.</summary>
+    public void SetPreview(Alignment? alignment, float width, Severity? worst = null,
+        float solidUntil = 0, float solidFrom = float.PositiveInfinity, Color? solidColor = null)
     {
         if (alignment is null || alignment.Curve.Length <= 0f)
         {
@@ -46,9 +49,34 @@ public sealed class RibbonRenderer
         }
         _preview ??= NewInstance();
         var mesh = new ArrayMesh();
+        var curve = alignment.Curve;
+        float s0 = Math.Clamp(solidUntil, 0, curve.Length), s1 = Math.Clamp(solidFrom, s0, curve.Length);
         if (worst is null && alignment.AnyClamped) worst = Severity.Warn;
-        if (worst is { } w) AddSurface(mesh, Strip(alignment.Curve, width + 5f, 0, Lift * 0.5f), HaloOf(w));
-        AddSurface(mesh, Strip(alignment.Curve, width, 0, Lift), GhostFill);
+        if (s1 > s0)
+        {
+            if (worst is { } w)
+            {
+                var halo = NewStrip();
+                if (Span(halo, curve, s0, s1, width + 5f, Lift * 0.5f) > 0) AddSurface(mesh, halo, HaloOf(w));
+            }
+            var ghost = NewStrip();
+            if (Span(ghost, curve, s0, s1, width, Lift) > 0) AddSurface(mesh, ghost, GhostFill);
+        }
+        if (solidColor is { } color && (s0 > 0 || s1 < curve.Length))
+        {
+            var fill = NewStrip();
+            var centre = NewStrip();
+            int quads = 0, dashes = 0;
+            foreach (var (a, b) in new[] { (0f, s0), (s1, curve.Length) })
+            {
+                if (b - a < 1e-3f) continue;
+                quads += Span(fill, curve, a, b, width, Lift);
+                for (float s = a + DashOff / 2; s < b; s += DashOn + DashOff)
+                    dashes += Span(centre, curve, s, MathF.Min(s + DashOn, b), CentreWidth, Lift * 2);
+            }
+            if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
+            if (dashes > 0) AddSurface(mesh, centre, color.Lightened(0.55f), opaque: true);
+        }
         _preview.Mesh = mesh;
     }
 

@@ -74,11 +74,12 @@ public partial class DrawDemo : Node
         Check("rail line", network.Graph.EdgeCount, start + 1);
         Click(300, 1000);
         Click(300, 900);
-        DrawTool.FinishForTest();
         Check("square rail branch refused", network.Graph.EdgeCount, start + 1);
+        Check("refused leg: still drawing from the start", DrawTool.IsDrawing ? 1 : 0, 1);
         Testbed.SetAnarchy(true);
-        DrawTool.FinishForTest();
+        Click(300, 900);
         Testbed.SetAnarchy(false);
+        DrawTool.FinishForTest();
         Check("built with Anarchy (line split + branch)", network.Graph.EdgeCount, start + 3);
         Check("and it stays red", network.Issues.Count(i => i.Code == "turnout"), 1);
         network.Undo();
@@ -121,12 +122,53 @@ public partial class DrawDemo : Node
         Check("ended on a dead end: the two roads are one", network.Graph.EdgeCount, start + 2);
         network.Undo();
         network.Undo();
+        network.Undo();
+
+        // Each click builds its leg; Ctrl+Z mid-draw takes the last one back and the chain goes on from the point before.
+        int before = network.Graph.EdgeCount;
+        Click(1000, 1400);
+        Click(1100, 1400);
+        Check("click builds the leg", network.Graph.EdgeCount, before + 1);
+        Click(1100, 1500);
+        Check("next leg continues the same road", network.Graph.EdgeCount, before + 1);
+        Check("the corner is on it", network.Graph.Edges.Any(e => e.Alignment.Pis.Count == 3 && e.Alignment.Pis[1].Position == new NumVector2(1100, 1400)));
+        DrawTool.UndoForTest();
+        Check("Ctrl+Z mid-draw: back to one leg", network.Graph.Edges.Any(e => e.Alignment.Pis.Count == 2 && e.Alignment.Pis[1].Position == new NumVector2(1100, 1400)));
+        Check("Ctrl+Z mid-draw: still drawing", DrawTool.IsDrawing ? 1 : 0, 1);
+        Click(1200, 1500);
+        DrawTool.FinishForTest();
+        Check("double-click ends the chain", DrawTool.IsDrawing ? 1 : 0, 0);
+        Check("one road", network.Graph.EdgeCount, before + 1);
+
+        // A loop back across the chain's own first leg builds, with a 4-way there.
+        before = network.Graph.EdgeCount;
+        Click(1000, 1800);
+        Click(1200, 1800);
+        Click(1200, 1700);
+        Click(1100, 1700);
+        Click(1100, 1850);
+        DrawTool.FinishForTest();
+        Check("loop across its own road: 4-way", network.Graph.NodeAt(new NumVector2(1100, 1800)) is { } x ? Junctions.Label(network.Graph, x) ?? "" : "", "4-way · 90°");
+        Check("loop across its own road: three edges", network.Graph.EdgeCount, before + 3);
     }
 
     private void Click(float x, float z)
     {
         DrawTool!.ForcedPlanCursor = new NumVector2(x, z);
         DrawTool.PlaceForTest(hard: false);
+    }
+
+    private void Check(string name, string got, string want)
+    {
+        bool ok = got == want;
+        GD.Print($"  {name}: \"{got}\" (want \"{want}\") {(ok ? "ok" : "FAILED")}");
+        if (!ok) _failures.Add(name);
+    }
+
+    private void Check(string name, bool ok)
+    {
+        GD.Print($"  {name}: {(ok ? "ok" : "FAILED")}");
+        if (!ok) _failures.Add(name);
     }
 
     private void Check(string name, int got, int want)

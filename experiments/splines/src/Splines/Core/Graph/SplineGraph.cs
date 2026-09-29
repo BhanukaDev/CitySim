@@ -30,8 +30,11 @@ public readonly record struct Arm(int EdgeId, bool AtStart, Vector2 Direction, P
 
 /// <summary>What <see cref="SplineGraph.AddSpline"/> made: the new edges in draw order, every node the new spline
 /// touches (its ends and its junctions), the whole alignment it added (the drawn one, grown by any dead ends it
-/// continued), and the edges those dead ends were (now part of it).</summary>
-public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes, Alignment Alignment, IReadOnlyList<int> Continued);
+/// continued), the edges those dead ends were (now part of it), and the stations of <see cref="Alignment"/> before
+/// <see cref="SolidUntil"/> and after <see cref="SolidFrom"/> that are those old roads unchanged (up to where the
+/// corner at the joint starts), so a preview can draw them as built.</summary>
+public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes, Alignment Alignment, IReadOnlyList<int> Continued,
+    float SolidUntil = 0, float SolidFrom = float.PositiveInfinity);
 
 /// <summary>
 /// The spline network (DESIGN.md → Graph): nodes and edges, each edge owning one alignment. Adding a spline splits it
@@ -148,7 +151,7 @@ public sealed class SplineGraph
     {
         var continued = new List<int>();
         var emptied = new List<int>();
-        alignment = Continue(alignment, rules, continued, emptied);
+        (alignment, int startJoint, int endJoint) = Continue(alignment, rules, continued, emptied);
         var curve = alignment.Curve;
         float length = curve.Length;
         var cuts = new List<Cut>();
@@ -174,6 +177,19 @@ public sealed class SplineGraph
                 cuts.Add(NodeAt(hit.Point) is { } node ? new Cut(hit.SA, hit.Point, node, null, 0) : OnEdge(hit.SA, hit.Point, e, hit.SB));
             }
         }
+
+        // Crossing itself (a loop, or a continued road crossing its own built part) is a junction like any crossing,
+        // for a profile that joins itself: both places along the spline get the same node. A hit at the spline's end
+        // (a leg ending on its own road) is that end's cut.
+        if (Connects(rules, rules))
+            foreach (var hit in curve.SelfIntersect())
+            {
+                if (hit.SA < NodeTolerance && hit.SB > length - NodeTolerance) continue;
+                int node = NodeAt(hit.Point) ?? NewNode(hit.Point);
+                emptied.Add(node); // dropped again if dedup leaves it unused
+                cuts.Add(new Cut(hit.SA, hit.Point, node, null, 0));
+                cuts.Add(new Cut(hit.SB, hit.Point, node, null, 0));
+            }
 
         // One cut per place along the new spline (a crossing through a junction hits each of its edges): nodes first.
         cuts = cuts.OrderBy(c => c.S).ThenBy(c => c.Node is null).ToList();
@@ -218,7 +234,9 @@ public sealed class SplineGraph
         nodes.Add(endNode);
         foreach (int n in emptied)
             if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
-        return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued);
+        float solidUntil = startJoint > 0 ? alignment.CornerStations(startJoint).Start : 0;
+        float solidFrom = endJoint > 0 ? alignment.CornerStations(endJoint).End : float.PositiveInfinity;
+        return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued, solidUntil, solidFrom);
 
         static Cut OnEdge(float s, Vector2 p, GraphEdge e, float edgeS) => new(s, p, null, e.Id, edgeS);
     }
@@ -227,14 +245,16 @@ public sealed class SplineGraph
     /// Grows a drawn alignment by the dead ends its ends continue, taking those edges out of the graph. Their far
     /// nodes are left (maybe empty) for the spline to join, and listed in <paramref name="emptied"/> for clean-up.
     /// </summary>
-    private Alignment Continue(Alignment drawn, ProfileRules rules, List<int> continued, List<int> emptied)
+    private (Alignment Alignment, int StartJoint, int EndJoint) Continue(Alignment drawn, ProfileRules rules, List<int> continued, List<int> emptied)
     {
         var pis = drawn.Pis.ToList();
+        int startJoint = -1, endJoint = -1;
         if (DeadEndAt(pis[0].Position, rules) is { } s)
         {
             var old = _edges[s.EdgeId];
             var lead = AlignmentOps.Pinned(s.AtStart ? AlignmentOps.Reversed(old.Alignment) : old.Alignment);
             pis = lead.Pis.Take(lead.Pis.Count - 1).Append(Joint(pis[0], rules)).Concat(pis.Skip(1)).ToList();
+            startJoint = lead.Pis.Count - 1;
             Take(old);
         }
         // After the start, so a draw back onto the other end of the same edge closes a loop instead.
@@ -242,10 +262,11 @@ public sealed class SplineGraph
         {
             var old = _edges[e.EdgeId];
             var tail = AlignmentOps.Pinned(e.AtStart ? old.Alignment : AlignmentOps.Reversed(old.Alignment));
+            endJoint = pis.Count - 1;
             pis = pis.Take(pis.Count - 1).Append(Joint(pis[^1], rules)).Concat(tail.Pis.Skip(1)).ToList();
             Take(old);
         }
-        return continued.Count == 0 ? drawn : new Alignment(pis);
+        return (continued.Count == 0 ? drawn : new Alignment(pis), startJoint, endJoint);
 
         void Take(GraphEdge old)
         {

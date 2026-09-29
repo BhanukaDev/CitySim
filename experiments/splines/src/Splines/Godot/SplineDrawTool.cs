@@ -101,7 +101,7 @@ public partial class SplineDrawTool : Node
         else if (key.Keycode == Key.Bracketleft) AdjustRadius(1f / RadiusKeyFactor);
         else if (key.Keycode == Key.Bracketright) AdjustRadius(RadiusKeyFactor);
         else if (key.Keycode is Key.Enter or Key.KpEnter) Finish();
-        else if (key.Keycode == Key.Escape) CancelSession();
+        else if (key.Keycode == Key.Escape) EndChain();
         else handled = false;
         if (handled) GetViewport().SetInputAsHandled();
     }
@@ -119,7 +119,7 @@ public partial class SplineDrawTool : Node
         if (mb.ButtonIndex == MouseButton.Right)
         {
             GetViewport().SetInputAsHandled();
-            RemoveLastOrCancel();
+            EndChain();
             return;
         }
         if (mb.DoubleClick)
@@ -165,6 +165,7 @@ public partial class SplineDrawTool : Node
         _snap = SnapEngine.Evaluate(BuildSnapQuery(PlanOf(cursor), cursor, rules, mods));
         bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
         if (continues) _snap = _snap with { Tag = $"continue · {rules.Id}" };
+        bool clickFinishes = !_session.IsEmpty && _snap.Kind == SnapKind.Node && Network.Graph.DeadEndAt(_snap.Position, rules) is not null;
 
         Alignment? preview = null, shown = null;
         bool leadIn = false, leadOut = false;
@@ -176,13 +177,18 @@ public partial class SplineDrawTool : Node
             var drawn = _session.BuildPreview(_snap.Position);
             _trial = Try(drawn, rules);
             _suggestion = TurnoutSuggestion(_trial, rules);
-            // Continuing a dead end: the ghost is the whole road it becomes, the old edge is hidden meanwhile, and the
-            // overlay gets the old road's last leg as the previous leg (so the joint has its angle and radius pills).
+            // Continuing a dead end: the old edge is hidden and the whole road it becomes is drawn instead, the
+            // unchanged old part solid; the overlay gets the old road's last leg as the previous leg (so the joint has
+            // its angle and radius pills).
             var continued = _trial?.Result.Continued ?? (IReadOnlyList<int>)Array.Empty<int>();
             Network.Hide(continued);
             shown = continued.Count > 0 ? _trial!.Result.Alignment : drawn;
             (preview, leadIn, leadOut) = continued.Count > 0 ? WithLeads(drawn, rules) : (drawn, false, false);
-            _renderer.SetPreview(shown, profile.Width, _trial?.Worst);
+            // The old road it continues stays drawn as built; only the new part (from the joint's corner) is the ghost.
+            if (continued.Count > 0)
+                _renderer.SetPreview(shown, profile.Width, _trial?.Worst, _trial!.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id));
+            else
+                _renderer.SetPreview(shown, profile.Width, _trial?.Worst);
         }
         else
         {
@@ -199,11 +205,11 @@ public partial class SplineDrawTool : Node
         var graph = Network.Graph;
         _overlay.Show(new OverlayFrame
         {
-            SessionPis = _session.Pis,
+            SessionPis = _session.Placed,
             Preview = preview,
             LeadIn = leadIn,
             LeadOut = leadOut,
-            ClickFinishes = continues && !_session.IsEmpty,
+            ClickFinishes = clickFinishes,
             Snap = _snap,
             StartHeading = _session.IsEmpty ? null : _startHeading,
             Rules = rules,
@@ -226,8 +232,8 @@ public partial class SplineDrawTool : Node
 
     // --- Continuing a dead end ---
 
-    /// <summary>Whether a point is a dead end this draw would continue: not the draw's own start edge, which it
-    /// closes into a loop instead.</summary>
+    /// <summary>Whether a point is a dead end the preview leg would continue: not the road the leg starts from,
+    /// which it closes into a loop instead.</summary>
     private bool ContinuesAt(NumVector2 p, ProfileRules rules)
     {
         if (Network?.Graph.DeadEndAt(p, rules) is not { } end) return false;
@@ -277,12 +283,15 @@ public partial class SplineDrawTool : Node
         return new Trial(g, result, issues);
     }
 
-    private static List<JunctionMark> JunctionMarks(Trial t)
+    /// <summary>The junctions the draw makes or changes; one already built as it is (say the T the chain started
+    /// from, which a continued leg passes back through) isn't marked again.</summary>
+    private List<JunctionMark> JunctionMarks(Trial t)
     {
         var marks = new List<JunctionMark>();
         foreach (int n in t.Result.Nodes)
         {
             if (Junctions.Label(t.Graph, n) is not { } label) continue;
+            if (Network?.Graph.NodeAt(t.Graph.Node(n).Position) is { } built && Junctions.Label(Network.Graph, built) == label) continue;
             float width = t.Graph.Node(n).Edges.Max(e => t.Graph.Edge(e).Rules.Width);
             bool warn = t.Issues.Any(i => i.NodeId == n);
             marks.Add(new JunctionMark(t.Graph.Node(n).Position, label, width, warn));
@@ -308,7 +317,7 @@ public partial class SplineDrawTool : Node
     /// leaving along the line it starts on and curving at the profile's minimum radius to the cursor.</summary>
     private Alignment? TurnoutSuggestion(Trial? t, ProfileRules rules)
     {
-        if (t is null || rules.JunctionKind != JunctionKind.Turnout || _session.Pis.Count != 1) return null;
+        if (t is null || rules.JunctionKind != JunctionKind.Turnout || _session.LegsBuilt != 0) return null;
         int start = t.Result.Nodes[0];
         if (!t.Issues.Any(i => i.Code == "turnout" && i.NodeId == start)) return null;
         var line = t.Graph.Arms(start).FirstOrDefault(a => !t.Result.Edges.Contains(a.EdgeId));
@@ -316,10 +325,12 @@ public partial class SplineDrawTool : Node
         return Junctions.TurnoutGhost(t.Graph.Node(start).Position, line.Direction, _snap?.Position ?? _session.Pis[0].Position, rules.MinRadius);
     }
 
+    /// <summary>LMB on an offered turnout builds it as this chain's leg; the chain goes on from its end.</summary>
     private void TakeSuggestion(Alignment turnout)
     {
-        _session.ReplaceWith(turnout.Pis.Take(2));
+        if (Testbed?.Profile is not { } profile || !Build(turnout, profile)) return;
         _session.Place(turnout.Pis[^1].Position, hard: false);
+        _session.StartIsCorner = Network!.Graph.DeadEndAt(turnout.Pis[^1].Position, profile.ToRules()) is not null;
     }
 
     /// <summary>The built edge whose corridor is under the cursor (for Delete).</summary>
@@ -356,7 +367,7 @@ public partial class SplineDrawTool : Node
         return new SnapQuery
         {
             Cursor = rawPlan,
-            SessionPis = _session.Pis,
+            SessionPis = _session.Placed,
             StartHeading = _session.IsEmpty ? null : _startHeading,
             Candidates = Candidates(),
             Rules = rules,
@@ -421,12 +432,18 @@ public partial class SplineDrawTool : Node
         if (_ground.Raycast(origin, dir, out var hit)) Cursor = hit;
     }
 
-    /// <summary>Places a PI. A later point on a dead end the draw continues also finishes it: the road is complete
-    /// once it joins the other one (a refused finish leaves the draw open, the point placed).</summary>
+    /// <summary>
+    /// A click: the first starts the chain; each later one builds the leg up to it at once (one undo step) and the
+    /// chain goes on from there, the new point the next leg's live corner. A leg with an Invalid issue is refused
+    /// (red flash, nothing placed) unless Anarchy. A click on a dead end also ends the chain: the road is complete
+    /// once it joins another one (or closes on itself).
+    /// </summary>
     private void Place(NumVector2 position, bool hard)
     {
-        if (Testbed?.Profile is not { } profile) return;
-        bool finishes = !_session.IsEmpty && ContinuesAt(position, profile.ToRules());
+        if (Testbed?.Profile is not { } profile || Network is null) return;
+        var rules = profile.ToRules();
+        bool allowHard = hard && profile.AllowHardCorners;
+        if (hard && !allowHard) _hardHintUntil = Time.GetTicksMsec() / 1000.0 + 1.2;
         if (_session.IsEmpty)
         {
             _sessionProfile = profile;
@@ -434,12 +451,16 @@ public partial class SplineDrawTool : Node
             // Starting on an edge makes it the soft-angle reference for the whole draw ("∡ 90° · square to edge").
             _startHeading = _snap is { Kind: SnapKind.Node or SnapKind.Edge or SnapKind.PerpendicularFoot } s &&
                             NumVector2.Distance(s.Position, position) < 1e-3f ? s.EdgeTangent : null;
-            _session.StartIsCorner = Network?.Graph.DeadEndAt(position, profile.ToRules()) is not null;
+            _session.Place(position, allowHard);
+            _session.StartIsCorner = Network.Graph.DeadEndAt(position, rules) is not null;
+            return;
         }
-        bool allowHard = hard && profile.AllowHardCorners;
-        if (hard && !allowHard) _hardHintUntil = Time.GetTicksMsec() / 1000.0 + 1.2;
+        if (NumVector2.Distance(position, _session.Pis[0].Position) < SplineGraph.NodeTolerance) return;
+        bool finishes = Network.Graph.DeadEndAt(position, rules) is not null;
+        if (!Build(_session.LegTo(position, allowHard), profile)) return;
         _session.Place(position, allowHard);
-        if (finishes) Finish();
+        _session.StartIsCorner = Network.Graph.DeadEndAt(position, rules) is not null;
+        if (finishes) EndChain();
     }
 
     private void AdjustRadius(float factor)
@@ -449,49 +470,71 @@ public partial class SplineDrawTool : Node
         _session.SetPendingRadius(_session.PendingRadius * factor, Testbed.Anarchy ? 1f : profile.MinRadius);
     }
 
-    /// <summary>Builds the draw as one undo step, unless it has an Invalid issue and Anarchy is off: then it flashes
-    /// why in red and the draw stays open to fix.</summary>
-    private void Finish()
+    /// <summary>Builds one leg as one undo step, unless it has an Invalid issue and Anarchy is off: then it flashes
+    /// why in red and nothing is built. The junctions it makes flash their tags.</summary>
+    private bool Build(Alignment leg, SplineProfile profile)
     {
-        if (Testbed?.Profile is not { } profile || Network is null || _session.Pis.Count < 2) return;
-        var alignment = _session.Finish();
+        if (Network is null || Testbed is null) return false;
         var rules = profile.ToRules();
         double until = Time.GetTicksMsec() / 1000.0 + FlashSeconds;
-        if (Try(alignment, rules) is { FirstInvalid: { } bad } && !Testbed.Anarchy)
+        if (Try(leg, rules) is { FirstInvalid: { } bad } && !Testbed.Anarchy)
         {
-            _flashes.Add((new FlashTag(alignment.Pis[^1].Position, $"Can't build: {bad.Message}", Bad: true), until));
-            return;
+            _flashes.Add((new FlashTag(leg.Pis[^1].Position, $"Can't build: {bad.Message}", Bad: true), until));
+            return false;
         }
         Network.RegisterProfile(profile);
-        var result = Network.Apply(g => g.AddSpline(alignment, rules));
-        _flashes.Add((new FlashTag(alignment.Pis[^1].Position, $"Total {alignment.Length:0} m"), until));
+        var prior = Network.Graph.Clone();
+        var result = Network.Apply(g => g.AddSpline(leg, rules));
         foreach (int n in result.Nodes)
-            if (Junctions.Label(Network.Graph, n) is { } label)
-                _flashes.Add((new FlashTag(Network.Graph.Node(n).Position, label), until));
+        {
+            if (Junctions.Label(Network.Graph, n) is not { } label) continue;
+            var at = Network.Graph.Node(n).Position;
+            // A continued leg passes back through the junction the chain started at: it's not new.
+            if (prior.NodeAt(at) is { } was && Junctions.Label(prior, was) == label) continue;
+            _flashes.Add((new FlashTag(at, label), until));
+        }
+        return true;
+    }
+
+    /// <summary>Double-click / Enter: ends the chain. The legs are already built (the double-click's first click built
+    /// the last one).</summary>
+    private void Finish() => EndChain();
+
+    /// <summary>Ends the chain (RMB, Esc, a finish): the preview leg goes, the built legs stay, and the length drawn
+    /// in this chain flashes at its end.</summary>
+    private void EndChain()
+    {
+        if (_session.LegsBuilt > 0)
+        {
+            float total = new Alignment(_session.Placed).Length;
+            _flashes.Add((new FlashTag(_session.Pis[0].Position, $"Total {total:0} m"), Time.GetTicksMsec() / 1000.0 + FlashSeconds));
+        }
         CancelSession();
     }
 
+    /// <summary>Ctrl+Z: mid-draw, takes back the last built leg and steps the chain back a point (with no leg built,
+    /// ends the draw); otherwise undoes on the graph.</summary>
     private void Undo(bool drawing)
     {
-        if (drawing) _session.Undo();
-        else Network?.Undo();
+        if (!drawing) { Network?.Undo(); return; }
+        if (_session.LegsBuilt == 0 || Network is null || Testbed?.Profile is not { } profile) { CancelSession(); return; }
+        Network.Undo();
+        _session.Undo();
+        _session.StartIsCorner = Network.Graph.DeadEndAt(_session.Pis[0].Position, profile.ToRules()) is not null;
     }
 
     private void Redo(bool drawing)
     {
-        if (drawing) _session.Redo();
-        else Network?.Redo();
+        if (!drawing) { Network?.Redo(); return; }
+        if (!_session.CanRedo || Network is null || Testbed?.Profile is not { } profile || !Network.Redo()) return;
+        _session.Redo();
+        _session.StartIsCorner = Network.Graph.DeadEndAt(_session.Pis[0].Position, profile.ToRules()) is not null;
     }
 
     private void Delete(int edgeId)
     {
         if (Network is null || !Network.Graph.HasEdge(edgeId)) return;
         Network.Apply(g => g.RemoveEdge(edgeId));
-    }
-
-    private void RemoveLastOrCancel()
-    {
-        if (!_session.Undo()) CancelSession();
     }
 
     private void CancelSession()
@@ -530,6 +573,9 @@ public partial class SplineDrawTool : Node
     }
 
     public void FinishForTest() => Finish();
+
+    /// <summary>Ctrl+Z (mid-draw: takes back the last leg).</summary>
+    public void UndoForTest() => Undo(IsDrawing);
 
     /// <summary>Shift+wheel / <c>[</c> <c>]</c>: scales the live corner's radius.</summary>
     public void AdjustRadiusForTest(float factor) => AdjustRadius(factor);

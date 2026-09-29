@@ -54,8 +54,10 @@ public static class Validation
                 issues.Add(new Issue(Severity.Invalid, "radius-min", $"R {c.Radius:0} m, min {rules.MinRadius:0} m · Ctrl+A allows", c.Mid, e.Id));
         }
 
+        // A loop edge's two ends meet at its node; that's not a crossing.
         foreach (var hit in a.Curve.SelfIntersect())
-            issues.Add(new Issue(Severity.Invalid, "self-cross", "crosses itself", hit.Point, e.Id));
+            if (!(hit.SA < SplineGraph.NodeTolerance && hit.SB > a.Length - SplineGraph.NodeTolerance))
+                issues.Add(new Issue(Severity.Invalid, "self-cross", "crosses itself", hit.Point, e.Id));
 
         var (cutStart, cutEnd) = Junctions.CutBacks(e, footprints);
         if (cutStart + cutEnd > 0 && a.Length < cutStart + cutEnd + 1f)

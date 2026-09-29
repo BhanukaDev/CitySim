@@ -1,0 +1,191 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw Chain Preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: same storyboard language as docs/spline-controls.html — top-down map frames in pairs (now / expected). */
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --grid:#D6DED1; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
+  --asphalt:#57616B; --paint:#F4F1E6; --accent:#2463D1; --ghost:rgba(96,150,235,.55); --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
+  --pill:#1C2629; --pill-fg:#F4F1E6; --pill-key:#7FB0FF; --node:#FFFFFF;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px;margin:0}
+main{max-width:1120px;margin:0 auto;padding-block:36px 64px;display:grid;gap:48px}
+header{display:grid;gap:10px;max-width:72ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 52px/0.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:70ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:18px}
+.sec-head{display:grid;gap:8px}
+.sec-head p{color:var(--muted)}
+.frames{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+figure.pick{border-color:var(--good);box-shadow:0 0 0 1px var(--good)}
+figure svg{display:block;width:100%;height:auto;background:var(--map)}
+figcaption{padding:10px 12px 12px;display:grid;gap:4px;align-content:start;font-size:13.5px;color:var(--muted)}
+figcaption h3{color:var(--ink)}
+.step{font:500 11px/1 var(--mono);color:var(--accent);letter-spacing:.06em}
+.step.good{color:var(--good)} .step.bad{color:var(--bad)}
+.ascii{font:14px/1.5 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;overflow-x:auto;white-space:pre;margin:0}
+.ascii b{color:var(--good);font-weight:500} .ascii i{color:var(--bad);font-style:normal}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.sw{width:28px;height:10px;border-radius:2px;display:inline-block}
+code{font:12.5px var(--mono)}
+.qs{display:grid;gap:12px;margin:0;padding-left:22px;max-width:80ch}
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">Splines · Draw mode · for discussion</div>
+  <h1>Draw chain preview</h1>
+  <p class="lede">A click builds the road up to that point. While you move to the next point, only the new leg is a
+  preview. What's built stays built and solid, and your own road counts as a road you can cross.</p>
+</header>
+
+<section>
+  <div class="sec-head"><h2>In your words</h2></div>
+  <pre class="ascii">now        <i>- - - . - - - - . - - - -</i>     the whole road turns back into a preview
+expected   <b>-----.--------.</b> - - - -     built up to the last point, preview after it</pre>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--asphalt)"></i>built</span>
+    <span><i class="sw" style="background:var(--ghost)"></i>preview (ghost)</span>
+    <span><i class="sw" style="background:var(--node);border:1px solid var(--ink)"></i>point you clicked</span>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Drawing on from the last point</h2>
+    <p>Two legs are already built. The mouse is moving toward the third point.</p>
+  </div>
+  <div class="frames" id="chain"></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Drawing a loop</h2>
+    <p>The chain comes back across its own first leg.</p>
+  </div>
+  <div class="frames" id="loop"></div>
+</section>
+
+<section>
+  <div class="sec-head"><h2>What changes</h2></div>
+  <ol class="qs">
+    <li><b>Preview.</b> The built road stays drawn as built while you move. The ghost starts where the corner at
+      your last point begins and runs to the cursor.</li>
+    <li><b>The corner at the last point.</b> Its rounded arc is part of the preview, because Shift+wheel still
+      sizes it until you click. After the click it's built like the rest.</li>
+    <li><b>Crossing your own road</b> makes a junction, the same as crossing any other road. So loops and figure
+      eights work. This also applies to a single leg that crosses an earlier part of the same road.</li>
+    <li><b>Unchanged:</b> each click builds its leg, double-click or Enter ends the chain, RMB or Esc stops, Ctrl+Z
+      takes back a leg, and a click on a dead end finishes.</li>
+  </ol>
+</section>
+</main>
+
+<script>
+const S = 2.5, STREET = 12 * S, R = 16 * S;
+const V = (x, y) => ({ x, y });
+const add = (a, b) => V(a.x + b.x, a.y + b.y), sub = (a, b) => V(a.x - b.x, a.y - b.y), mul = (a, k) => V(a.x * k, a.y * k);
+const len = a => Math.hypot(a.x, a.y), norm = a => mul(a, 1 / len(a)), dot = (a, b) => a.x * b.x + a.y * b.y, cross = (a, b) => a.x * b.y - a.y * b.x;
+const f = n => n.toFixed(1), pt = p => `${f(p.x)} ${f(p.y)}`;
+
+// Rounded polyline as pieces, so it can be split where a corner starts. Each corner: its in/out points and arc.
+function pieces(P, R) {
+  const cs = [];
+  for (let i = 1; i < P.length - 1; i++) {
+    const a = P[i - 1], b = P[i], c = P[i + 1];
+    const d1 = norm(sub(a, b)), d2 = norm(sub(c, b));
+    const turn = Math.PI - Math.acos(Math.max(-1, Math.min(1, dot(d1, d2))));
+    const lim = Math.min(i === 1 ? len(sub(a, b)) : len(sub(a, b)) / 2, i === P.length - 2 ? len(sub(c, b)) : len(sub(c, b)) / 2);
+    const t = Math.min(R * Math.tan(turn / 2), lim), r = t / Math.tan(turn / 2);
+    cs.push({ in: add(b, mul(d1, t)), out: add(b, mul(d2, t)), r, sweep: cross(sub(b, a), sub(c, b)) > 0 ? 1 : 0 });
+  }
+  return cs;
+}
+// Path from P[0] to the start of corner k (built part), and from there to the end (preview part).
+function split(P, R, k) {
+  const cs = pieces(P, R);
+  let built = `M${pt(P[0])}`;
+  for (let i = 0; i < k; i++) built += ` L${pt(cs[i].in)} A${f(cs[i].r)} ${f(cs[i].r)} 0 0 ${cs[i].sweep} ${pt(cs[i].out)}`;
+  built += ` L${pt(cs[k].in)}`;
+  let ghost = `M${pt(cs[k].in)}`;
+  for (let i = k; i < cs.length; i++) ghost += ` L${pt(cs[i].in)} A${f(cs[i].r)} ${f(cs[i].r)} 0 0 ${cs[i].sweep} ${pt(cs[i].out)}`;
+  ghost += ` L${pt(P[P.length - 1])}`;
+  return { built, ghost, whole: built.replace(/ L[^L]*$/, '') + ghost.replace(/^M[^L]*/, ''), cs };
+}
+function whole(P, R) {
+  const cs = pieces(P, R);
+  let d = `M${pt(P[0])}`;
+  for (const c of cs) d += ` L${pt(c.in)} A${f(c.r)} ${f(c.r)} 0 0 ${c.sweep} ${pt(c.out)}`;
+  return d + ` L${pt(P[P.length - 1])}`;
+}
+
+const road = d => `<path d="${d}" fill="none" stroke="var(--asphalt)" stroke-width="${STREET}"/>` +
+  `<path d="${d}" fill="none" stroke="var(--paint)" stroke-width="1.6" stroke-dasharray="7 7"/>`;
+const ghost = d => `<path d="${d}" fill="none" stroke="var(--ghost)" stroke-width="${STREET}"/>` +
+  `<path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="9 6"/>`;
+const halo = (d, c) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${STREET + 12}" opacity=".35"/>`;
+const node = p => `<circle cx="${f(p.x)}" cy="${f(p.y)}" r="4.5" fill="var(--node)" stroke="var(--ink)" stroke-width="1.3"/>`;
+const ring = (p, c = 'var(--accent)') => `<circle cx="${f(p.x)}" cy="${f(p.y)}" r="17" fill="none" stroke="${c}" stroke-width="2.2" stroke-dasharray="5 4"/>`;
+const cursor = p => `<path d="M${pt(p)} l0 16 l4.5 -4 l3 7 l3 -1.4 l-3 -6.8 l6 -.4 z" fill="#fff" stroke="#1C2629" stroke-width="1.2"/>`;
+function pill(p, text, o = {}) {
+  const w = text.length * 6.6 + 16, x = Math.max(4, Math.min(396 - w, p.x - (o.left ? w : o.right ? 0 : w / 2))), y = p.y - 10;
+  return `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="20" rx="5" fill="${o.bg || 'var(--pill)'}"/>` +
+    `<text x="${f(x + 8)}" y="${f(y + 14)}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11" fill="${o.fg || 'var(--pill-fg)'}">${text}</text>`;
+}
+function grid() {
+  let g = '';
+  for (let x = 25; x < 400; x += 25) g += `<line x1="${x}" y1="0" x2="${x}" y2="250" stroke="var(--grid)"/>`;
+  for (let y = 25; y < 250; y += 25) g += `<line x1="0" y1="${y}" x2="400" y2="${y}" stroke="var(--grid)"/>`;
+  return g;
+}
+const fig = (inner, step, title, text, cls = '', stepCls = '') =>
+  `<figure class="${cls}"><svg viewBox="0 0 400 250" role="img">${grid()}${inner}</svg><figcaption><div class="step ${stepCls}">${step}</div><h3>${title}</h3><div>${text}</div></figcaption></figure>`;
+
+// Chain: two legs built (P0 → P1 → P2), the mouse at P3.
+const P0 = V(25, 205), P1 = V(175, 205), P2 = V(255, 85), P3 = V(385, 130);
+const C = split([P0, P1, P2, P3], R, 1);
+const builtOnly = whole([P0, P1, P2], R);
+document.getElementById('chain').innerHTML = [
+  fig(ghost(whole([P0, P1, P2, P3], R)) + node(P0) + node(P1) + node(P2) + cursor(P3) +
+      pill(V(100, 185), 'all preview again'),
+    'NOW', 'The whole road turns into a preview', 'The legs you already built go back to ghost blue as soon as you move, so it looks like nothing was built.', '', 'bad'),
+  fig(road(C.built) + ghost(C.ghost) + node(P0) + node(P1) + node(P2) + cursor(P3) +
+      pill(V(P2.x - 8, P2.y - 24), '∡ 121° · R 16 m', { left: 1 }) + pill(V(330, 150), '↔ 137 m'),
+    'EXPECTED', 'Built stays built, only the new leg is a preview', 'Solid up to where the corner at your last point starts. The corner and the new leg are the ghost. Shift+wheel still sizes that corner.', 'pick', 'good'),
+  fig(road(whole([P0, P1, P2, P3], R)) + node(P0) + node(P1) + node(P2) + node(P3),
+    'AFTER THE CLICK', 'That leg is built too', 'The corner is fixed at the radius you chose, and the next leg starts from the new point.', '', 'good'),
+].join('');
+
+// Loop: P0 → P1 → P2 → P3 built, the mouse at P4, crossing the first leg at X.
+const L0 = V(40, 185), L1 = V(310, 185), L2 = V(310, 55), L3 = V(150, 55), L4 = V(150, 235), X = V(150, 185);
+const LP = [L0, L1, L2, L3, L4];
+const LS = split(LP, R, 2);
+document.getElementById('loop').innerHTML = [
+  fig(halo(whole(LP, R), 'var(--bad)') + ghost(whole(LP, R)) + node(L0) + cursor(L4) +
+      pill(V(X.x + 14, X.y + 26), 'crosses itself', { right: 1, bg: 'var(--bad)' }),
+    'NOW', 'Refused as a self-crossing', 'Your first leg and the new leg are one road by now, so crossing it counts as the road crossing itself, which is red.', '', 'bad'),
+  fig(road(LS.built) + ghost(LS.ghost) + ring(X) + node(L0) + node(L1) + node(L2) + node(L3) + cursor(L4) +
+      pill(V(X.x + 16, X.y - 26), '4-way · 90°', { right: 1, bg: 'var(--accent)', fg: '#fff' }),
+    'EXPECTED', 'Crossing your own road makes a junction', 'Same as crossing any other road: a dashed ring and a 4-way tag while you draw. Only the new leg is a ghost.', 'pick', 'good'),
+  fig(road(whole(LP, R)) + `<circle cx="${X.x}" cy="${X.y}" r="${STREET * 0.75}" fill="var(--asphalt)"/>` +
+      node(L0) + node(X) + node(L4) + pill(V(X.x + 16, X.y - 26), '4-way · 90°', { right: 1 }),
+    'AFTER THE CLICK', 'The loop is built with its junction', 'The road is split at the crossing like any 4-way, with its junction shape.', '', 'good'),
+].join('');
+</script>

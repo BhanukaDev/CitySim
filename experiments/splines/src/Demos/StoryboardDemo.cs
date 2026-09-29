@@ -49,6 +49,8 @@ public partial class StoryboardDemo : Node
             ["continue-built"] = ContinueBuilt,
             ["continue-mix"] = ContinueMix,
             ["continue-both"] = ContinueBoth,
+            ["chain"] = Chain,
+            ["chain-loop"] = ChainLoop,
         };
     }
 
@@ -288,6 +290,27 @@ public partial class StoryboardDemo : Node
         Click((160, 190));
         Click((300, 190));
         Hover((300, 110));
+    }
+
+    // --- A draw chain: each click builds its leg, only the next one is a preview (docs/draw-chain.html) ---
+
+    private void Chain()
+    {
+        Use("street");
+        Click((30, 200));
+        Click((170, 200));
+        Click((250, 90));
+        Hover((370, 130));
+    }
+
+    private void ChainLoop()
+    {
+        Use("street");
+        Click((40, 190));
+        Click((300, 190));
+        Click((300, 60));
+        Click((150, 60));
+        Hover((150, 240));
     }
 
     private void ContinueMix()
