@@ -1,10 +1,11 @@
 # Making a terrain theme
 
 A theme is the whole look of the ground: its own materials, the rules that place them, colours and lighting. The game
-has no built-in "grass" or "sand". Those only exist in the default theme (`themes/default/`). You make a theme in the
+has no built-in "grass" or "sand". Those only exist in the default theme (`themes/default/` in the terrain package). You make a theme in the
 Godot editor, and the game finds it by itself.
 
-A theme is a folder `themes/<id>/`:
+A theme is a folder `themes/<id>/`: the package's built-in ones are in `addons/citysim_terrain/themes/`, and a project
+adds its own in `res://themes/` (the same id replaces a built-in theme):
 
 | File | What it is |
 |---|---|
@@ -38,7 +39,7 @@ A theme is a folder `themes/<id>/`:
 
 ```glsl
 shader_type spatial;
-#include "res://terrain_sdk/terrain_core.gdshaderinc"
+#include "res://addons/citysim_terrain/shaders/sdk/terrain_core.gdshaderinc"
 #include "materials.gdshaderinc"            // MATERIAL_COUNT, MAT_<ID> for each material, SLOT_<NAME> for filled slots
 
 // Required: the automatic ground, laid over the base material.
@@ -58,7 +59,7 @@ vec3 terrain_tint(int m, vec3 tint, TerrainInputs t) { return tint; }
 
 // Optional: #define TERRAIN_CUSTOM_LIGHT and write your own light().
 
-#include "res://terrain_sdk/terrain_fragment.gdshaderinc"
+#include "res://addons/citysim_terrain/shaders/sdk/terrain_fragment.gdshaderinc"
 ```
 
 Don't copy the SDK files into your theme; include them. They handle Terrain3D, painting, the erosion slots, the

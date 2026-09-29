@@ -25,7 +25,7 @@ project/assembly_name="TerrainExp"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/citysim_themes/plugin.cfg")
+enabled=PackedStringArray("res://addons/citysim_terrain/plugin.cfg")
 
 [input]
 

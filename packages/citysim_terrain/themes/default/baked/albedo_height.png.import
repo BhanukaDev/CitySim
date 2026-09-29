@@ -3,7 +3,7 @@
 importer="2d_array_texture"
 type="CompressedTexture2DArray"
 uid="uid://d4m1yrrhyllvj"
-path.bptc="res://.godot/imported/albedo_height.png-154b1b0794a32fdb14aeb81c8be94e07.bptc.ctexarray"
+path.bptc="res://.godot/imported/albedo_height.png-fa4f5ee162f32c37623c79506f3a674e.bptc.ctexarray"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://themes/default/baked/albedo_height.png"
-dest_files=["res://.godot/imported/albedo_height.png-154b1b0794a32fdb14aeb81c8be94e07.bptc.ctexarray"]
+source_file="res://addons/citysim_terrain/themes/default/baked/albedo_height.png"
+dest_files=["res://.godot/imported/albedo_height.png-fa4f5ee162f32c37623c79506f3a674e.bptc.ctexarray"]
 
 [params]
 

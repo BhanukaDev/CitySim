@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads Kenney's Particle Pack (CC0, kenney.nl/assets/particle-pack) and bakes four soft smoke puffs into
-# assets/particles/mist_puffs.png: a 2×2 atlas of 256² greyscale puffs (brightness = opacity) for the waterfall mist
-# (shaders/waterfall_mist.gdshader). The baked atlas is committed, so this is only needed to change the puffs.
+# addons/citysim_terrain/assets/particles/mist_puffs.png: a 2×2 atlas of 256² greyscale puffs (brightness = opacity) for the waterfall mist
+# (the package's shaders/waterfall_mist.gdshader). The baked atlas is committed, so this is only needed to change the puffs.
 # Usage: experiments/terrain/tools/fetch_particles.sh
 set -euo pipefail
 
@@ -20,4 +20,4 @@ for p in "${PUFFS[@]}"; do cp "$tmp/pack/PNG (Black background)/$p.png" "$tmp/sr
 G=${GODOT:-/Applications/Godot_mono.app/Contents/MacOS/Godot}
 "$G" --headless --path . -s tools/bake_mist.gd -- "$tmp/src" "${PUFFS[@]}"
 "$G" --headless --path . --import >/dev/null 2>&1
-echo "baked and imported: assets/particles/mist_puffs.png (CC0, Kenney)"
+echo "baked and imported: addons/citysim_terrain/assets/particles/mist_puffs.png (CC0, Kenney)"

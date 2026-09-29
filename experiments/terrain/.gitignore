@@ -6,12 +6,5 @@ obj/
 .DS_Store
 screenshots/
 
-# Downloaded CC0 textures; recreate with tools/fetch_textures.sh.
-assets/textures/terrain/**/*.jpg
-assets/textures/terrain/**/.gdignore
-# What ThemeBaker makes from them (texture-array strips, preview swatches); recreate with tools/fetch_textures.sh or
-# Bake in the inspector. The strips' .import files are committed (they set up the texture-array import).
-themes/*/baked/*.png
-
 # Source stamps for the brush masks (large); recreate with tools/fetch_brushes.sh. The baked masks are committed.
 assets/brushes/src/

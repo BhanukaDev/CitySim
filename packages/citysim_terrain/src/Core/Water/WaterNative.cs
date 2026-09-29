@@ -74,7 +74,7 @@ internal static unsafe class WaterNative
     private static delegate* unmanaged[Cdecl]<IntPtr, int, float*, int> _getDrained;
     private static delegate* unmanaged[Cdecl]<IntPtr, byte*, int, int, int> _readGround;
 
-    /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://native/water/bin</c>).</summary>
+    /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://addons/citysim_terrain/native/water/bin</c>).</summary>
     public static string? Directory { get; set; }
 
     public static string FileName =>

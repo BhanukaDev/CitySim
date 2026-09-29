@@ -89,8 +89,28 @@ public partial class CityCamera : Node3D
 	public float PitchDegrees => _pitch;
 	public float Distance => _distance;
 
+	/// <summary>The camera's input actions and their default keys (physical, so they sit in the same place on any layout).</summary>
+	public static readonly (string Action, Key Key)[] DefaultBindings =
+	[
+		("cam_forward", Key.W), ("cam_back", Key.S), ("cam_left", Key.A), ("cam_right", Key.D),
+		("cam_rotate_left", Key.Q), ("cam_rotate_right", Key.E), ("cam_tilt_up", Key.R), ("cam_tilt_down", Key.F),
+		("cam_zoom_in", Key.Z), ("cam_zoom_out", Key.X),
+	];
+
+	/// <summary>Adds any camera action the project's input map lacks, with its default key (projects can rebind them there).</summary>
+	public static void EnsureInputActions()
+	{
+		foreach (var (action, key) in DefaultBindings)
+		{
+			if (InputMap.HasAction(action)) continue;
+			InputMap.AddAction(action, 0.2f);
+			InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key });
+		}
+	}
+
 	public override void _Ready()
 	{
+		EnsureInputActions();
 		_tilt = new Node3D { Name = "Tilt" };
 		AddChild(_tilt);
 		_camera = new Camera3D { Name = "Camera3D", Fov = 50f, Near = 0.5f, Far = FarPlane, Current = true };

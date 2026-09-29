@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cnkqhl2oa3tvl"
-path="res://.godot/imported/preview_gravel.png-3c9823a0cb5e5484eb16e1e34f41ace8.ctex"
+path="res://.godot/imported/preview_gravel.png-c8f5800b9f263d53580c354465b59c96.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://themes/default/baked/preview_gravel.png"
-dest_files=["res://.godot/imported/preview_gravel.png-3c9823a0cb5e5484eb16e1e34f41ace8.ctex"]
+source_file="res://addons/citysim_terrain/themes/default/baked/preview_gravel.png"
+dest_files=["res://.godot/imported/preview_gravel.png-c8f5800b9f263d53580c354465b59c96.ctex"]
 
 [params]
 

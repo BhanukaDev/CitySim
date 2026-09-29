@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" load_steps=6 format=3]
 
-[ext_resource type="Shader" path="res://shaders/water.gdshader" id="1_water"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/water.gdshader" id="1_water"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_ripples"]
 noise_type = 3

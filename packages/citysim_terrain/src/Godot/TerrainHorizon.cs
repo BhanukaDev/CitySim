@@ -17,21 +17,23 @@ namespace CitySim.TerrainSystem;
 /// </summary>
 public partial class TerrainHorizon : MeshInstance3D
 {
-    // Distances of each loop from the terrain edge, in metres. The horizon's hills end in haze by RingEnd; the loops past
-    // it are the fog floor out to 150 km, so its end stays out of frame from the whole-map zoom on a 28.7 km map.
+    // Distances of each loop from the terrain edge, in metres. The horizon's hills end in haze by RingEnd (6000 m by
+    // default); the loops past it are the fog floor out to 150 km, so its end stays out of frame from the whole-map zoom on a 28.7 km map.
     private static readonly float[] RingDistances =
         [0f, 30f, 90f, 200f, 400f, 650f, 950f, 1300f, 1700f, 2200f, 2800f, 3500f, 4300f, 5100f, 6000f, 11000f, 30000f, 70000f, 150000f];
-    private const float RingEnd = 6000f;
     // Rounds each corner with this many segments, so the outer loops don't leave a wedge-shaped gap.
     private const int CornerSegments = 8;
-    // The fog floor drops this far below the lowest terrain point, over this distance.
-    private const float SinkDepth = 10f;
-    private const float SinkDistance = 600f;
-    // The least hill height past the border (m) at the default relief, for flat maps.
-    private const float MinRelief = 200f;
 
     private HeightMap? _map;
     private int _lastX, _lastZ;
+
+    /// <summary>Where the hills reach full height and end in haze (m past the border; the loops past it are the fog floor).</summary>
+    public float RingEnd { get; set; } = 6000f;
+    /// <summary>The fog floor drops this far below the lowest terrain point (m), over <see cref="SinkDistance"/>.</summary>
+    public float SinkDepth { get; set; } = 10f;
+    public float SinkDistance { get; set; } = 600f;
+    /// <summary>The least hill height past the border (m) at the default relief, for flat maps.</summary>
+    public float MinRelief { get; set; } = 200f;
 
     /// <summary>Hill height past the border as a share of the map's height range (theme uniform <c>horizon_relief</c>).</summary>
     public float Relief { get; set; } = 0.35f;

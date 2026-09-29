@@ -9,6 +9,6 @@ func _init() -> void:
 		img.convert(Image.FORMAT_L8)
 		img.resize(256, 256, Image.INTERPOLATE_LANCZOS)
 		atlas.blit_rect(img, Rect2i(0, 0, 256, 256), Vector2i(i % 2 * 256, i / 2 * 256))
-	var err := atlas.save_png("res://assets/particles/mist_puffs.png")
-	print("bake_mist: assets/particles/mist_puffs.png (%s)" % error_string(err))
+	var err := atlas.save_png("res://addons/citysim_terrain/assets/particles/mist_puffs.png")
+	print("bake_mist: addons/citysim_terrain/assets/particles/mist_puffs.png (%s)" % error_string(err))
 	quit()

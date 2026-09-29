@@ -1,15 +1,15 @@
 [gd_scene load_steps=18 format=3]
 
-[ext_resource type="Script" path="res://src/Terrain/Terrain.cs" id="1_terrain"]
-[ext_resource type="Script" path="res://src/Camera/CityCamera.cs" id="2_camera"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Terrain.cs" id="1_terrain"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Camera/CityCamera.cs" id="2_camera"]
 [ext_resource type="Script" path="res://src/Debug/DebugOverlay.cs" id="4_debug"]
 [ext_resource type="Script" path="res://src/Tools/TerrainToolController.cs" id="5_tools"]
 [ext_resource type="Script" path="res://src/UI/GameUi.cs" id="6_ui"]
-[ext_resource type="Shader" path="res://shaders/terrain_horizon.gdshader" id="9_horizon"]
-[ext_resource type="Material" path="res://materials/water.tres" id="10_water"]
-[ext_resource type="Material" path="res://materials/waterfall_curtain.tres" id="11_curtain"]
-[ext_resource type="Material" path="res://materials/waterfall_mist.tres" id="12_mist"]
-[ext_resource type="Material" path="res://materials/waterfall_rings.tres" id="13_rings"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_mist.tres" id="12_mist"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_rings.tres" id="13_rings"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
 frequency = 0.008

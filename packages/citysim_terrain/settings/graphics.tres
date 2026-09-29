@@ -1,0 +1,6 @@
+[gd_resource type="Resource" script_class="TerrainGraphics" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Settings/TerrainGraphics.cs" id="1_graphics"]
+
+[resource]
+script = ExtResource("1_graphics")

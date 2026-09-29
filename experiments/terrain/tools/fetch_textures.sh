@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Downloads the CC0 terrain textures (ambientCG, 2K JPG) into assets/textures/terrain/<layer>/.
+# Downloads the CC0 terrain textures (ambientCG, 2K JPG) into the terrain package's assets/textures/terrain/<layer>/.
 # Keeps only Color, NormalGL (Godot's convention) and Displacement (used for height-based blending).
 # Usage: experiments/terrain/tools/fetch_textures.sh [--force]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-DEST=assets/textures/terrain
+DEST=addons/citysim_terrain/assets/textures/terrain   # in the terrain package (packages/citysim_terrain)
 RES=2K
 FORCE=${1:-}
 
-# folder:assetId  (previews: https://ambientcg.com/view?id=<assetId>). Themes (themes/*/theme.tres) point at these files.
+# folder:assetId  (previews: https://ambientcg.com/view?id=<assetId>). Themes (the package's themes/*/theme.tres) point at these files.
 LAYERS=(
   grass:Grass005        # lush, clean lawn
   grass_dry:Grass004    # yellow-green meadow for variation
@@ -54,4 +54,4 @@ dotnet build -nologo -v q >/dev/null
 "$G" --headless --path . --import >/dev/null 2>&1
 "$G" --headless --path . -- --bake-theme=all 2>&1 | grep ThemeBaker
 "$G" --headless --path . --import >/dev/null 2>&1
-echo "baked and imported: themes/*/baked"
+echo "baked and imported: addons/citysim_terrain/themes/*/baked"

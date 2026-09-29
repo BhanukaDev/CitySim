@@ -1,8 +1,10 @@
 # Terrain Experiment
 
-Standalone Godot project for prototyping the CitySim terrain system
-(heightmap, Terrain3D rendering, sculpting tools, texturing, placement queries).
-Once stable, it gets merged into the main game.
+Standalone Godot project for prototyping the CitySim terrain system: the in-app **Map Editor** (sculpt, paint, channel,
+generator, erosion, water sources, themes) and the test bed for the terrain.
+The terrain itself (heights, paint, themes, water, camera, settings) lives in the shared **terrain package**,
+`packages/citysim_terrain/` (symlinked here as `addons/citysim_terrain`). Read `packages/citysim_terrain/README.md` for
+its API. This project is the app around it.
 
 ## Run
 
@@ -20,33 +22,21 @@ Then open this folder in Godot 4.7 (.NET) and press F5, or:
 
 Controls: WASD move · Q/E rotate · R/F tilt · Z/X or mouse wheel zoom.
 
-Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-frames=60]`.
+Automated screenshot: `Godot --path . -- --screenshot=out.png [--screenshot-frames=60]`. After a fresh checkout, build
+the native libraries once: `addons/citysim_terrain/native/erosion/build.sh; addons/citysim_terrain/native/water/build.sh`.
 
 ## Layout
 
-- `src/Terrain/HeightMap.cs`: engine-agnostic height grid, with sampling, normal and slope queries
-- `src/Terrain/Generation/`: engine-agnostic generator (noise with flat buildable lowlands, placed heightmap images, island/coast/archipelago shapes, presets)
-- `src/Terrain/Terrain.cs`: owns the map, world-space queries, edit hooks (pushed to the renderer once per frame)
-- `src/Terrain/Terrain3DBridge.cs`: the render copy in the Terrain3D addon (`addons/terrain_3d/`, MIT); the only file
-  that calls Terrain3D
-- `src/Terrain/TerrainHorizon.cs`, `shaders/terrain_horizon.gdshader`: the ring past the map edge (horizon hills in haze, or a fog floor)
-- `native/erosion/`: C++ library (plain C ABI, no Godot) for droplet + thermal erosion, draining hollows and finding
-  lakes. `bin/` is gitignored: build with `native/erosion/build.sh` (first checkout, and after changing the C++)
-- `src/Terrain/Erosion/`: engine-agnostic C# side (settings, `ErosionSim`, `Lakes`/`LakeMap`, function-pointer calls
-  into the library); `src/UI/ErosionPanel.cs`
-- `native/water/`: C++ water simulation (virtual pipes shallow water, stateful handle, persistent thread pool in
-  `native/common/parallel.h`). Build with `native/water/build.sh`
-- `src/Water/`: engine-agnostic C# side (`WaterSim` worker thread + snapshot queries, `WaterSource`, `WaterFile`);
-  `src/Terrain/WaterSurface.cs` + `shaders/water.gdshader` draw it; `src/Tools/WaterSourceTool.cs` (Terrain → Water tab),
-  `src/UI/WaterPanel.cs`
-- `src/Camera/CityCamera.cs`: city-builder orbit camera
-- `src/Terrain/SplatMap.cs`: engine-agnostic painted materials (sparse Terrain3D-style control values, plus the map's
-  theme id and a palette of material ids, so paint survives theme changes)
-- `src/Terrain/Sculpt/PaintOps.cs`: paint/erase brush ops on the splat map
-- **Terrain themes** (M3.5): a theme is made in Godot and bundles a shader, its materials and erosion slots.
-  `terrain_sdk/` holds the shader side every theme includes (Terrain3D vertex stage, painting, erosion slots, overlays,
-  edge fog; see `terrain_sdk/README.md`). `themes/<id>/` holds each theme (`theme.tres`, `terrain.gdshader`, the baked
-  `materials.gdshaderinc` and `baked/`). `src/Terrain/Themes/`: `TerrainTheme`, `TerrainMaterial`, `ErosionSlot`,
-  `ThemeLibrary` (finds themes), `ThemeBaker` (texture arrays, previews, include). `addons/citysim_themes/`: editor
-  plugin with Bake/Validate buttons. `src/UI/ThemePanel.cs`: pick the map's theme in the Map Editor
-- `src/Debug/TextureBaker.cs`: bakes the brush masks
+- `addons/citysim_terrain` → `packages/citysim_terrain/`: the terrain package (see its README for its own layout)
+- `addons/terrain_3d` → `packages/terrain_3d/`: the Terrain3D addon (MIT) the package draws with
+- `src/App/MapSession.cs`: app mode (Map Editor / Game), the map the next scene opens, the current file. Hooks the package
+  up through `TerrainHost` in a module initializer.
+- `src/Tools/`: `TerrainToolController` (sculpt/paint/channel strokes on the package's ops, fixed 60 Hz tick, undo via
+  `Terrain.History`), `WaterSourceTool`, `BrushLibrary` (brush masks in `assets/brushes/`)
+- `src/UI/`: menus and panels built in code (bottom bar, tool/config panels, generator, erosion, water, theme panels, Esc
+  menu with the package's Settings panel)
+- `src/Debug/`: `DebugOverlay` (HUD, the `--demo-*` checks; adds the package's `ScreenshotCapture`), `TextureBaker`
+  (brush masks), `ScaleDemo`, `WaterDemo`
+- `src/Lookdev/`, `scenes/WaterLookdev.tscn`, `materials/templates/`: water look development
+- `tools/fetch_textures.sh`, `fetch_particles.sh`, `fetch_brushes.sh`: download CC0 sources and bake them (textures and
+  mist land in the package)

@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ydlsjjuq8qj3"
-path="res://.godot/imported/preview_grass_dry.png-ef92e7dc8a4592027def5e1a78e48dcb.ctex"
+path="res://.godot/imported/preview_grass_dry.png-104d3d680ba1d469076ab09db74ef9ed.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://themes/winter/baked/preview_grass_dry.png"
-dest_files=["res://.godot/imported/preview_grass_dry.png-ef92e7dc8a4592027def5e1a78e48dcb.ctex"]
+source_file="res://addons/citysim_terrain/themes/winter/baked/preview_grass_dry.png"
+dest_files=["res://.godot/imported/preview_grass_dry.png-104d3d680ba1d469076ab09db74ef9ed.ctex"]
 
 [params]
 

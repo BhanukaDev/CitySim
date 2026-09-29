@@ -1,10 +1,10 @@
 // CitySim terrain SDK: the engine side of every terrain theme shader. A theme shader looks like:
 //
 //   shader_type spatial;
-//   #include "res://terrain_sdk/terrain_core.gdshaderinc"
+//   #include "res://addons/citysim_terrain/shaders/sdk/terrain_core.gdshaderinc"
 //   #include "materials.gdshaderinc"          // written by the theme baker: MATERIAL_COUNT, MAT_<ID>, SLOT_<NAME>
 //   void terrain_auto(TerrainInputs t, inout vec4 w[MATERIAL_PACKS]) { lay(w, MAT_ROCK, above(t.slope, 45.0, 8.0)); }
-//   #include "res://terrain_sdk/terrain_fragment.gdshaderinc"
+//   #include "res://addons/citysim_terrain/shaders/sdk/terrain_fragment.gdshaderinc"
 //
 // This file holds Terrain3D's vertex stage and data lookups (MIT, from addons/terrain_3d/extras/shaders/minimum.gdshader),
 // the per-material data the game uploads from the theme, sampling helpers and the TerrainInputs a theme reads.

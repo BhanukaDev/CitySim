@@ -3,9 +3,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
-using CitySim.App;
 using CitySim.TerrainSystem.Erosion;
 using CitySim.TerrainSystem.Generation;
+using CitySim.TerrainSystem.Sculpt;
 using CitySim.TerrainSystem.Themes;
 using CitySim.WaterSystem;
 
@@ -93,6 +93,36 @@ public partial class Terrain : Node3D
     /// <summary>The shader code Terrain3D draws with (the theme's shader with its own includes inlined).</summary>
     public string? DrawnShaderCode => _liveShader?.Code;
 
+    [ExportGroup("Settings")]
+    /// <summary>Player graphics settings (defaults: <see cref="TerrainGraphics.DefaultPath"/>; in the app, the player's saved choice).</summary>
+    [Export]
+    public TerrainGraphics? Graphics
+    {
+        get => _graphics;
+        set
+        {
+            Watch(_graphics, value, _applyGraphics ??= Callable.From(ApplyGraphics));
+            _graphics = value;
+            ApplyGraphics();
+        }
+    }
+    /// <summary>Developer knobs (defaults: <see cref="TerrainTuning.DefaultPath"/>). Point it at a project's own copy to tweak.</summary>
+    [Export]
+    public TerrainTuning? Tuning
+    {
+        get => _tuning;
+        set
+        {
+            Watch(_tuning, value, _applyTuning ??= Callable.From(ApplyTuning));
+            _tuning = value;
+            ApplyTuning();
+        }
+    }
+    private TerrainGraphics? _graphics;
+    private TerrainTuning? _tuning;
+    private bool? _appliedHorizonRing;
+    private Callable? _applyGraphics, _applyTuning;
+
     [ExportToolButton("Regenerate")]
     public Callable RegenerateButton => Callable.From(Generate);
 
@@ -133,10 +163,10 @@ public partial class Terrain : Node3D
     private VertexRect _lakeDirty = VertexRect.Empty, _fullDirty = VertexRect.Empty, _windowJobDirty = VertexRect.Empty;
     private bool _lakesFailed;
 
-    /// <summary>Wait after the last height edit before finding lakes again (a stroke edits every tick).</summary>
-    private const double LakeDelay = 0.3;
+    /// <summary>Wait after the last height edit before finding lakes again (a stroke edits every tick; <see cref="TerrainTuning.LakeDelay"/>).</summary>
+    private double LakeDelay => _tuning?.LakeDelay ?? 0.3;
     /// <summary>Quiet time after the last window search before a full one puts right what windows can't see.</summary>
-    private const double FullLakeDelay = 15;
+    private double FullLakeDelay => _tuning?.FullLakeDelay ?? 15;
     /// <summary>
     /// A window search covers the edit + <see cref="WindowMargin"/> vertices and keeps edit + <see cref="WindowKeep"/>.
     /// Near the window's border, flats (lakes, filled pits) route water a little differently from a full search; 96
@@ -300,11 +330,15 @@ public partial class Terrain : Node3D
         // Run after tools so edits made this frame are rebuilt this frame.
         ProcessPriority = 100;
         // The Godot editor previews themes with their fog; in the app it follows the mode.
-        _edgeStyle = Engine.IsEditorHint() || MapSession.Mode == AppMode.Game ? EdgeStyle.Horizon : EdgeStyle.Line;
-        Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
-        WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://native/water/bin");
+        LoadSettings();
+        _edgeStyle = Engine.IsEditorHint() ? EdgeStyle.Horizon
+            : TerrainHost.MapEditor ? EdgeStyle.Line
+            : _graphics?.HorizonRing == false ? EdgeStyle.Fog : EdgeStyle.Horizon;
+        _appliedHorizonRing = _graphics?.HorizonRing;
+        Native.Directory ??= ProjectSettings.GlobalizePath(TerrainPaths.Root + "/native/erosion/bin");
+        WaterNative.Directory ??= ProjectSettings.GlobalizePath(TerrainPaths.Root + "/native/water/bin");
         if (Engine.IsEditorHint()) Generate();
-        else Open(MapSession.TakePending());
+        else Open(TerrainHost.TakeStartupRequest?.Invoke());
     }
 
     /// <summary>Starts with the requested map; with no request (e.g. run straight from a CLI flag), generates from the exports.</summary>
@@ -313,13 +347,13 @@ public partial class Terrain : Node3D
         switch (request)
         {
             case GeneratedMapRequest { Map: { } map } gen:
-                _newMapTheme = MapSession.NewMapTheme;
+                _newMapTheme = gen.ThemeId;
                 Settings = gen.Settings;
                 SetMap(map);
                 ShowGeneratorOnStart = gen.ShowGenerator;
                 break;
             case GeneratedMapRequest gen:
-                _newMapTheme = MapSession.NewMapTheme;
+                _newMapTheme = gen.ThemeId;
                 Generate(gen.Settings);
                 ShowGeneratorOnStart = gen.ShowGenerator;
                 break;
@@ -371,6 +405,7 @@ public partial class Terrain : Node3D
             _horizonCooldown = 0.5;
         }
         PushDirty();
+        RaiseChanged();
         PushWaterGround();
         UpdateWeather();
         if (_lakeTimer >= 0 && (_lakeTimer -= delta) < 0) StartLakeSearch();
@@ -418,10 +453,10 @@ public partial class Terrain : Node3D
     /// settings or sea level, or when every lake must be exact). Height edits don't need this: they search around the
     /// edit (<see cref="MarkDirty(int, int, int, int)"/>).
     /// </summary>
-    public void RefreshLakes(double delay = LakeDelay)
+    public void RefreshLakes(double? delay = null)
     {
         _fullLakesPending = true;
-        _lakeTimer = delay;
+        _lakeTimer = delay ?? LakeDelay;
     }
 
     /// <summary>Heights changed in <paramref name="rect"/>: search around it soon, and the whole map once edits stop.</summary>
@@ -659,7 +694,8 @@ public partial class Terrain : Node3D
         if (Engine.IsEditorHint()) return;
         try
         {
-            Water = new WaterSim(map);
+            // A --water-cells style override of WaterSim.GridLimit wins over the tuning.
+            Water = new WaterSim(map, maxCells: WaterSim.GridLimit != WaterSim.MaxCells ? 0 : _tuning?.WaterMaxCells ?? 0);
         }
         catch (System.Exception e) when (e is System.DllNotFoundException or System.ArgumentException)
         {
@@ -703,10 +739,11 @@ public partial class Terrain : Node3D
         _preview.Init(this, Water);
         _falls = new WaterFalls { Name = "WaterFalls", Visible = _showWater };
         AddChild(_falls);
-        _falls.Init(this, Water, WaterfallCurtainMaterial ?? GD.Load<Material>("res://materials/waterfall_curtain.tres"),
-            WaterfallMistMaterial ?? GD.Load<Material>("res://materials/waterfall_mist.tres"),
-            WaterfallRingsMaterial ?? GD.Load<Material>("res://materials/waterfall_rings.tres"));
+        _falls.Init(this, Water, WaterfallCurtainMaterial ?? GD.Load<Material>(TerrainPaths.Root + "/materials/waterfall_curtain.tres"),
+            WaterfallMistMaterial ?? GD.Load<Material>(TerrainPaths.Root + "/materials/waterfall_mist.tres"),
+            WaterfallRingsMaterial ?? GD.Load<Material>(TerrainPaths.Root + "/materials/waterfall_rings.tres"));
         _falls.Quality = _waterfallFx;
+        ApplyTuning();
         WaterChanged?.Invoke();
     }
 
@@ -769,6 +806,15 @@ public partial class Terrain : Node3D
         LastPushMs = sw.Elapsed.TotalMilliseconds;
     }
 
+    private void RaiseChanged()
+    {
+        var heights = _heightsChanged;
+        var paint = _paintChanged;
+        _heightsChanged = _paintChanged = VertexRect.Empty;
+        if (!heights.IsEmpty) HeightsChanged?.Invoke(heights);
+        if (!paint.IsEmpty) PaintChanged?.Invoke(paint);
+    }
+
     /// <summary>Generates a new heightmap from the Size and Generation exports.</summary>
     public void Generate() => Generate(ExportSettings());
 
@@ -821,7 +867,7 @@ public partial class Terrain : Node3D
         _newMapTheme = null;
         if (theme?.Material?.Shader is null)
         {
-            GD.PushError($"Terrain: no usable terrain theme in {ThemeLibrary.Root} (each needs theme.tres with a shader).");
+            GD.PushError($"Terrain: no usable terrain theme in {string.Join(" or ", ThemeLibrary.Roots)} (each needs theme.tres with a shader).");
             return;
         }
         // Centred on the world origin (halves the float error at the far edges), where Terrain3D draws the regions.
@@ -841,7 +887,12 @@ public partial class Terrain : Node3D
         _arrows = null;
         _preview = null;
         _falls = null;
+        // An edit still open on the old map is dropped (it only restores the old map); then nothing of it is pending.
+        _edit?.Cancel();
+        _edit = null;
+        History.Clear();
         _heightDirty = _splatDirty = VertexRect.Empty;
+        _heightsChanged = _paintChanged = VertexRect.Empty;
         _fullJob?.Cancel();
         _windowJob?.Cancel();
         _fullJob = _windowJob = null;
@@ -861,6 +912,7 @@ public partial class Terrain : Node3D
         Splat.Remap(theme.Id, theme.MaterialIds());
         _liveShader = new Shader { Code = ThemeShaderCode(theme) };
         _render = Terrain3DBridge.Create(this, Map, Splat, _liveShader);
+        _render.SetMeshSize(_graphics?.MeshSize ?? 48);
         ApplyTheme();
 
         _horizon = new TerrainHorizon();
@@ -868,6 +920,7 @@ public partial class Terrain : Node3D
         _horizon.MaterialOverride = HorizonMaterial;
         _horizon.Relief = HorizonRelief();
         _horizon.SeaLevel = _horizonSea;
+        ApplyHorizonTuning();
         AddChild(_horizon);
         _horizon.Rebuild();
         _horizonDirty = false;
@@ -877,6 +930,78 @@ public partial class Terrain : Node3D
         GD.Print($"Terrain: {Map.Width}x{Map.Depth} verts, copied to Terrain3D in {sw.ElapsedMilliseconds} ms ({_render.CopyTimings})");
         StartWater(map, water);
         RefreshLakes(0);
+        MapReplaced?.Invoke();
+    }
+
+    // --- Settings (TerrainGraphics, TerrainTuning) ---
+
+    /// <summary>
+    /// Fills in the default settings resources. In the app (not the editor) the graphics are a copy with the player's saved
+    /// choice (<see cref="TerrainGraphics.UserPath"/>) loaded on top, so saving them never writes the package's .tres.
+    /// </summary>
+    private void LoadSettings()
+    {
+        if (_graphics is null && ResourceLoader.Exists(TerrainGraphics.DefaultPath))
+            Graphics = GD.Load<TerrainGraphics>(TerrainGraphics.DefaultPath);
+        if (_tuning is null && ResourceLoader.Exists(TerrainTuning.DefaultPath))
+            Tuning = GD.Load<TerrainTuning>(TerrainTuning.DefaultPath);
+        if (!Engine.IsEditorHint() && _graphics is not null)
+        {
+            var mine = (TerrainGraphics)_graphics.Duplicate();
+            mine.Load();
+            Graphics = mine;
+        }
+    }
+
+    private static void Watch(Resource? old, Resource? now, Callable? callable)
+    {
+        var apply = callable!.Value;
+        if (old is not null && old.IsConnected(Resource.SignalName.Changed, apply)) old.Disconnect(Resource.SignalName.Changed, apply);
+        if (now is not null && !now.IsConnected(Resource.SignalName.Changed, apply)) now.Connect(Resource.SignalName.Changed, apply);
+    }
+
+    private void ApplyGraphics()
+    {
+        if (_graphics is not { } g) return;
+        WetShine = g.WetShine;
+        WaterfallFx = g.WaterfallFx;
+        _render?.SetMeshSize(g.MeshSize);
+        // The ring switch picks the game's edge; the Map Editor's own choice (Line, or a preview) is left alone.
+        if (_appliedHorizonRing is { } was && was != g.HorizonRing && _edgeStyle != EdgeStyle.Line)
+            EdgeStyle = g.HorizonRing ? EdgeStyle.Horizon : EdgeStyle.Fog;
+        _appliedHorizonRing = g.HorizonRing;
+    }
+
+    private void ApplyTuning()
+    {
+        if (_tuning is not { } t) return;
+        Weather.RampMinutes = t.RainRampMinutes;
+        Weather.DryHours = t.DryHours;
+        History.Capacity = t.UndoSteps;
+        History.MaxBytes = (long)t.UndoMemoryMb << 20;
+        if (_waterSurface is not null) _waterSurface.LodDistances = t.WaterLodDistances;
+        if (_falls is not null)
+        {
+            _falls.MinHeight = t.FallMinHeight;
+            _falls.MinFlux = t.FallMinFlux;
+            _falls.FullFlux = t.FallFullFlux;
+            _falls.HighCurtainDistance = t.CurtainDistance;
+            _falls.HighMistDistance = t.MistDistance;
+            _falls.Quality = _waterfallFx; // re-applies the fade distances and searches again
+        }
+        ApplyHorizonTuning();
+    }
+
+    private void ApplyHorizonTuning()
+    {
+        if (_tuning is not { } t || _horizon is not { } h) return;
+        if (h.RingEnd == t.HorizonHillsEnd && h.MinRelief == t.HorizonMinRelief && h.SinkDepth == t.HorizonSinkDepth
+            && h.SinkDistance == t.HorizonSinkDistance) return;
+        h.RingEnd = t.HorizonHillsEnd;
+        h.MinRelief = t.HorizonMinRelief;
+        h.SinkDepth = t.HorizonSinkDepth;
+        h.SinkDistance = t.HorizonSinkDistance;
+        _horizonDirty = true;
     }
 
     // --- Queries (world space) ---
@@ -1007,6 +1132,63 @@ public partial class Terrain : Node3D
         return tEnter <= tExit;
     }
 
+    // --- Editing API (see TerrainEdit) ---
+
+    /// <summary>
+    /// The map's one undo history, shared by the tools and every other system that edits the ground. Cleared when the map
+    /// is replaced (<see cref="MapReplaced"/>).
+    /// </summary>
+    public UndoStack History { get; } = new();
+
+    /// <summary>
+    /// Heights changed inside this vertex rectangle (the union of the frame's edits, tool strokes, undo/redo and generator
+    /// updates), raised once per frame after they reach the renderer. Roads etc. re-conform here.
+    /// </summary>
+    public event System.Action<VertexRect>? HeightsChanged;
+    /// <summary>Painted materials changed inside this vertex rectangle; raised like <see cref="HeightsChanged"/>.</summary>
+    public event System.Action<VertexRect>? PaintChanged;
+    /// <summary>A whole new map was set (new, generated at a new size, or loaded). Everything placed on the old one is gone.</summary>
+    public event System.Action? MapReplaced;
+
+    private VertexRect _heightsChanged = VertexRect.Empty, _paintChanged = VertexRect.Empty;
+    private TerrainEdit? _edit;
+
+    /// <summary>
+    /// Starts an undoable change to the heights (and the paint, with <paramref name="paint"/>); see <see cref="TerrainEdit"/>.
+    /// Throws if there's no map or another edit or tool stroke is open.
+    /// </summary>
+    public TerrainEdit BeginEdit(bool paint = false)
+    {
+        if (Map is null || Splat is null) throw new System.InvalidOperationException("The terrain has no map yet.");
+        if (History.InStroke) throw new System.InvalidOperationException("Another terrain edit or tool stroke is open.");
+        return _edit = new TerrainEdit(this, History, Map, Splat, paint);
+    }
+
+    internal void EditClosed()
+    {
+        _edit = null;
+        RefreshHeightRange();
+    }
+
+    /// <summary>Undoes the last change (tool stroke, edit, generator run, ...). Returns what changed.</summary>
+    public UndoChange Undo() => ApplyHistory(History.Undo);
+
+    /// <summary>Redoes the last undone change. Returns what changed.</summary>
+    public UndoChange Redo() => ApplyHistory(History.Redo);
+
+    private UndoChange ApplyHistory(System.Func<HeightMap, SplatMap, UndoChange> op)
+    {
+        if (History.InStroke || Map is not { } map || Splat is not { } splat) return UndoChange.None;
+        var change = op(map, splat);
+        if (change.Splat) MarkSplatDirty(change.Rect);
+        if (change.Heights)
+        {
+            MarkDirty(change.Rect);
+            RefreshHeightRange();
+        }
+        return change;
+    }
+
     // --- Editing hooks ---
 
     /// <summary>Marks heights in a vertex rectangle as edited. They're pushed to Terrain3D at the end of the frame.</summary>
@@ -1035,7 +1217,11 @@ public partial class Terrain : Node3D
     }
 
     /// <summary>Marks painted layers in a vertex rectangle for upload at the end of the frame.</summary>
-    public void MarkSplatDirty(VertexRect r) => _splatDirty = _splatDirty.Union(r);
+    public void MarkSplatDirty(VertexRect r)
+    {
+        _splatDirty = _splatDirty.Union(r);
+        _paintChanged = _paintChanged.Union(r);
+    }
 
     /// <summary>Toggles the placement grid overlay.</summary>
     public void SetGrid(bool visible)
@@ -1071,6 +1257,7 @@ public partial class Terrain : Node3D
             _horizonDirty = true;
         var rect = new VertexRect(minX, minZ, maxX, maxZ);
         _heightDirty = _heightDirty.Union(rect);
+        _heightsChanged = _heightsChanged.Union(rect);
         Water?.GroundChanged(rect);
         HeightVersion++;
         LakesEdited(rect);

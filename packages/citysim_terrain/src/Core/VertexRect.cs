@@ -39,4 +39,21 @@ public readonly record struct VertexRect(int MinX, int MinZ, int MaxX, int MaxZ)
         int maxZ = Math.Min(depth - 1, (int)MathF.Ceiling((cz + radius) / cellSize));
         return new VertexRect(minX, minZ, maxX, maxZ);
     }
+
+    /// <summary>
+    /// Vertices covering the map-metre rectangle (<paramref name="x0"/>, <paramref name="z0"/>)–(<paramref name="x1"/>,
+    /// <paramref name="z1"/>) (either corner order), rounded outward, clamped to a <paramref name="width"/>×<paramref name="depth"/> grid.
+    /// </summary>
+    public static VertexRect FromMapRect(float x0, float z0, float x1, float z1, float cellSize, int width, int depth)
+    {
+        int minX = Math.Max(0, (int)MathF.Floor(MathF.Min(x0, x1) / cellSize));
+        int minZ = Math.Max(0, (int)MathF.Floor(MathF.Min(z0, z1) / cellSize));
+        int maxX = Math.Min(width - 1, (int)MathF.Ceiling(MathF.Max(x0, x1) / cellSize));
+        int maxZ = Math.Min(depth - 1, (int)MathF.Ceiling(MathF.Max(z0, z1) / cellSize));
+        return new VertexRect(minX, minZ, maxX, maxZ);
+    }
+
+    /// <summary>This rectangle clamped to a <paramref name="width"/>×<paramref name="depth"/> grid.</summary>
+    public VertexRect Clamp(int width, int depth) => IsEmpty ? this : new VertexRect(
+        Math.Max(0, MinX), Math.Max(0, MinZ), Math.Min(width - 1, MaxX), Math.Min(depth - 1, MaxZ));
 }

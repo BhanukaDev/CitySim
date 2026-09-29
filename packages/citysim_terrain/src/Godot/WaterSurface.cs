@@ -21,7 +21,13 @@ public partial class WaterSurface : Node3D
     /// <summary>Grid spacing per LOD, in water cells.</summary>
     private static readonly float[] LodSteps = [0.5f, 1f, 2f, 4f, 8f];
     /// <summary>Distance (in tile widths) beyond which each coarser grid is used.</summary>
-    private static readonly float[] LodDistances = [1.5f, 3f, 7f, 14f];
+    private float[] _lodDistances = [1.5f, 3f, 7f, 14f];
+    /// <summary>LOD switch distances in tiles from the camera (<see cref="TerrainTuning.WaterLodDistances"/>).</summary>
+    public Vector4 LodDistances
+    {
+        get => new(_lodDistances[0], _lodDistances[1], _lodDistances[2], _lodDistances[3]);
+        set => _lodDistances = [value.X, value.Y, value.Z, value.W];
+    }
 
     private sealed class Page
     {
@@ -77,7 +83,7 @@ public partial class WaterSurface : Node3D
         _image = Image.CreateEmpty(n, n, false, Image.Format.Rgbaf);
         _pollutionImage = Image.CreateEmpty(n, n, false, Image.Format.Rf);
         _tileWater = new bool[_tilesPerPage * _tilesPerPage];
-        _baseMaterial = material as ShaderMaterial ?? new ShaderMaterial { Shader = GD.Load<Shader>("res://shaders/water.gdshader") };
+        _baseMaterial = material as ShaderMaterial ?? new ShaderMaterial { Shader = GD.Load<Shader>(TerrainPaths.Root + "/shaders/water.gdshader") };
         _meshes = new ArrayMesh[LodSteps.Length];
         for (int i = 0; i < LodSteps.Length; i++) _meshes[i] = GridMesh((int)(sim.TileSize / LodSteps[i]), LodSteps[i] * sim.CellSize);
 
@@ -221,7 +227,7 @@ public partial class WaterSurface : Node3D
                 var centre = tile.GlobalPosition + new Vector3(tileMetres * 0.5f, 0, tileMetres * 0.5f);
                 float d = new Vector3(eye.X - centre.X, (eye.Y - centre.Y) * 0.5f, eye.Z - centre.Z).Length() / tileMetres;
                 int lod = 0;
-                while (lod < LodDistances.Length && d > LodDistances[lod]) lod++;
+                while (lod < _lodDistances.Length && d > _lodDistances[lod]) lod++;
                 if (lod == page.Lods[i]) continue;
                 page.Lods[i] = lod;
                 tile.Mesh = _meshes[lod];

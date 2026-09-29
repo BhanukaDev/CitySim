@@ -116,7 +116,7 @@ public partial class GameUi : CanvasLayer
         _toast.GrowHorizontal = Control.GrowDirection.Both;
         _toast.AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.PanelBg, 6, 8));
 
-        var pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, ThemePanel = _themePanel, Water = _waterPanel };
+        var pause = _pause = new PauseMenu { Tools = Tools, Generator = _generator, Erosion = _erosion, ThemePanel = _themePanel, Water = _waterPanel };
         pause.Notify += ShowToast;
         pause.GeneratorRequested += OpenGenerator;
         root.AddChild(pause);
@@ -159,6 +159,11 @@ public partial class GameUi : CanvasLayer
     }
 
     /// <summary>Shows the theme panel (closes the tools and the other side panels).</summary>
+    private PauseMenu? _pause;
+
+    /// <summary>Opens the Esc menu's Settings panel on <paramref name="tab"/> without pausing (debug: <c>--show-settings</c>).</summary>
+    public void ShowSettings(string? tab) => _pause?.OpenSettings(tab, pause: false);
+
     public void OpenTheme()
     {
         if (_themePanel is null) return;

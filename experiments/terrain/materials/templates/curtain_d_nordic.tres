@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" load_steps=4 format=3]
 
-[ext_resource type="Shader" path="res://shaders/waterfall_curtain.gdshader" id="1_curtain"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/waterfall_curtain.gdshader" id="1_curtain"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_streaks"]
 noise_type = 1

@@ -11,7 +11,7 @@ namespace CitySim.Editor;
 /// the results; a running game picks them up with Reload in its Theme panel.
 /// </summary>
 [Tool]
-public partial class ThemeToolsPlugin : EditorPlugin
+public partial class TerrainPlugin : EditorPlugin
 {
     private ThemeInspector? _inspector;
 

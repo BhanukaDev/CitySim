@@ -29,10 +29,17 @@ public partial class WaterFalls : Node3D
     private const float Gravity = 9.81f;
     /// <summary>Ground drop per cell (as a slope) where a lip starts: tan 30°.</summary>
     private const float LipSlope = 0.577f;
-    /// <summary>A fall is at least this high (m) and this steep on average (drop / run: tan 30°), else it's rapids.</summary>
-    private const float MinHeight = 3f, MinSteepness = 0.577f;
+    /// <summary>A fall is this steep on average (drop / run: tan 30°), else it's rapids.</summary>
+    private const float MinSteepness = 0.577f;
+
+    /// <summary>A fall is at least this high (m), else it's rapids (<see cref="TerrainTuning.FallMinHeight"/>).</summary>
+    public float MinHeight { get; set; } = 3f;
     /// <summary>Flux (depth × speed, m²/s) where a curtain starts to show and where it's full.</summary>
-    private const float MinFlux = 0.02f, FullFlux = 0.4f;
+    public float MinFlux { get; set; } = 0.02f;
+    public float FullFlux { get; set; } = 0.4f;
+    /// <summary>Farthest curtain and mist at High (m from the camera); Low draws about half as far.</summary>
+    public float HighCurtainDistance { get; set; } = 700f;
+    public float HighMistDistance { get; set; } = 450f;
     /// <summary>
     /// Mist is gathered in bins this size (m), so a wide fall doesn't get a puff per cell; small enough that the puffs of
     /// neighbouring bins overlap into one bank along the foot.
@@ -71,8 +78,8 @@ public partial class WaterFalls : Node3D
     }
 
     /// <summary>Farthest curtain drawn (m from the camera); the mist stops sooner.</summary>
-    public float CurtainDistance => _quality == WaterfallQuality.High ? 700f : 350f;
-    public float MistDistance => _quality == WaterfallQuality.High ? 450f : 220f;
+    public float CurtainDistance => _quality == WaterfallQuality.High ? HighCurtainDistance : HighCurtainDistance * 0.5f;
+    public float MistDistance => _quality == WaterfallQuality.High ? HighMistDistance : HighMistDistance * (220f / 450f);
     private float MistAmount => _quality == WaterfallQuality.High ? 1f : 0.5f;
 
     /// <summary>Segments and puffs last drawn, and how long the last search took (ms, on the task).</summary>
@@ -177,12 +184,12 @@ public partial class WaterFalls : Node3D
         var origin = terrain.GlobalPosition;
         var planes = new List<Plane>();
         foreach (var p in cam.GetFrustum()) planes.Add(p);
-        var job = new Job(camPos - origin, origin, planes.ToArray(), CurtainDistance, MistDistance, MistAmount);
+        var job = new Job(camPos - origin, origin, planes.ToArray(), CurtainDistance, MistDistance, MistAmount, MinHeight, MinFlux, FullFlux);
         _job = Task.Run(() => Scan(sim, job));
     }
 
     private readonly record struct Job(Vector3 Cam, Vector3 Origin, Plane[] Frustum, float CurtainDistance, float MistDistance,
-        float MistAmount);
+        float MistAmount, float MinHeight, float MinFlux, float FullFlux);
 
     private sealed class Result
     {
@@ -255,7 +262,7 @@ public partial class WaterFalls : Node3D
                 if (depth < 0.02f) continue;
                 float vx = win[c + 2], vz = win[c + 3];
                 float speed = MathF.Sqrt(vx * vx + vz * vz);
-                if (speed < 0.3f || depth * speed < MinFlux) continue;
+                if (speed < 0.3f || depth * speed < job.MinFlux) continue;
                 var p = new Vector2((x0 + i) * cs, (z0 + j) * cs);
                 var dir = new Vector2(vx, vz) / speed;
                 // A lip: the ground drops steeply just ahead but not just behind (exactly one lip per flow line).
@@ -276,12 +283,12 @@ public partial class WaterFalls : Node3D
                 float top = win[c];
                 float baseY = Surface(q);
                 float height = top - baseY, run = (q - p).Length();
-                if (height < MinHeight || height / MathF.Max(run, cs) < MinSteepness) continue;
+                if (height < job.MinHeight || height / MathF.Max(run, cs) < MinSteepness) continue;
                 var mid = new Vector3(q.X, baseY + height * 0.5f, q.Y);
                 float dist = mid.DistanceTo(job.Cam);
                 if (dist > job.CurtainDistance || !InView(mid, height * 0.5f + 30f)) continue;
 
-                float strength = Smooth(MinFlux, FullFlux, depth * speed);
+                float strength = Smooth(job.MinFlux, job.FullFlux, depth * speed);
                 var landing = AddCurtain(r, p, dir, top, height, MathF.Max(speed, 1.5f), profile, cs, strength,
                     dist < 250f ? 10 : 5);
                 r.Segments++;

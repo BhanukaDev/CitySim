@@ -384,6 +384,15 @@ public sealed class Terrain3DBridge
     /// farthest map corner (<paramref name="bounds"/>: the map in world XZ). Each level doubles the clipmap's reach and adds
     /// a ring of triangles, so the default 7 levels (~28 km at 3.5 m cells) are only raised for the whole-map views of big maps.
     /// </summary>
+    /// <summary>Terrain3D's vertices per clipmap ring (the Terrain detail graphics setting).</summary>
+    public void SetMeshSize(int size)
+    {
+        if (size == _meshSize) return;
+        _node.Set("mesh_size", size);
+        _meshSize = _node.Get("mesh_size").AsInt32();
+        _lods = -1; // re-picked for the new size next frame
+    }
+
     public void FollowCamera(Camera3D? camera, Rect2 bounds)
     {
         if (camera is null) return;

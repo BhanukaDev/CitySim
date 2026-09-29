@@ -1,9 +1,9 @@
 [gd_resource type="Resource" script_class="TerrainTheme" format=3]
 
-[ext_resource type="Script" path="res://src/Terrain/Themes/TerrainTheme.cs" id="1_theme"]
-[ext_resource type="Script" path="res://src/Terrain/Themes/TerrainMaterial.cs" id="2_material"]
-[ext_resource type="Script" path="res://src/Terrain/Themes/ErosionSlot.cs" id="3_slot"]
-[ext_resource type="Shader" path="res://themes/winter/terrain.gdshader" id="4_shader"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Themes/TerrainTheme.cs" id="1_theme"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Themes/TerrainMaterial.cs" id="2_material"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Themes/ErosionSlot.cs" id="3_slot"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/themes/winter/terrain.gdshader" id="4_shader"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
 frequency = 0.008
@@ -39,9 +39,9 @@ shader_parameter/puddle_color = Color(0.55, 0.62, 0.7, 1)
 script = ExtResource("2_material")
 Id = "snow"
 DisplayName = "Snow"
-Albedo = "res://assets/textures/terrain/snow/Snow010A_Color.jpg"
-Height = "res://assets/textures/terrain/snow/Snow010A_Displacement.jpg"
-Normal = "res://assets/textures/terrain/snow/Snow010A_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/snow/Snow010A_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/snow/Snow010A_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/snow/Snow010A_NormalGL.jpg"
 Tint = Color(0.93, 0.95, 1.0, 1)
 DetailContrast = 0.8
 
@@ -49,9 +49,9 @@ DetailContrast = 0.8
 script = ExtResource("2_material")
 Id = "snow_rough"
 DisplayName = "Drifted Snow"
-Albedo = "res://assets/textures/terrain/snow_rough/Snow004_Color.jpg"
-Height = "res://assets/textures/terrain/snow_rough/Snow004_Displacement.jpg"
-Normal = "res://assets/textures/terrain/snow_rough/Snow004_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/snow_rough/Snow004_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/snow_rough/Snow004_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/snow_rough/Snow004_NormalGL.jpg"
 Tint = Color(0.86, 0.9, 0.98, 1)
 TileSize = 14.0
 FarTileSize = 60.0
@@ -60,36 +60,36 @@ FarTileSize = 60.0
 script = ExtResource("2_material")
 Id = "grass_dry"
 DisplayName = "Frozen Grass"
-Albedo = "res://assets/textures/terrain/grass_dry/Grass004_Color.jpg"
-Height = "res://assets/textures/terrain/grass_dry/Grass004_Displacement.jpg"
-Normal = "res://assets/textures/terrain/grass_dry/Grass004_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_NormalGL.jpg"
 Tint = Color(0.56, 0.54, 0.4, 1)
 
 [sub_resource type="Resource" id="mat_dirt"]
 script = ExtResource("2_material")
 Id = "dirt"
 DisplayName = "Frozen Earth"
-Albedo = "res://assets/textures/terrain/dirt/Ground103_Color.jpg"
-Height = "res://assets/textures/terrain/dirt/Ground103_Displacement.jpg"
-Normal = "res://assets/textures/terrain/dirt/Ground103_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_NormalGL.jpg"
 Tint = Color(0.4, 0.35, 0.32, 1)
 
 [sub_resource type="Resource" id="mat_gravel"]
 script = ExtResource("2_material")
 Id = "gravel"
 DisplayName = "Gravel"
-Albedo = "res://assets/textures/terrain/gravel/Ground062S_Color.jpg"
-Height = "res://assets/textures/terrain/gravel/Ground062S_Displacement.jpg"
-Normal = "res://assets/textures/terrain/gravel/Ground062S_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/gravel/Ground062S_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/gravel/Ground062S_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/gravel/Ground062S_NormalGL.jpg"
 Tint = Color(0.55, 0.55, 0.57, 1)
 
 [sub_resource type="Resource" id="mat_rock"]
 script = ExtResource("2_material")
 Id = "rock"
 DisplayName = "Rock"
-Albedo = "res://assets/textures/terrain/rock/Rock051_Color.jpg"
-Height = "res://assets/textures/terrain/rock/Rock051_Displacement.jpg"
-Normal = "res://assets/textures/terrain/rock/Rock051_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/rock/Rock051_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/rock/Rock051_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/rock/Rock051_NormalGL.jpg"
 Tint = Color(0.46, 0.48, 0.53, 1)
 TileSize = 19.0
 FarTileSize = 47.0
@@ -101,9 +101,9 @@ NormalStrength = 0.55
 script = ExtResource("2_material")
 Id = "ice"
 DisplayName = "Ice"
-Albedo = "res://assets/textures/terrain/ice/Ice002_Color.jpg"
-Height = "res://assets/textures/terrain/ice/Ice002_Displacement.jpg"
-Normal = "res://assets/textures/terrain/ice/Ice002_NormalGL.jpg"
+Albedo = "res://addons/citysim_terrain/assets/textures/terrain/ice/Ice002_Color.jpg"
+Height = "res://addons/citysim_terrain/assets/textures/terrain/ice/Ice002_Displacement.jpg"
+Normal = "res://addons/citysim_terrain/assets/textures/terrain/ice/Ice002_NormalGL.jpg"
 Tint = Color(0.62, 0.78, 0.88, 1)
 TileSize = 10.0
 FarTileSize = 40.0

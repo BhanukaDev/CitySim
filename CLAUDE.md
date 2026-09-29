@@ -7,9 +7,15 @@ the main game.
 Stack: Godot 4.7.2 .NET (`/Applications/Godot_mono.app`), C# on .NET 9. C++ (GDExtension) only for
 profiled hot paths.
 
+## Shared packages
+- `packages/citysim_terrain/`: the terrain + water package every project uses, symlinked in as
+  `addons/citysim_terrain` (with `packages/terrain_3d` as `addons/terrain_3d`). **Its README is the API**: queries,
+  the edit API, events, settings, and how to add it to a project. Edits here affect every experiment, so re-check each one.
+
 ## Experiments
-- `experiments/terrain/`: terrain system. **Read `experiments/terrain/ROADMAP.md` first.** It has
+- `experiments/terrain/`: terrain system and the in-app Map Editor. **Read `experiments/terrain/ROADMAP.md` first.** It has
   status, next steps, build/verify commands and decisions. Update it when a milestone changes.
+- `experiments/splines/`: splines for roads, canals, walls and fences (just started: terrain only, `--demo-edit`).
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

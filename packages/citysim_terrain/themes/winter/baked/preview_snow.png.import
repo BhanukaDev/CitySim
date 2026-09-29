@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b0b5u06e44jo0"
-path="res://.godot/imported/preview_snow.png-65129ed9630fa8dde074635c588acb5f.ctex"
+path="res://.godot/imported/preview_snow.png-9ef5995c6bf7cc5a6ac9d39cb97e5fb2.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://themes/winter/baked/preview_snow.png"
-dest_files=["res://.godot/imported/preview_snow.png-65129ed9630fa8dde074635c588acb5f.ctex"]
+source_file="res://addons/citysim_terrain/themes/winter/baked/preview_snow.png"
+dest_files=["res://.godot/imported/preview_snow.png-9ef5995c6bf7cc5a6ac9d39cb97e5fb2.ctex"]
 
 [params]
 

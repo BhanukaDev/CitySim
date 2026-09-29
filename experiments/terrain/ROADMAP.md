@@ -3,6 +3,11 @@
 Working document for the terrain system. **Keep it updated**: tick items off, add findings, and note
 decisions when a milestone lands. A new session should read this file and `README.md` first.
 
+**Since M8 the terrain is a shared package**: `packages/citysim_terrain/` (symlinked into each project as
+`addons/citysim_terrain`), with its API in `packages/citysim_terrain/README.md`. File paths below from before M8 (`src/Terrain/…`,
+`src/Water/…`, `terrain_sdk/`, `themes/`, `native/`, `shaders/`) now live in the package: engine-agnostic code under
+`src/Core/`, Godot code under `src/Godot/`, `terrain_sdk/` → `shaders/sdk/`.
+
 ## Goal
 
 A standalone Godot 4.7 (.NET, C#) project that proves out the terrain system for CitySim, a
@@ -61,12 +66,14 @@ plus frame-to-frame jerk while flying over the mountains at four zooms (prints `
 ```sh
 cd experiments/terrain
 dotnet build                                                   # compile check
-native/erosion/build.sh; native/water/build.sh                 # first checkout and after changing the C++ (bin/ is gitignored)
+addons/citysim_terrain/native/erosion/build.sh; addons/citysim_terrain/native/water/build.sh   # first checkout / after changing the C++ (bin/ gitignored)
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 $G --headless --path . --quit-after 120                        # runtime errors, generation timing
 $G --path . -- --screenshot=/path/out.png --screenshot-frames=90   # real render → PNG, then view it
 # --screenshot-zoom=60,120,250 (with --cam): more shots from the same pivot at those distances in one run, sim paused
 #   (out_<distance>.png), for checking how things look as the camera zooms
+# --setting=Graphics.Name=value / --setting=Tuning.Name=value: set a TerrainGraphics/TerrainTuning property (repeatable)
+# --show-settings[=Graphics|Tuning]: the Settings panel (not paused, for screenshots)
 # extra flags: --demo-sculpt / --demo-channel / --demo-paint / --demo-camera (scripted strokes + undo check), --demo-mapfile (save/load round trip),
 #   --demo-heightmap (16-bit PNG/RAW export+import round trip), --cam=x,z,distance,pitch,yaw (close-ups; x, z in map metres from the
 #   map's corner, as the HUD pivot shows: the world origin is the map's centre), --flat[=height] (empty map),
@@ -499,7 +506,7 @@ Authoring guide: `terrain_sdk/README.md`.
 - **Data** (`src/Terrain/Themes/`): `TerrainTheme` (`themes/<id>/theme.tres`: id, name, `ShaderMaterial` with tuned uniforms,
   up to 16 `TerrainMaterial`s, 8 `ErosionSlot`s), `TerrainMaterial` (source texture *paths*, so the game never loads the
   2K sources; tint, tiling, triplanar, detail/normal factors, paintable), `ErosionSlot` (material or empty = off; strength,
-  edge, fade, noise, slope limit; defaults are the M5.1 tuned values), `ThemeLibrary` (scans `res://themes/*/theme.tres`),
+  edge, fade, noise, slope limit; defaults are the M5.1 tuned values), `ThemeLibrary` (scans `res://addons/citysim_terrain/themes/*/theme.tres`),
   `ThemeBaker` (the old TextureBaker's grey-normalise/height-stretch into `baked/albedo_height.png` + `normal.png` with BC7
   texture-array `.import`s, a CPU-lit 128² preview per material, and `materials.gdshaderinc` with `MAT_<ID>`/`SLOT_<NAME>`).
 - **Slots** (erosion/water features a shader can't infer): Deposits, Thick deposits, Scoured, Heavily scoured (wear), Shore
@@ -567,14 +574,18 @@ can switch them off (or pick a quality) on weaker hardware. Build each optional 
 - An overall **preset** (Low / Medium / High / Custom) only sets the individual settings. Changing one by hand makes it
   Custom.
 
+Since M8 the switches live in `TerrainGraphics` (package `settings/graphics.tres`; the player's choice in
+`user://settings/terrain_graphics.cfg`) and show in Esc → Settings…. Add a new one there as an `[Export]` property.
+
 Candidates so far (tick when the switch exists):
-- [x] Wet ground shine (M3.7): bool (`Terrain.WetShine`; no menu yet).
+- [x] Wet ground shine (M3.7): bool (`TerrainGraphics.WetShine`).
 - [ ] Water quality (M5.4–M5.6): enum. Low = no caustics, no white-water streaks; High = everything. The far-fall bias
   stays on at every level (it fixes a bug, it isn't an effect).
 - [ ] Water mesh detail: enum on the near LOD (1 or 2 vertices per cell, M5.4).
-- [ ] Horizon ring (M6 3e): bool, off = the Fog edge (`Terrain.EdgeStyle`).
+- [x] Horizon ring (M6 3e): bool, off = the Fog edge (`TerrainGraphics.HorizonRing`; the Map Editor's own edge choice is left alone).
+- [x] Terrain detail (M8): enum Low/Medium/High = Terrain3D `mesh_size` 32/48/64 (`TerrainGraphics.TerrainDetail`). Cost not measured yet.
 - [ ] Edge fog (M3.1, M6 phase 3a): enum, Flat / Animated billows. (The on/off per mode from 3a is a mode rule, not a setting.)
-- [x] Waterfall curtains + mist (M5.8): enum Off / Low / High (`Terrain.WaterfallFx`; no menu yet). Low = half the
+- [x] Waterfall curtains + mist (M5.8): enum Off / Low / High (`TerrainGraphics.WaterfallFx`). Low = half the
   distance, half the mist. Measured at the `--demo-falls` wide fall (51 curtain segments, 66 puffs): +0.1–0.3 ms/frame,
   +2 draws; the smoky-bank mist costs ~0.5 ms there. The search runs on a task.
 - [ ] Effect draw distance (caustics, glints): number, later if needed.
@@ -1101,6 +1112,38 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 - Terrain3D keeps a CPU copy of every region map plus height/control/colour on the GPU (≈ 12 B/px).
 - Noise presets are tuned for 2 km maps: at 28 km the hills look like pimples. The generator needs scale-aware settings.
 
+### 🔶 M8: Terrain package (implemented, waiting for the user to test)
+The terrain moved out of this experiment into a shared addon, so the splines/roads experiment (and later the main game)
+uses the same code. Plan decisions (user): a repo-level addon symlinked into each project; terrain + water in one
+package, with the Map Editor UI staying here; settings as resources + an in-app panel; package what exists + generic edit
+hooks (road corridors belong to the splines experiment).
+- **Layout**: `packages/citysim_terrain/` (plugin `CitySim Terrain`, `TerrainPlugin.cs` = the old theme tools plugin)
+  and `packages/terrain_3d/` (Terrain3D; `bin/` still not committed). Both symlinked into `addons/` (git keeps the links;
+  MSBuild and Godot follow them). Moved with `git mv`: core → `src/Core/`, Godot side + camera → `src/Godot/`,
+  `terrain_sdk/` → `shaders/sdk/`, water/waterfall/horizon shaders + materials, themes, native libs, textures, particles.
+  `TerrainPaths.Root` holds the addon path. `ThemeLibrary` scans the package's themes, then the project's `res://themes`
+  (a project theme with the same id wins). Screenshots before/after the move: identical (cliff, winter, falls).
+- **Decoupled from the app**: `MapRequest` types moved into the package (with `ThemeId`). `TerrainHost.TakeStartupRequest`
+  / `IsMapEditor` replace the `MapSession` reads. `MapSession` sets them in a `[ModuleInitializer]`, so CLI runs
+  that skip the menu work too.
+- **Edit API**: `Terrain.History` (the undo stack moved from the tool controller), `Terrain.BeginEdit(paint)` →
+  `TerrainEdit` (`Touch`, `Heights`, `Original`, `Changed`, `Commit`/`Dispose`, `Cancel` via the new `UndoStack.CancelStroke`),
+  `Terrain.Undo/Redo`, events `HeightsChanged`/`PaintChanged` (once per frame, union of rects) and `MapReplaced`.
+  `VertexRect.FromMapRect`/`Clamp`.
+- **Settings**: `TerrainGraphics` (Preset, WetShine, WaterfallFx, HorizonRing, TerrainDetail = Terrain3D mesh_size) and
+  `TerrainTuning` (lake delays, water grid cap, water LOD distances, waterfall thresholds/distances, horizon hills/fog floor,
+  rain times, undo size), `[GlobalClass]` resources in `settings/*.tres`, applied live via `Changed`. The player's graphics
+  go to `user://settings/terrain_graphics.cfg`. `SettingsPanel` (package) builds rows from the property list. Esc →
+  **Settings…** (Tuning tab in the Map Editor only, with Save as defaults). Defaults render identically to before.
+  `--water-cells` still wins over the tuning's grid cap.
+- **Debug**: `ScreenshotCapture` (package) took `--screenshot*`, `--cam` and the new `--setting=`. `TerrainCommandLine`
+  gives projects without a menu `--load/--flat/--preset/--seed/--size`. `CityCamera` adds its `cam_*` actions if missing.
+- **`experiments/splines/`**: new project (next experiment), terrain only so far: Terrain + CityCamera + ScreenshotCapture,
+  `--demo-edit` (a 200 m pad through `BeginEdit`, undo/redo/cancel/Original/one-at-a-time/HeightsChanged: `Demo edit: all ok`).
+  Renders identically to this project's game mode, and `--load` opens a map saved here.
+- Not done: water quality / water mesh detail graphics settings (no shader switch yet); tooltips in the Settings panel
+  (doc comments aren't available at runtime); mod `.pck` themes (M3.6).
+
 ### ⬜ M7: City-building queries (prep for merging)
 - `IsBuildable(rect, maxSlope)`, `GetAverageHeight(rect)`, `FlattenForPlacement(rect or polygon)`
 - Road support: a flatten/blend corridor along a spline with max grade and embankments
@@ -1113,6 +1156,10 @@ Phase 0 spike (`scenes/Spike.tscn`, `src/Debug/Terrain3DSpike.cs`, throwaway; ru
 ---
 
 ## Decision log
+- 2026-09-29 (M8, user's calls): **terrain is a shared package** at `packages/citysim_terrain`, symlinked into every project
+  (not copied, not a separate .NET library); terrain and water together; the Map Editor UI stays in the terrain experiment.
+  Settings are Godot resources (inspector) + an in-app panel built from them; the Graphics part is the game's future
+  graphics menu. The package gets generic edit hooks with undo; road corridor flattening is built in the splines experiment.
 - Camera rework: zoom-dependent limits, FPV at distance 0, zoom-scaled edge margin, CS-style directions and mouse drag (implemented, waiting for the user to test).
 - Started with C# only, adding C++ later only for measured hot paths.
 - R/F interpreted as **tilt**, not altitude. The user confirmed by asking only for the direction to be inverted.

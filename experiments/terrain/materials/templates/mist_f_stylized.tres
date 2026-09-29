@@ -1,7 +1,7 @@
 [gd_resource type="ShaderMaterial" load_steps=3 format=3]
 
-[ext_resource type="Shader" path="res://shaders/waterfall_mist.gdshader" id="1_mist"]
-[ext_resource type="Texture2D" path="res://assets/particles/mist_puffs.png" id="2_puffs"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/waterfall_mist.gdshader" id="1_mist"]
+[ext_resource type="Texture2D" path="res://addons/citysim_terrain/assets/particles/mist_puffs.png" id="2_puffs"]
 
 [resource]
 render_priority = 3

@@ -54,6 +54,8 @@ public sealed class UndoStack
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
     public bool InStroke => _inStroke;
+    /// <summary>Everything the current stroke has touched so far (empty outside a stroke).</summary>
+    public VertexRect StrokeRect => _strokeRect;
     /// <summary>Memory held by undo and redo entries.</summary>
     public long Bytes => _bytes;
 
@@ -112,6 +114,26 @@ public sealed class UndoStack
         _inStroke = false;
         _strokeTiles.Clear();
         _strokeRect = VertexRect.Empty;
+    }
+
+    /// <summary>
+    /// Ends the current stroke without recording it: every touched tile is put back as it was when the stroke began.
+    /// Returns the rectangle that was restored (empty if nothing was touched).
+    /// </summary>
+    public VertexRect CancelStroke()
+    {
+        var rect = _strokeRect;
+        foreach (var t in _strokeTiles.Values)
+        {
+            if (t.Heights is not null) _map?.PasteRegion(t.Rect, t.Heights);
+            if (t.Splat is not null) _splat?.PasteRegion(t.Rect, t.Splat);
+        }
+        _map = null;
+        _splat = null;
+        _inStroke = false;
+        _strokeTiles.Clear();
+        _strokeRect = VertexRect.Empty;
+        return rect;
     }
 
     /// <summary>

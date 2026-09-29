@@ -89,7 +89,7 @@ public partial class TerrainToolController : Node
     /// <summary>Raised whenever the tool, brush settings, level target or slope anchor change.</summary>
     public event Action? StateChanged;
 
-    public UndoStack History { get; } = new();
+    public UndoStack History => Terrain!.History;
 
     /// <summary>The water tools' state and input (sources, their settings, the selection).</summary>
     public WaterSourceTool Water { get; }
@@ -478,9 +478,8 @@ public partial class TerrainToolController : Node
         if (Terrain?.Map is not { } map) return;
         if (!ReferenceEquals(map, _map))
         {
-            // Terrain was regenerated: old undo data and points no longer apply.
+            // Terrain was regenerated: points no longer apply (the Terrain cleared the undo history).
             EndStroke();
-            History.Clear();
             _generatedBefore = null;
             _map = map;
             _slopeAnchor = null;
@@ -727,8 +726,8 @@ public partial class TerrainToolController : Node
         return (h00 + (h10 - h00) * tx) * (1f - tz) + (h01 + (h11 - h01) * tx) * tz;
     }
 
-    public void Undo() => ApplyHistory(History.Undo);
-    public void Redo() => ApplyHistory(History.Redo);
+    public void Undo() => ApplyHistory(t => t.Undo());
+    public void Redo() => ApplyHistory(t => t.Redo());
 
     // --- Generator ---
 
@@ -805,15 +804,11 @@ public partial class TerrainToolController : Node
         });
     }
 
-    private void ApplyHistory(Func<HeightMap, SplatMap, UndoChange> op)
+    private void ApplyHistory(Func<Terrain, UndoChange> op)
     {
         CommitGenerated();
-        if (IsStroking || Terrain?.Map is not { } map || Terrain.Splat is not { } splat) return;
-        var change = op(map, splat);
-        if (change.Splat) Terrain.MarkSplatDirty(change.Rect);
-        if (!change.Heights) return;
-        Terrain.MarkDirty(change.Rect);
-        Terrain.RefreshHeightRange();
+        if (IsStroking || Terrain is null) return;
+        op(Terrain);
     }
 
     private System.Numerics.Vector2 ToLocal2(Vector3 world)

@@ -1,12 +1,14 @@
 using System;
 using Godot;
 using CitySim.App;
+using CitySim.TerrainSystem;
 using CitySim.Tools;
 
 namespace CitySim.UI;
 
 /// <summary>
-/// Esc menu in the map: Resume, Save, Save As, Load, Terrain Generator (Map Editor), Export Heightmap, Main Menu, Quit. Pauses the tree while open.
+/// Esc menu in the map: Resume, Save, Save As, Load, Terrain Generator (Map Editor), Export Heightmap, Settings, Main Menu, Quit.
+/// Pauses the tree while open.
 /// Esc with a terrain tool selected only deselects the tool. Ctrl/Cmd+S saves at any time
 /// (asks for a file the first time).
 /// </summary>
@@ -47,10 +49,38 @@ public partial class PauseMenu : Control
                 "Regenerate the terrain: presets, island and coast shapes, heightmap import with rotate/scale/tile");
         MainMenu.AddButton(column, "Export Heightmap…", ExportHeightmap,
             "16-bit PNG (or .r16 RAW) of the heights, lowest point black, highest white. The PNG remembers the height range.");
+        MainMenu.AddButton(column, "Settings…", () => OpenSettings(),
+            "Graphics (saved for you) and, in the Map Editor, the terrain's tuning knobs (live)");
         MainMenu.AddButton(column, "Main Menu", () => ChangeScene(MainMenu.ScenePath));
         MainMenu.AddButton(column, "Quit", () => GetTree().Quit());
         panel.AddChild(column);
-        AddChild(MainMenu.Centered(panel));
+        _menu = MainMenu.Centered(panel);
+        AddChild(_menu);
+    }
+
+    private readonly Control _menu;
+    private Control? _settings;
+
+    /// <summary>Opens the Settings panel (on the <paramref name="tab"/> named). Without <paramref name="pause"/> the map keeps running (screenshots).</summary>
+    public void OpenSettings(string? tab = null, bool pause = true)
+    {
+        if (Tools?.Terrain is not { } terrain) return;
+        Visible = true;
+        if (pause) GetTree().Paused = true;
+        var panel = new SettingsPanel(terrain.Graphics, terrain.Tuning, showTuning: MapSession.Mode == AppMode.MapEditor);
+        panel.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.PanelBg, 6, 16));
+        _settings = MainMenu.Centered(panel);
+        panel.Closed += CloseSettings;
+        _menu.Visible = false;
+        AddChild(_settings);
+        if (tab is not null) panel.SelectTab(tab);
+    }
+
+    private void CloseSettings()
+    {
+        _settings?.QueueFree();
+        _settings = null;
+        _menu.Visible = true;
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -60,6 +90,7 @@ public partial class PauseMenu : Control
             Save();
         else if (key.Keycode != Key.Escape)
             return;
+        else if (_settings is not null) return; // the settings panel closes itself
         else if (Visible) Close();
         else if (Generator is { Visible: true }) Generator.Close();
         else if (Erosion is { Visible: true }) Erosion.Close();

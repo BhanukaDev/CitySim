@@ -45,7 +45,7 @@ internal static unsafe class Native
     private static delegate* unmanaged[Cdecl]<float*, int, int, int, int, int, int, float, float, int, GroundParams*, float*, uint*, float*, uint*, uint*, Progress*, int> _findWaterWindow;
     private static delegate* unmanaged[Cdecl]<float*, void> _lastFindMs;
 
-    /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://native/erosion/bin</c>).</summary>
+    /// <summary>Folder holding the library. The Godot side sets it (a globalized <c>res://addons/citysim_terrain/native/erosion/bin</c>).</summary>
     public static string? Directory { get; set; }
 
     public static string FileName =>

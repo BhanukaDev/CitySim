@@ -1,7 +1,7 @@
 // CitySim winter terrain theme (demo): snow everywhere, wind-scoured slopes showing dry grass and earth, snow-capped
 // rock, frozen streams. Materials and erosion slots are set in theme.tres.
 shader_type spatial;
-#include "res://terrain_sdk/terrain_core.gdshaderinc"
+#include "res://addons/citysim_terrain/shaders/sdk/terrain_core.gdshaderinc"
 #include "materials.gdshaderinc"
 
 group_uniforms Theme;
@@ -44,4 +44,4 @@ vec3 terrain_tint(int m, vec3 tint, TerrainInputs t) {
 	return tint;
 }
 
-#include "res://terrain_sdk/terrain_fragment.gdshaderinc"
+#include "res://addons/citysim_terrain/shaders/sdk/terrain_fragment.gdshaderinc"

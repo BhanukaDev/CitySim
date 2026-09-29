@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bjssbjcagjrdr"
-path.s3tc="res://.godot/imported/mist_puffs.png-dd7abf3a2b7b20275c7133434de8d6ef.s3tc.ctex"
+path.s3tc="res://.godot/imported/mist_puffs.png-09c54e8ce7c44254968ccfbeef8bb682.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/particles/mist_puffs.png"
-dest_files=["res://.godot/imported/mist_puffs.png-dd7abf3a2b7b20275c7133434de8d6ef.s3tc.ctex"]
+source_file="res://addons/citysim_terrain/assets/particles/mist_puffs.png"
+dest_files=["res://.godot/imported/mist_puffs.png-09c54e8ce7c44254968ccfbeef8bb682.s3tc.ctex"]
 
 [params]
 

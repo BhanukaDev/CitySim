@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d0kj562pakqdt"
-path="res://.godot/imported/preview_grass_dirt.png-3c0356a500ef48d1dd83d44b29a7a4bd.ctex"
+path="res://.godot/imported/preview_grass_dirt.png-ef4f5acbff46fa6669061625e4341877.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://themes/default/baked/preview_grass_dirt.png"
-dest_files=["res://.godot/imported/preview_grass_dirt.png-3c0356a500ef48d1dd83d44b29a7a4bd.ctex"]
+source_file="res://addons/citysim_terrain/themes/default/baked/preview_grass_dirt.png"
+dest_files=["res://.godot/imported/preview_grass_dirt.png-ef4f5acbff46fa6669061625e4341877.ctex"]
 
 [params]
 

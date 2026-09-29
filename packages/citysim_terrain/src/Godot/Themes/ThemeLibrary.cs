@@ -4,11 +4,16 @@ using Godot;
 namespace CitySim.TerrainSystem.Themes;
 
 /// <summary>
-/// Finds the terrain themes: every <c>res://themes/&lt;id&gt;/theme.tres</c>. Mods will add their own folders later.
+/// Finds the terrain themes: every <c>&lt;root&gt;/&lt;id&gt;/theme.tres</c> under <see cref="Roots"/>: the package's built-in
+/// themes, then the project's own <c>res://themes</c>. A project theme with a built-in theme's id replaces it. Mods will add
+/// their own folders later.
 /// </summary>
 public static class ThemeLibrary
 {
-    public const string Root = "res://themes";
+    public const string BuiltInRoot = TerrainPaths.Root + "/themes";
+    public const string ProjectRoot = "res://themes";
+    /// <summary>Where themes are searched, in order (later roots override earlier ones by id).</summary>
+    public static readonly string[] Roots = [BuiltInRoot, ProjectRoot];
     public const string DefaultId = "default";
 
     private static List<TerrainTheme>? _all;
@@ -29,8 +34,8 @@ public static class ThemeLibrary
     /// <summary>Loads a theme again from disk (after it was edited and baked in Godot) and returns the fresh copy.</summary>
     public static TerrainTheme? Reload(string id)
     {
+        string dir = Get(id)?.Dir ?? $"{BuiltInRoot}/{id}";
         _all = null;
-        string dir = $"{Root}/{id}";
         // The baked arrays aren't dependencies of theme.tres, so they're refreshed by hand (Terrain.ApplyTheme would get the
         // cached copies from before the bake). materials.gdshaderinc needs nothing: Terrain inlines it fresh from disk.
         foreach (var file in new[] { "baked/albedo_height.png", "baked/normal.png" })
@@ -45,16 +50,21 @@ public static class ThemeLibrary
     private static List<TerrainTheme> Scan()
     {
         var themes = new List<TerrainTheme>();
-        foreach (var dir in DirAccess.GetDirectoriesAt(Root))
+        foreach (var root in Roots)
         {
-            var path = $"{Root}/{dir}/{TerrainTheme.FileName}";
-            if (!ResourceLoader.Exists(path)) continue;
-            if (ResourceLoader.Load(path) is TerrainTheme theme)
+            if (!DirAccess.DirExistsAbsolute(root)) continue;
+            foreach (var dir in DirAccess.GetDirectoriesAt(root))
             {
-                if (string.IsNullOrEmpty(theme.Id)) theme.Id = dir;
-                themes.Add(theme);
+                var path = $"{root}/{dir}/{TerrainTheme.FileName}";
+                if (!ResourceLoader.Exists(path)) continue;
+                if (ResourceLoader.Load(path) is TerrainTheme theme)
+                {
+                    if (string.IsNullOrEmpty(theme.Id)) theme.Id = dir;
+                    themes.RemoveAll(t => t.Id == theme.Id);
+                    themes.Add(theme);
+                }
+                else GD.PushWarning($"ThemeLibrary: {path} isn't a TerrainTheme.");
             }
-            else GD.PushWarning($"ThemeLibrary: {path} isn't a TerrainTheme.");
         }
         themes.Sort((a, b) => a.Id == DefaultId ? -1 : b.Id == DefaultId ? 1 : string.CompareOrdinal(a.Label, b.Label));
         return themes;

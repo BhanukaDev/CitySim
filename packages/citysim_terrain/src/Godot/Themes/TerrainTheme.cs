@@ -25,8 +25,8 @@ public partial class TerrainTheme : Resource
     [Export(PropertyHint.MultilineText)] public string Description { get; set; } = "";
 
     /// <summary>
-    /// The theme's shader and its tuned uniforms. The shader includes <c>res://terrain_sdk/terrain_core.gdshaderinc</c>
-    /// (see terrain_sdk/README.md). Its texture arrays and per-material uniforms are set by the game.
+    /// The theme's shader and its tuned uniforms. The shader includes <c>res://addons/citysim_terrain/shaders/sdk/terrain_core.gdshaderinc</c>
+    /// (see shaders/sdk/README.md). Its texture arrays and per-material uniforms are set by the game.
     /// </summary>
     [Export] public ShaderMaterial? Material { get; set; }
 
@@ -47,7 +47,7 @@ public partial class TerrainTheme : Resource
 
     public string Label => string.IsNullOrEmpty(DisplayName) ? Id : DisplayName;
 
-    /// <summary>The theme's folder (<c>res://themes/&lt;id&gt;</c>).</summary>
+    /// <summary>The theme's folder (<c>&lt;root&gt;/&lt;id&gt;</c>, see <see cref="ThemeLibrary.Roots"/>).</summary>
     public string Dir => ResourcePath.GetBaseDir();
     public string AlbedoArrayPath => Dir + "/baked/albedo_height.png";
     public string NormalArrayPath => Dir + "/baked/normal.png";
@@ -148,7 +148,7 @@ public partial class TerrainTheme : Resource
         if (string.IsNullOrWhiteSpace(Id)) problems.Add("Id is empty.");
         if (Material?.Shader is not { } shader) problems.Add("Material has no shader.");
         else if (!shader.Code.Contains("terrain_core.gdshaderinc"))
-            problems.Add("The shader doesn't include res://terrain_sdk/terrain_core.gdshaderinc.");
+            problems.Add("The shader doesn't include res://addons/citysim_terrain/shaders/sdk/terrain_core.gdshaderinc.");
         if (Materials.Count == 0) problems.Add("The theme has no materials.");
         if (Materials.Count > MaxMaterials) problems.Add($"More than {MaxMaterials} materials.");
         var seen = new HashSet<string>();

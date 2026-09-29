@@ -3,7 +3,7 @@
 importer="2d_array_texture"
 type="CompressedTexture2DArray"
 uid="uid://d23i1odyklq16"
-path.bptc="res://.godot/imported/normal.png-d2c0af87d13be1da2dce440da82f0264.bptc.ctexarray"
+path.bptc="res://.godot/imported/normal.png-2ce3b9e740f5b3d7cae7581eb337e07a.bptc.ctexarray"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://themes/winter/baked/normal.png"
-dest_files=["res://.godot/imported/normal.png-d2c0af87d13be1da2dce440da82f0264.bptc.ctexarray"]
+source_file="res://addons/citysim_terrain/themes/winter/baked/normal.png"
+dest_files=["res://.godot/imported/normal.png-2ce3b9e740f5b3d7cae7581eb337e07a.bptc.ctexarray"]
 
 [params]
 

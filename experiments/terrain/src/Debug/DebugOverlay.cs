@@ -15,11 +15,11 @@ using CitySim.WaterSystem;
 namespace CitySim.Debug;
 
 /// <summary>
-/// On-screen stats and controls help. Also supports automated screenshots:
-///   Godot --path . -- --screenshot=out.png [--screenshot-frames=60]
-/// saves the viewport after N frames and quits. Also: --cam=x,z,distance,pitch,yaw, --demo-sculpt, --demo-channel, --demo-paint, --demo-camera, --demo-mapfile,
+/// On-screen stats and controls help. Adds the terrain package's <see cref="ScreenshotCapture"/> (--screenshot=out.png
+/// [--screenshot-frames=60], --screenshot-zoom=a,b,c, --cam=x,z,distance,pitch,yaw, --setting=Graphics|Tuning.Name=value).
+/// Also: --demo-sculpt, --demo-channel, --demo-paint, --demo-camera, --demo-mapfile,
 /// --demo-heightmap, --demo-generate, --demo-erosion, --erode[=preset], --show-erosion,
-/// --theme=id (switch the map's theme), --show-theme, --demo-water (water self-checks, then sources on the map),
+/// --theme=id (switch the map's theme), --show-theme, --show-settings[=Graphics|Tuning] (the Settings panel, not paused), --demo-water (water self-checks, then sources on the map),
 /// --demo-falls (a made-up map with a cliff and two falls), --falls-fx=off|low|high (waterfall curtains and mist),
 /// --show-water (Water panel), --hide-water (don't draw it), --water-arrows (flow arrows on), --no-tool (--demo-water ends without a water tool out),
 /// --preview-at=x,z,level (the Lake placement preview there), --stream-at=x,z,flow (a Stream source there, map metres), --water-speed=n, --water-run=seconds (simulate that long right away),
@@ -44,12 +44,6 @@ public partial class DebugOverlay : CanvasLayer
 
     private Label _label = null!;
     private double _refresh;
-    private string? _screenshotPath;
-    private int _screenshotFrames = 60;
-    /// <summary>--screenshot-zoom: more shots from the same pivot at these distances, one run (saved as name_distance.png).</summary>
-    private readonly System.Collections.Generic.Queue<float> _zoomShots = new();
-    private float[]? _cam;
-    private double _zoomWait;
     /// <summary>--profile[=frames]: frames still to wait (then measure), and what's been measured so far.</summary>
     private int _profileWait = -1, _profileFrames;
     private bool _profileDuringSearch;
@@ -68,14 +62,12 @@ public partial class DebugOverlay : CanvasLayer
         _label.AddThemeColorOverride("font_outline_color", Colors.Black);
         _label.AddThemeConstantOverride("outline_size", 4);
         AddChild(_label);
+        // --screenshot*, --cam, --setting (the terrain package's; every project with a Terrain has them).
+        AddChild(new ScreenshotCapture { Name = "ScreenshotCapture", Terrain = Terrain, CityCamera = CityCamera });
 
         foreach (string arg in OS.GetCmdlineUserArgs())
         {
-            if (arg.StartsWith("--screenshot="))
-                _screenshotPath = arg["--screenshot=".Length..];
-            else if (arg.StartsWith("--screenshot-frames=") && int.TryParse(arg["--screenshot-frames=".Length..], out int f))
-                _screenshotFrames = f;
-            else if (arg == "--profile" || arg.StartsWith("--profile="))
+            if (arg == "--profile" || arg.StartsWith("--profile="))
             {
                 _profileFrames = arg.Length > "--profile=".Length && int.TryParse(arg["--profile=".Length..], out int pf) ? pf : 240;
                 _profileWait = 180; // let the map, water and LODs settle
@@ -89,18 +81,6 @@ public partial class DebugOverlay : CanvasLayer
                 _lakeStep = 0;
             else if (arg == "--profile-during-search")
                 _profileDuringSearch = true;
-            else if (arg.StartsWith("--screenshot-zoom="))
-                foreach (var t in arg["--screenshot-zoom=".Length..].Split(','))
-                    _zoomShots.Enqueue(float.Parse(t, System.Globalization.CultureInfo.InvariantCulture));
-            else if (arg.StartsWith("--cam=") && CityCamera is not null)
-            {
-                // --cam=x,z,distance,pitch,yaw (map metres from the map's (0, 0) corner, as the HUD's pivot shows / degrees)
-                var v = System.Array.ConvertAll(arg["--cam=".Length..].Split(','),
-                    s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture));
-                if (v.Length == 5) _cam = v;
-                if (v.Length == 5)
-                    Callable.From(() => CityCamera.JumpTo(CamPivot(v), v[2], v[3], v[4])).CallDeferred();
-            }
             else if (arg == "--demo-sculpt" && Tools is not null)
                 Callable.From(Tools.RunDemo).CallDeferred();
             else if (arg == "--demo-channel" && Tools is not null)
@@ -191,6 +171,15 @@ public partial class DebugOverlay : CanvasLayer
                          System.Globalization.CultureInfo.InvariantCulture, out double seconds))
                 // After the hollow search has put lake sources in (a new map), so they're part of the run.
                 GetTree().CreateTimer(2.0).Timeout += () => Terrain?.Water?.RunFor(seconds);
+            else if (arg == "--show-settings" || arg.StartsWith("--show-settings="))
+            {
+                string? tab = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : null;
+                Callable.From(() =>
+                {
+                    foreach (var node in GetParent().GetChildren())
+                        if (node is GameUi ui) ui.ShowSettings(tab);
+                }).CallDeferred();
+            }
             else if (arg == "--show-theme")
                 Callable.From(() =>
                 {
@@ -238,13 +227,6 @@ public partial class DebugOverlay : CanvasLayer
                 GetTree().Quit(ok ? 0 : 1);
             }
         }
-    }
-
-    /// <summary>World pivot for --cam's map-metre x, z.</summary>
-    private Vector2 CamPivot(float[] cam)
-    {
-        var w = Terrain?.MapToWorld(cam[0], cam[1]) ?? new Vector3(cam[0], 0f, cam[1]);
-        return new Vector2(w.X, w.Z);
     }
 
     /// <summary>
@@ -733,31 +715,6 @@ public partial class DebugOverlay : CanvasLayer
         if (_profileWait >= 0) Profile(delta);
         if (_pushFrame >= 0) PushDemo();
         if (_lakeStep >= 0) LakeWindowDemo(delta);
-        if (_screenshotPath is not null && --_screenshotFrames <= 0 && (_zoomWait -= delta) <= 0)
-        {
-            string path = _screenshotPath;
-            if (_zoomShots.Count > 0 && _cam is not null)
-                path = System.IO.Path.ChangeExtension(path, null) + $"_{_cam[2]:0}.png";
-            var err = GetViewport().GetTexture().GetImage().SavePng(path);
-            GD.Print($"Screenshot saved to {path} ({err})");
-            if (Terrain?.Falls is { } falls)
-                GD.Print($"Waterfalls: {falls.Segments} curtain segments, {falls.Puffs} mist puffs, search {falls.ScanMs:0.0} ms");
-            if (_zoomShots.Count > 0 && _cam is not null && CityCamera is not null)
-            {
-                // Same pivot, next distance, with the sim paused so only the view changes; wait for the camera and the LODs to settle.
-                if (Terrain?.Water is { } sim) sim.Settings = sim.Settings with { Paused = true };
-                _cam[2] = _zoomShots.Dequeue();
-                CityCamera.JumpTo(CamPivot(_cam), _cam[2], _cam[3], _cam[4]);
-                _screenshotFrames = 60;
-                _zoomWait = 2.0;
-                if (_zoomShots.Count == 0) _screenshotPath = System.IO.Path.ChangeExtension(_screenshotPath, null) + $"_{_cam[2]:0}.png";
-                return;
-            }
-            _screenshotPath = null;
-            GetTree().Quit();
-            return;
-        }
-
         _refresh -= delta;
         if (_refresh > 0) return;
         _refresh = 0.25;

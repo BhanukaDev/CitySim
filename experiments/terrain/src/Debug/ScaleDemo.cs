@@ -152,7 +152,7 @@ public static class ScaleDemo
     /// </summary>
     private static bool RunWater(HeightMap map, float min, float max, Action<string> mem)
     {
-        CitySim.WaterSystem.WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://native/water/bin");
+        CitySim.WaterSystem.WaterNative.Directory ??= ProjectSettings.GlobalizePath("res://addons/citysim_terrain/native/water/bin");
         var sw = Stopwatch.StartNew();
         using var sim = new CitySim.WaterSystem.WaterSim(map, threaded: false);
         double createMs = sw.Elapsed.TotalMilliseconds;
@@ -194,7 +194,7 @@ public static class ScaleDemo
     /// <summary>The full lake + ground mask search (what ran after every edit before M6 3c), by stage.</summary>
     private static CitySim.TerrainSystem.Erosion.LakeMap RunLakes(HeightMap map, Action<string> mem)
     {
-        CitySim.TerrainSystem.Erosion.Native.Directory ??= ProjectSettings.GlobalizePath("res://native/erosion/bin");
+        CitySim.TerrainSystem.Erosion.Native.Directory ??= ProjectSettings.GlobalizePath("res://addons/citysim_terrain/native/erosion/bin");
         var sw = Stopwatch.StartNew();
         var lakes = CitySim.TerrainSystem.Erosion.Lakes.Find(map, new CitySim.TerrainSystem.Erosion.LakeSettings(), null, ground: true);
         double ms = sw.Elapsed.TotalMilliseconds;
