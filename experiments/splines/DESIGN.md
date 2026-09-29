@@ -125,6 +125,7 @@ numbers are game feel, not engineering standards.
 | `TurnoutMaxAngle` | largest branch angle for `Turnout` | n/a | 8° | 6.3° (1:9) | n/a | n/a |
 | `MaxGrade` | steepest slope | 12 % | 5 % | 2.5 % | 0 % | follows ground |
 | `SnapLength` | length step | 8 m | 8 m | 8 m | 8 m | 2 m |
+| `SnapUnitName` | what one step is called in tags ("40 m gap (5 lots)") | lot | lot | lot | lot | post |
 | `SpeedFromRadius` | show a speed readout from `v = √(a·R)` with lateral `a` | off | on, a = 2.0 | on, a = 2.2 | off | off |
 | `ParallelPresets` | named offset sets for Parallel mode | – | carriageways | twin track | towpath | – |
 | `VerticalMode` | default station mode | Ground | Ground | Ground | Absolute (level water) | Ground |
@@ -152,8 +153,8 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 | RMB | remove the last point; with none left, cancel |
 | Esc | cancel the spline; again leaves the tool |
 | Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
-| Shift+wheel, `[` `]` | radius of the corner being placed (clamped to `MinRadius` unless Anarchy) |
-| Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° |
+| Shift+wheel, `[` `]` | radius of the live corner (the last point placed) and of the corners after it (clamped to `MinRadius` unless Anarchy) |
+| Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start) |
 | Space (hold) | all snapping off |
 | `1`–`4` | Draw · Curve · Freehand · Grid |
 | `P` | Parallel on/off; wheel changes the offset, Alt flips the side |
@@ -184,48 +185,83 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 ### Feedback
 - **Colours**: blue preview / valid, amber warning (still buildable: clamped radius, tight junction), red invalid
   (below a hard limit without Anarchy, or collision), and grey/asphalt for built.
-- **Cursor tag**: segment length, heading, turn angle at the last corner, corner radius, and grade %. It adds speed
-  when `SpeedFromRadius` is on. Mono font, next to the cursor.
-- **Snap tag**: names the snap or guide that caught ("extension", "parallel · 24 m gap", "node", "336 m · 42 × 8 m").
+- **Cursor tag**: the leg's length (as `168 m · 21 × 8 m` when it's a whole number of steps) and its angle. The angle is
+  the snapped lock (`∡ 90°`, or `30.0°` with Ctrl), else the live angle between this leg and the previous leg or the
+  road the draw started on (`∡ 87°`), else the heading. Grade % joins it in S8, speed when `SpeedFromRadius` is on (S7).
+- **Snap tag**: names the snap, angle or guide that caught, next to it: `snap: node`, `90° to edge`, `extension · ∡ 90°`,
+  `parallel · 40 m gap (5 lots)`, `extension × extension`, `∡ 90° · square to edge`.
+- **Corner tags**: `R 36 m` next to the live corner's radius knob (amber `R 191 m (wants 500)` when it didn't fit), a
+  `Shift+wheel` key hint, and `Alt · hard corner` / `62° turn` on a hard corner. `Total 277 m` shows briefly after a
+  finish. A red `hard corners not allowed` flashes when the profile refuses Alt.
 - **Cut/fill tag** (profiles with shaping): the largest cut and fill along the centre, e.g. `cut 4 m · fill 6 m`.
 - **Issue list**: validation results in plain words with the fix ("22°, min 30° · Ctrl+A allows").
 
+### Overlay visual language
+The storyboard (`docs/spline-controls.html`) sets *what* is shown; the in-game look follows Cities: Skylines 2's
+road tool (the user's reference, 2026-09-30). `--storyboard=<frame>` rebuilds each storyboard frame for a check. The
+feedback is drawn over the 3D view (`SplineOverlay`): line widths and text are fixed in pixels, while rings, discs
+and arcs are laid on the ground plane so they follow the camera's perspective.
+- **Legs**: thick white dashes (4 px, soft shadow) from point to point, the tangent polygon the corners round off.
+- **Preview ribbon**: translucent light blue with a white outline along both edges (amber outline and halo when a
+  corner is clamped).
+- **Nodes**: white discs on the ground at the start and the cursor end; a small dot at each corner point; a ring
+  knob at each arc's middle (the radius knob); a white square at a hard corner.
+- **Angles**: at every corner, an arc drawn between the two legs with a dark pill next to it: `∡ 97°`. The live
+  corner's pill adds its radius (`∡ 118° · R 36 m`, amber `R 191 m (wants 500)` when clamped). The first leg gets an
+  arc against the edge the draw started on. A snapped angle's pill has a blue border and says what it means
+  (`∡ 90° · square`).
+- **Lengths**: a pill in the middle of every leg: `↔ 130 m`; the current leg adds whole steps (`↔ 168 m · 21 × 8 m`)
+  or `↔ = 100 m` for equal length, with thin step ticks and bold equal-length ticks.
+- **Guides**: thick white dashes (3 px) from their source to just past the snap; the snap point gets a white ground
+  ring (larger on a node, double on a guide crossing). Perpendicular: a right-angle mark at the foot. Parallel: a
+  white gap bracket. The snap's pill (blue border) names it: `extension · ∡ 90°`, `parallel · 40 m gap (5 lots)`.
+- **Hints**: a stack of pills next to the cursor saying what each input does now: `LMB Place`, `RMB Undo`,
+  `Double-click Finish`, `Shift+wheel Radius`.
+- **Pills**: dark rounded (`#121418`, 86 %), white sans text, the key or symbol in accent blue `#6A9CF2`; amber
+  `#E5A430` warn, red `#E7654F` refused. `∡` and `↔` are drawn as symbols. Pills never overlap (they nudge down).
+
 ## Snapping and guides
 
-Snap providers run in priority order and the first hit wins, unless Space is held. Snapped values are **exact**
-(90.0°, 336.0 m), not "near". Catch distances are in **screen pixels** (~8 px), so snapping feels the same at every zoom.
+Snapped values are **exact** (90.0°, 336.0 m), not "near". Catch distances are in **screen pixels** (~8 px), so
+snapping feels the same at every zoom. Space held turns every snap off.
 
 ### Guides
 A guide is a dashed line the cursor can lock onto. Guides are **only shown when aligned**: nothing is drawn until the
-cursor comes within catch distance of one. Then that guide lights up (at most two at once) with a tag saying what
-it is. Guides come from edges and nodes near the cursor (on screen, within ~400 m).
+cursor comes within catch distance of one. Then that guide lights up (at most two at once), drawn from what it comes
+from to just past the cursor, with a tag saying what it is. Guides come from edges and nodes near the cursor (within
+~400 m).
 
 | Guide | What it is | Tag |
 |---|---|---|
 | **Extension** | A straight edge end continues past its end node. An arc end continues along its end tangent. | `extension` |
-| **Node alignment** | A line through another node, along that node's edge directions and square to them, and along the current leg's reference directions (the start edge's heading, and 90° to it). It lights up when the cursor lines up with the node, like Figma's smart guides. | `aligned · Elm St node` |
-| **Parallel** | A line alongside a nearby edge at a clean spacing: edge-to-edge gap = 0, then steps of `SnapLength` (one lot, 8 m), measured between the two corridors' sides (half widths added). It follows arcs as concentric arcs, so a new road can run alongside a curve. | `parallel · 24 m gap` |
-| **Perpendicular** | A line square to a nearby edge, through the cursor. The foot point on the edge is a snap target too. | `90° to edge` |
-| **Equal length** | Not a line: a tick on the current leg when its length equals the previous leg's, or a nearby edge's. | `= 64 m` |
+| **Node alignment** | A line through another node, square to that node's edge, and along the current leg's reference directions (the previous leg or start road, and 90° to it). It lights up when the cursor lines up with the node, like Figma's smart guides. (Along the node's edge is the extension's line.) | `aligned · node` |
+| **Parallel** | A line alongside a nearby edge at a clean spacing: edge-to-edge gap = 0, then steps of `SnapLength` (one lot, 8 m) up to 10 steps, measured between the two corridors' sides (half widths added). It follows arcs as concentric arcs, so a new road can run alongside a curve. It's caught at half the normal catch distance, since there's one every 8 m. | `parallel · 40 m gap (5 lots)` |
+| **Perpendicular** | A line square to a nearby edge through the current leg's start. Its **foot** on the edge is a snap target of its own (priority 2), which gives a clean T at exactly 90.0°. | `90° to edge` |
+| **Equal length** | Not a line: a tick on the current leg and on the matched leg when their lengths are equal. It matches the previous leg or a nearby edge's leg (PI to PI). | `100 m` / `= 100 m` |
 
 **Guide crossings** (e.g. extension × node alignment, or parallel × perpendicular) are the strongest guide snap. The
 point where two guides meet is where a planned grid wants the next corner.
 
+### Angles
+The soft angle snaps to **square (90°), diagonal (45°) and straight on** against two references: the road the draw
+started on (if the first click snapped to a node or edge) and the previous leg. Whichever target is closer wins. The
+tag names the angle *between the roads* and what it means: `∡ 90° · square to edge`, `∡ 135° · diagonal to leg`,
+`∡ 180° · straight on`. Ctrl replaces it with absolute 15° steps (5° with Shift): `30.0° · Ctrl`.
+
 ### Priority
 1. Existing node (radius ~ half the profile width)
-2. Existing edge (T-junction point, closest point on the alignment)
-3. Guide crossing
-4. Single guide: extension, node alignment, parallel, perpendicular
-5. Angle relative to the edge you started from: 90°, then 45° (soft, on by default)
-6. Ctrl: absolute 15° / 5° steps (this overrides 3–5)
-7. Length in `SnapLength` steps along the current leg, and equal length
+2. The perpendicular foot from the leg's start, then an existing edge (T-junction point, closest point on the alignment)
+3. **Direction lock**: Ctrl's absolute steps, else the soft angle above
+4. With a lock, a guide (or guide crossing) only picks **where along the locked direction** the point lands
+   (`extension · ∡ 90°`); failing that, the length snaps (6). A guide never pulls a leg off its angle.
+5. With no lock: guide crossing, then a single guide (extension, node alignment, parallel, perpendicular)
+6. Length in `SnapLength` steps along the current leg, or equal length (equal wins a tie)
 
-Guides rank **below** nodes and edges and never override Ctrl angle steps. In CS2, guide snapping "can often break
-grids if left on", and players turn it off. Keeping guides low in priority, exact and shown only when aligned is the
-answer to that.
+Guides rank **below** nodes, edges and angles. In CS2, guide snapping "can often break grids if left on", and players
+turn it off. Keeping guides below angles and lots, exact, and shown only when aligned is the answer to that.
 
 Each snap and each guide type toggles in the options bar, as in CS2. A profile can switch providers off
-(`SnapProviders`), so a fence doesn't offer parallel-to-highway guides unless it wants them.
+(`SnapProviders`), so a fence doesn't offer parallel-to-highway guides unless it wants them; the bar greys those out.
 
 ## Junctions
 - They form automatically when a new edge ends on, or crosses, an edge whose profile is in `ConnectsTo`.

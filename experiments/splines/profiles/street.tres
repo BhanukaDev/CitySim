@@ -13,6 +13,7 @@ MinRadius = 10
 AllowHardCorners = true
 SpiralLength = 0
 SnapLength = 8
+SnapUnitName = "lot"
 JunctionKind = 0
 MinJunctionAngle = 30
 TurnoutMaxAngle = 0

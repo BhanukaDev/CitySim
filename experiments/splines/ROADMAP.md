@@ -1,7 +1,9 @@
 # Splines Experiment: Roadmap
 
 Working document for the spline addon. **Keep it updated**: tick items off, add findings, and note decisions when a
-milestone lands. A new session reads this file, then `DESIGN.md` (the spec) and `README.md`.
+milestone lands. A new session reads this file, then `DESIGN.md` (the spec) and `README.md`. **`docs/spline-controls.html` (the
+storyboard) is the target for how things look and behave**; where this file or DESIGN.md disagrees with it, the
+storyboard wins and the docs get fixed.
 
 ## Goal
 
@@ -46,6 +48,8 @@ $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-ch
 $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
+# S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
+$G --path . -- --flat --storyboard=corner --screenshot=out.png --cam=560,500,340,89,0   # --storyboard=list for names
 ```
 
 Each milestone adds a `--demo-<name>` self-check (headless, prints `all ok` or the failures) and, where visual, a
@@ -58,7 +62,7 @@ scripted `--screenshot` scene. See the milestones.
 - `ProfileRules` (plain record, every `DESIGN.md` field) + enums (`JunctionKind`, `VerticalMode`, `ShapingMode`,
   `EdgeMode`, `[Flags] SnapProviders`, `DrawMode`). `SplineProfile` (`[GlobalClass]` resource) → `ToRules()`.
 - Test profiles in `profiles/`: `street`, `avenue`, `highway`, `rail`, `canal`, `fence` (values from the `DESIGN.md`
-  table; avenue = 24 m, R 40).
+  table and the storyboard's table; avenue = 24 m, default R 60, min R 40, junctions ≥ 45°).
 - `SplineOptionsBar`: profile picker + mode strip (1 Draw · 2 Curve · 3 Freehand · 4 Grid). `src/SplinesTestbed.cs`
   loads every `res://profiles/*.tres` and shows the bar.
 - Findings / choices:
@@ -108,45 +112,46 @@ scripted `--screenshot` scene. See the milestones.
 - Not yet done: the addon hasn't moved to `packages/citysim_splines/` — do that once this has been tried in
   Godot and looks right (see tech decisions).
 
-### ✅ S3: Snapping and guides
-- `Core/Snapping/SnapEngine.cs` (`CitySim.Splines`, pure and stateless): resolves DESIGN.md's 7-level priority —
-  node, edge, guide crossing, single guide (extension/node-align/parallel/perpendicular), soft 90°/45° angle
-  (relative to the **previous leg**, decided over "fixed to the first edge"), Ctrl absolute 15°/5° steps
-  (overrides the guides and the soft angle), then length step / equal length. Space (`SnapQuery.Disabled`) skips
-  every level. Reuses S1's `Curve.ClosestPoint`/`Offset`/`SplineMath` directly — no new math duplicated, and the
-  parallel guide's "stays concentric on an arc" requirement falls out of `Curve.Offset` for free.
-- No graph yet (S4): a "node" is one of `Alignment`'s two ends and an "edge" is its `Curve`; the caller
-  (`SplineDrawTool._built`) passes every alignment it knows about as a `SnapCandidate`.
-- `SplineDrawTool` snaps the cursor itself before calling `DrawSession.Place`/`BuildPreview` — `DrawSession` stays
-  unchanged and snap-agnostic. `ForcedPlanCursor` (the `--demo-draw` test hook) bypasses `SnapEngine` entirely, so
-  its golden coordinates stay exact.
-- `GuideRenderer` (Godot): dashed guide lines and length ticks, draped like `RibbonRenderer` but as thin
-  `PrimitiveType.Lines` meshes, not filled ribbons. `DrawCursorTag.Update` gained an optional snap-tag line.
-- `SplineOptionsBar` gained a `SnapProviders` toggle row (independent toggles, no `ButtonGroup`) ANDed with the
-  active profile's own `SnapProviders` — the profile is a ceiling the bar can only narrow.
-- `--demo-snap`: pure Core (no scene/camera — catch distance is a literal plan-unit constant, matching
-  `GeometryDemo`'s style), covers every provider/guide catching and losing to a higher one, guide crossing beating
-  a single guide, a parallel guide along an arc staying concentric, Ctrl overriding the soft angle, the provider
-  mask, and Space.
-- Findings / decisions:
-  - The `Perpendicular` guide can't be re-derived from the live cursor each frame (its foot would then always be
-    exactly at the cursor, distance zero, and it would crowd out every other guide). It's anchored at the current
-    leg's start PI instead — a "perpendicular from here" osnap — and needs a leg in progress to mean anything.
-  - `SnapQuery.StartHeading` (first-leg soft-angle reference, if the start PI itself snapped onto an existing
-    node/edge) exists in Core and is exercised by `--demo-snap`, but `SplineDrawTool` doesn't populate it yet —
-    the first leg of a session simply has no soft-angle reference until that's wired up.
-  - Parallel guide polylines are sampled at a fixed 2 m spacing (not derived from the whole offset curve's
-    length) — `Curve.SampleEvery` divides each segment independently, so a short, sharply-curved arc segment
-    needs its own fine spacing or it stays badly under-sampled even when the straight parts are fine.
-  - Not yet done: guide colour/dash lengths are untuned placeholders: visual polish (provider buttons greying out
-    when the active profile doesn't offer them, tag wording, dash spacing) is deferred, not required for the
-    milestone. Manual play-testing in the Godot editor (does snapping feel sticky, not fighty?) is still needed
-    before this is called done-done.
+### ✅ S3: Snapping, guides and draw feedback (redone to the storyboard)
+The first pass (2026-09-30) had the snapping logic but not the storyboard's look or rules. Redone the same day to match
+`docs/spline-controls.html` frame by frame.
+- `Core/Snapping/SnapEngine.cs` (pure, stateless), priority per DESIGN.md → Snapping and guides:
+  - node → **perpendicular foot** (from the leg's start, a T at exactly 90.0°) → edge;
+  - **direction lock** next: Ctrl's absolute 15°/5° steps, else a soft square/diagonal/straight-on angle against the
+    **road the draw started on or the previous leg**, whichever is closer;
+  - with a lock, a guide only picks where along it the point lands (`extension · ∡ 90°`), else a length/equal-length
+    snap; with no lock, guide crossing → single guide → length. Guides never pull a leg off its angle.
+  - Guides: extension, node alignment (square to the node's edge + the leg's reference directions), parallel (any
+    number of lots up to 10, tag `parallel · 40 m gap (5 lots)`, caught at half the catch distance), perpendicular.
+    Lit guides are trimmed to run from their source to just past the snap.
+  - Equal length matches the previous leg or a nearby built leg (PI to PI).
+  - `SnapResult` is structured (angle lock, lit guides with their source/foot/bracket data, length steps, matched leg,
+    the road tangent under a node/edge snap) so the overlay can draw from it.
+- `SplineOverlay` (Godot) replaced `GuideRenderer` + `DrawCursorTag`, styled after CS2's road tool: thick white
+  dashed legs and guides, white ribbon outline, ground discs/rings, an angle arc + `∡` pill at every corner, a `↔`
+  length pill mid-leg, mouse-hint pills by the cursor (DESIGN.md → Feedback → Overlay visual language).
+  `RibbonRenderer`: light-blue ghost preview, **amber halo when a corner is clamped**, built ribbons with a centre dash.
+- `SplineDrawTool` records the start road's heading when the first click snaps to a node/edge; Shift+wheel / `[` `]`
+  now resize the **live** corner (`DrawSession.SetPendingRadius`), as in storyboard step 2; `Total … m` flashes after a
+  finish. `Alignment.Corner(i)` / `AnyClamped` give the corner geometry for drawing.
+- Options bar: readable toggle names; toggles the profile doesn't offer are greyed out. Profiles gained
+  `SnapUnitName` ("lot", fence "post").
+- `--demo-snap`: all the old cases plus angle-then-guide (exact 90.0°), square to edge, straight on, road vs leg
+  reference, perpendicular foot, 5 lots, equal length to a built leg. All ok.
+- `--storyboard=<frame>` (`src/Demos/StoryboardDemo.cs`): click-start, corner, hard-corner, finish, extension,
+  angle-ctrl, length-node, node-align, parallel, parallel-arc, perpendicular, equal-length, crossing, rail-clamped.
+  Each screenshot was checked against its HTML frame.
+- Not in S3 (the storyboard frames show them, but they need the graph or later math): the real T-junction and split
+  when a draw starts/ends on a road (S4; for now it only snaps there), the rail speed readout and spirals (S7).
+- Still to do: play-test in the Godot editor (does it feel sticky, not fighty, at normal zooms?).
 
 ### ⬜ S4: Graph and junctions
 - Split on end/cross, merge on delete, `ConnectsTo`.
 - `Node` / `Turnout` / `Join` kinds, junction angle checks, and footprint (cut-back + curb arcs) as data, drawn flat.
-- Validation issues and colours (blue/amber/red), plus Anarchy (Ctrl+A).
+- Starting or ending a draw on an edge makes a real T-junction (the storyboard's `T-junction · 90°`); crossing makes
+  a 4-way. Until then S3 only snaps to the point.
+- Validation issues and colours (blue/amber/red) for junctions and the issue list, plus Anarchy (Ctrl+A). The clamped
+  corner's amber preview already exists (S3); S4 adds it as an issue (`Warn`).
 - `--demo-junctions`: T, X, a too-sharp angle, a rail square branch refused, and a legal turnout.
 
 ### ⬜ S5: Edit tool
@@ -160,7 +165,8 @@ scripted `--screenshot` scene. See the milestones.
 
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.
-- Speed readout from the tightest radius (`SpeedFromRadius`), and a curvature strip in the HUD for the selected edge.
+- Speed readout from the tightest radius (`SpeedFromRadius`) in the cursor tag and the amber clamp tag
+  (`R 191 m (wants 500)` · `≈ 97 km/h`, the storyboard's rail frame), and a curvature strip in the HUD for the selected edge.
 
 ### ⬜ S8: Vertical profile and terrain shaping
 - Stations (`Ground` / `Absolute` / `Offset`), PgUp/PgDn steps, grade in the tag, `MaxGrade` check.
@@ -240,6 +246,17 @@ version:
   spline needs the graph-command stack from S4 and isn't implemented yet. `IGround` stays at two members
   (`Raycast`, `GetHeight`) until S8 needs `HeightsChanged`. "Built" splines in S2 are a plain rendering list, not
   graph data — replaced wholesale once S4 lands.
-- 2026-09-30: S3's soft 90°/45° angle re-anchors to the **previous leg** at each corner, not a fixed heading from
-  the session's first edge — matches how the cursor tag's "turn" readout already works. `SnapEngine` treats an
-  alignment's two ends as its "nodes" pre-S4; there's no separate junction concept yet.
+- 2026-09-30: `SnapEngine` treats an alignment's two ends as its "nodes" pre-S4; there's no separate junction
+  concept yet.
+- 2026-09-30 (S3 redo, from the user): the storyboard is the target. **Angles rank above guides**: a lock fixes the
+  direction and a guide only picks the point along it. The soft angle is measured against **both** the start road and
+  the previous leg (closer wins), replacing the earlier "previous leg only". Angle tags show the angle between the
+  roads with a drawn **∡** and what it means (`∡ 90° · square to edge`). Feedback is drawn in screen space, in the
+  storyboard's colours. Amber on a clamped preview corner moved into S3; junction splitting stays in S4. Lot wording
+  is profile data (`SnapUnitName`), so the addon stays generic.
+- 2026-09-30: parallel guides reach 10 lots and are caught at half the catch distance, since with a guide every 8 m a
+  full catch lit one almost everywhere near a road when zoomed out. A "leg must run alongside" rule was tried and
+  dropped: the storyboard's arc frame meets the guide at an angle.
+- 2026-09-30: the in-game overlay follows **CS2's road tool look** (user's reference screenshot): thick white dashes,
+  arcs drawn between the lines with angle pills beside them, length pills at the middle of each leg, dark rounded
+  pills, mouse hints by the cursor. The storyboard still sets what is shown; its boxed mono tags were only a sketch.

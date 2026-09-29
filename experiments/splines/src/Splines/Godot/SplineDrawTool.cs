@@ -9,18 +9,24 @@ using NumVector3 = System.Numerics.Vector3;
 
 namespace CitySim.Splines.Godot;
 
+/// <summary>Modifier keys a scripted frame can hold down (<see cref="SplineDrawTool.ForcedModifiers"/>).</summary>
+[Flags]
+public enum DrawModifiers { None = 0, Ctrl = 1, Shift = 2, Alt = 4, Space = 8 }
+
 /// <summary>
 /// The Draw-mode tool (DESIGN.md → Draw tool, mode 1 of 4; ROADMAP.md S2-S3): click to place PIs on the terrain,
-/// with auto-rounded corners, Alt hard corner, Shift+wheel/<c>[</c>/<c>]</c> radius, RMB/Ctrl+Z undo, Esc/RMB-empty
-/// cancel, double-click/Enter finish, and snapping to nodes, edges and guides (S3, via <see cref="SnapEngine"/>).
-/// No-ops unless <see cref="SplinesTestbed.Mode"/> is <see cref="DrawMode.Draw"/>. The graph and its undo (S4) and
-/// Anarchy are not implemented yet — radii just clamp.
+/// with auto-rounded corners, Alt hard corner, Shift+wheel/<c>[</c>/<c>]</c> radius of the live corner, RMB/Ctrl+Z
+/// undo, Esc/RMB-empty cancel, double-click/Enter finish, and snapping to nodes, edges, angles and guides (S3, via
+/// <see cref="SnapEngine"/>), with the storyboard's feedback drawn by <see cref="SplineOverlay"/>. No-ops unless
+/// <see cref="SplinesTestbed.Mode"/> is <see cref="DrawMode.Draw"/>. The graph and its undo (S4) and Anarchy are
+/// not implemented yet — radii just clamp.
 /// </summary>
 public partial class SplineDrawTool : Node
 {
     private const float RadiusWheelFactor = 1.1f;
     private const float RadiusKeyFactor = 1.15f;
     private const float CatchPixels = 8f;
+    private const double FlashSeconds = 3.0;
 
     [Export] public Terrain? Terrain { get; set; }
     [Export] public CityCamera? CityCamera { get; set; }
@@ -30,15 +36,19 @@ public partial class SplineDrawTool : Node
     private readonly List<(SplineProfile Profile, Alignment Alignment)> _built = new();
     private IGround? _ground;
     private RibbonRenderer? _renderer;
-    private GuideRenderer? _guideRenderer;
-    private DrawCursorTag? _cursorTag;
+    private SplineOverlay? _overlay;
     private SplineProfile? _sessionProfile;
     private SnapResult? _snap;
+    private NumVector2? _startHeading;
+    private double _hardHintUntil;
+    private (NumVector2 At, string Text, double Until)? _flash;
 
     /// <summary>The current ground hit, world space. Null off the terrain or over UI.</summary>
     public NumVector3? Cursor { get; private set; }
     /// <summary>Scripted-demo override: a plan-space (map metres) position that replaces the mouse raycast.</summary>
     public NumVector2? ForcedPlanCursor { get; set; }
+    /// <summary>Scripted-demo override: modifier keys treated as held (added to the real ones).</summary>
+    public DrawModifiers ForcedModifiers { get; set; }
     public int BuiltCount => _built.Count;
 
     public override void _Ready()
@@ -46,10 +56,10 @@ public partial class SplineDrawTool : Node
         if (Terrain is null) { GD.PushError("SplineDrawTool needs a Terrain"); return; }
         _ground = new TerrainGround(Terrain);
         _renderer = new RibbonRenderer(Terrain, _ground);
-        _guideRenderer = new GuideRenderer(Terrain, _ground);
         var layer = new CanvasLayer { Name = "SplineDrawHud" };
         AddChild(layer);
-        _cursorTag = new DrawCursorTag(layer);
+        _overlay = new SplineOverlay { Project = ProjectPlan };
+        layer.AddChild(_overlay);
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -106,7 +116,7 @@ public partial class SplineDrawTool : Node
 
     public override void _Process(double delta)
     {
-        if (Testbed is null || _ground is null || _renderer is null || _guideRenderer is null || _cursorTag is null) return;
+        if (Testbed is null || _ground is null || _renderer is null || _overlay is null) return;
         if (!_session.IsEmpty && Testbed.Profile != _sessionProfile)
         {
             GD.Print("Splines: profile changed mid-draw, cancelling");
@@ -118,55 +128,68 @@ public partial class SplineDrawTool : Node
         if (Testbed.Mode != DrawMode.Draw || Testbed.Profile is not { } profile || Cursor is not { } cursor)
         {
             _renderer.SetPreview(null, 0);
-            _guideRenderer.SetGuides(null);
-            _guideRenderer.SetLengthTicks(null, 0);
-            _guideRenderer.SetSnapMarker(null);
-            _cursorTag.Hide();
+            _overlay.Show(null);
             _snap = null;
             return;
         }
 
-        var rawPlan = PlanOf(cursor);
-        _snap = SnapEngine.Evaluate(BuildSnapQuery(rawPlan, cursor, profile)); // TEMP: verifying pre-click tag/marker fix
-        _guideRenderer.SetGuides(_snap.Value.Guides);
-        _guideRenderer.SetSnapMarker(_snap.Value.Kind != SnapKind.None ? _snap.Value.Position : null);
+        var rules = profile.ToRules();
+        var mods = Modifiers();
+        _snap = SnapEngine.Evaluate(BuildSnapQuery(PlanOf(cursor), cursor, rules, mods));
 
-        if (_session.IsEmpty)
+        Alignment? preview = null;
+        if (!_session.IsEmpty)
         {
-            _renderer.SetPreview(null, 0);
-            _guideRenderer.SetLengthTicks(null, 0);
-            // No leg yet to read a length/heading/radius off, but a node, edge or guide can still catch — show
-            // just the snap tag so the player knows where their first click will land.
-            if (_snap.Value.Kind != SnapKind.None) _cursorTag.ShowSnapOnly(GetViewport().GetMousePosition(), _snap.Value.Tag);
-            else _cursorTag.Hide();
-            return;
+            preview = _session.BuildPreview(_snap.Position);
+            _renderer.SetPreview(preview, profile.Width);
         }
+        else _renderer.SetPreview(null, 0);
 
-        var preview = _session.BuildPreview(_snap.Value.Position);
-        _renderer.SetPreview(preview, profile.Width);
-        _guideRenderer.SetLengthTicks(preview.Curve, profile.SnapLength);
-        UpdateCursorTag(preview);
-        _cursorTag.Tick(Time.GetTicksMsec() / 1000.0);
+        double now = Time.GetTicksMsec() / 1000.0;
+        if (_flash is { } fl && now > fl.Until) _flash = null;
+        bool ctrl = mods.HasFlag(DrawModifiers.Ctrl) && !mods.HasFlag(DrawModifiers.Space);
+        _overlay.Show(new OverlayFrame
+        {
+            SessionPis = _session.Pis,
+            Preview = preview,
+            Snap = _snap,
+            StartHeading = _session.IsEmpty ? null : _startHeading,
+            Rules = rules,
+            BuiltEnds = _built.SelectMany(b => new[] { b.Alignment.Pis[0].Position, b.Alignment.Pis[^1].Position }).ToList(),
+            Mouse = MouseScreen(),
+            CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
+            HardRefused = now < _hardHintUntil,
+            Flash = _flash is { } f ? (f.At, f.Text) : null,
+        });
+    }
+
+    private DrawModifiers Modifiers()
+    {
+        var m = ForcedModifiers;
+        if (Input.IsKeyPressed(Key.Ctrl)) m |= DrawModifiers.Ctrl;
+        if (Input.IsKeyPressed(Key.Shift)) m |= DrawModifiers.Shift;
+        if (Input.IsKeyPressed(Key.Alt)) m |= DrawModifiers.Alt;
+        if (Input.IsKeyPressed(Key.Space)) m |= DrawModifiers.Space;
+        return m;
     }
 
     /// <summary>Every currently-held-input flag and existing alignment <see cref="SnapEngine"/> needs, plus the
     /// screen-pixel catch distance converted to plan units for this frame's cursor depth.</summary>
-    private SnapQuery BuildSnapQuery(NumVector2 rawPlan, NumVector3 worldCursor, SplineProfile profile)
+    private SnapQuery BuildSnapQuery(NumVector2 rawPlan, NumVector3 worldCursor, ProfileRules rules, DrawModifiers mods)
     {
-        bool ctrl = Input.IsKeyPressed(Key.Ctrl);
-        bool fine = ctrl && Input.IsKeyPressed(Key.Shift);
-        bool disabled = Input.IsKeyPressed(Key.Space);
+        bool ctrl = mods.HasFlag(DrawModifiers.Ctrl);
         return new SnapQuery
         {
             Cursor = rawPlan,
             SessionPis = _session.Pis,
-            Candidates = _built.Select(b => new SnapCandidate(b.Alignment, b.Profile.Width, b.Profile.Id)).ToList(),
-            Rules = profile.ToRules(),
+            StartHeading = _session.IsEmpty ? null : _startHeading,
+            Candidates = _built.Select(b => new SnapCandidate(b.Alignment, b.Profile.Width)).ToList(),
+            Rules = rules,
             EnabledProviders = Testbed?.EnabledSnaps ?? SnapProviders.All,
             CatchDistance = PixelsToPlanUnits(CatchPixels, worldCursor),
             CtrlSteps = ctrl,
-            FineSteps = fine,
-            Disabled = disabled,
+            FineSteps = ctrl && mods.HasFlag(DrawModifiers.Shift),
+            Disabled = mods.HasFlag(DrawModifiers.Space),
         };
     }
 
@@ -181,6 +204,19 @@ public partial class SplineDrawTool : Node
         float pxPerMeter = origin.DistanceTo(offset);
         return pxPerMeter > 1e-3f ? pixels / pxPerMeter : pixels;
     }
+
+    /// <summary>A plan point draped on the ground, on screen (null when behind the camera) — for the overlay.</summary>
+    private Vector2? ProjectPlan(NumVector2 plan)
+    {
+        if (Terrain is null || _ground is null || CityCamera?.Camera is not { } cam) return null;
+        var o = Terrain.GlobalPosition;
+        var world = new Vector3(o.X + plan.X, _ground.GetHeight(plan), o.Z + plan.Y);
+        return cam.IsPositionBehind(world) ? null : cam.UnprojectPosition(world);
+    }
+
+    /// <summary>The mouse on screen, or where the forced cursor projects to in a scripted frame.</summary>
+    private Vector2 MouseScreen() =>
+        ForcedPlanCursor is { } forced && ProjectPlan(forced) is { } p ? p : GetViewport().GetMousePosition();
 
     private void UpdateCursor()
     {
@@ -208,9 +244,12 @@ public partial class SplineDrawTool : Node
         {
             _sessionProfile = profile;
             _session.Reset(profile.DefaultRadius);
+            // Starting on an edge makes it the soft-angle reference for the whole draw ("∡ 90° · square to edge").
+            _startHeading = _snap is { Kind: SnapKind.Node or SnapKind.Edge or SnapKind.PerpendicularFoot } s &&
+                            NumVector2.Distance(s.Position, position) < 1e-3f ? s.EdgeTangent : null;
         }
         bool allowHard = hard && profile.AllowHardCorners;
-        if (hard && !allowHard) _cursorTag?.FlashHardCornerHint(Time.GetTicksMsec() / 1000.0);
+        if (hard && !allowHard) _hardHintUntil = Time.GetTicksMsec() / 1000.0 + 1.2;
         _session.Place(position, allowHard);
     }
 
@@ -226,6 +265,7 @@ public partial class SplineDrawTool : Node
         var alignment = _session.Finish();
         _built.Add((profile, alignment));
         _renderer?.AddBuilt(profile, alignment);
+        _flash = (alignment.Pis[^1].Position, $"Total {alignment.Length:0} m", Time.GetTicksMsec() / 1000.0 + FlashSeconds);
         CancelSession();
     }
 
@@ -238,29 +278,8 @@ public partial class SplineDrawTool : Node
     {
         _session.Reset(Testbed?.Profile?.DefaultRadius ?? 0f);
         _sessionProfile = Testbed?.Profile;
+        _startHeading = null;
         _renderer?.SetPreview(null, 0);
-    }
-
-    private void UpdateCursorTag(Alignment preview)
-    {
-        var curve = preview.Curve;
-        if (curve.Length <= 0f) { _cursorTag!.Hide(); return; }
-
-        var lastSample = curve.Sample(curve.Length);
-        float length = NumVector2.Distance(_session.Pis[^1].Position, preview.Pis[^1].Position);
-        float heading = Mathf.RadToDeg(SplineMath.Angle(lastSample.Tangent));
-        if (heading < 0) heading += 360f;
-
-        float turn = float.NaN;
-        if (_session.Pis.Count >= 2)
-        {
-            var prevDir = _session.Pis[^1].Position - _session.Pis[^2].Position;
-            var curDir = preview.Pis[^1].Position - _session.Pis[^1].Position;
-            if (prevDir.Length() > 1e-4f && curDir.Length() > 1e-4f)
-                turn = Mathf.RadToDeg(SplineMath.Turn(NumVector2.Normalize(prevDir), NumVector2.Normalize(curDir)));
-        }
-
-        _cursorTag!.Update(GetViewport().GetMousePosition(), length, heading, turn, _session.PendingRadius, _snap?.Tag);
     }
 
     private NumVector2 PlanOf(NumVector3 worldHit)
@@ -271,13 +290,34 @@ public partial class SplineDrawTool : Node
 
     private static NumVector3 ToNumerics(Vector3 v) => new(v.X, v.Y, v.Z);
 
-    // --- Direct-API test hooks for --demo-draw (no simulated InputEvents) ---
+    // --- Direct-API test hooks for --demo-draw and --storyboard (no simulated InputEvents) ---
 
+    /// <summary>Places a PI at <see cref="ForcedPlanCursor"/> exactly (no snapping, so golden coordinates stay exact),
+    /// but still records the start edge's heading if that point is on a built spline.</summary>
     public void PlaceForTest(bool hard)
     {
         UpdateCursor(); // ForcedPlanCursor was just set; Cursor otherwise only refreshes in _Process
-        if (Cursor is { } hit) Place(PlanOf(hit), hard);
+        if (Cursor is not { } hit || Testbed?.Profile is not { } profile) return;
+        var plan = PlanOf(hit);
+        if (_session.IsEmpty)
+            _snap = SnapEngine.Evaluate(new SnapQuery
+            {
+                Cursor = plan, Rules = profile.ToRules(), CatchDistance = 0.5f,
+                EnabledProviders = SnapProviders.Node | SnapProviders.Edge,
+                Candidates = _built.Select(b => new SnapCandidate(b.Alignment, b.Profile.Width)).ToList(),
+            }) with { Position = plan };
+        Place(plan, hard);
     }
 
     public void FinishForTest() => Finish();
+
+    /// <summary>Shift+wheel / <c>[</c> <c>]</c>: scales the live corner's radius.</summary>
+    public void AdjustRadiusForTest(float factor) => AdjustRadius(factor);
+
+    /// <summary>Adds an already-made alignment as built (storyboard scenes with exact radii).</summary>
+    public void AddBuiltForTest(SplineProfile profile, Alignment alignment)
+    {
+        _built.Add((profile, alignment));
+        _renderer?.AddBuilt(profile, alignment);
+    }
 }

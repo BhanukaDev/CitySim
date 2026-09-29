@@ -72,7 +72,13 @@ public partial class SplineOptionsBar : PanelContainer
             if (flag is SnapProviders.None or SnapProviders.All or SnapProviders.Crossing) continue;
             var b = new Button
             {
-                Text = flag.ToString(), ToggleMode = true, ButtonPressed = true, FocusMode = FocusModeEnum.None,
+                Text = flag switch
+                {
+                    SnapProviders.NodeAlign => "Node align",
+                    SnapProviders.EqualLength => "Equal length",
+                    _ => flag.ToString(),
+                },
+                ToggleMode = true, ButtonPressed = true, FocusMode = FocusModeEnum.None,
             };
             b.Pressed += () => ToggleSnap(flag, b.ButtonPressed);
             snapRow.AddChild(b);
@@ -84,6 +90,17 @@ public partial class SplineOptionsBar : PanelContainer
     {
         EnabledSnaps = pressed ? EnabledSnaps | flag : EnabledSnaps & ~flag;
         SnapProvidersChanged?.Invoke(EnabledSnaps);
+    }
+
+    /// <summary>Greys out the toggles the active profile doesn't offer (its <c>SnapProviders</c> is a ceiling).</summary>
+    public void SetOfferedSnaps(SnapProviders offered)
+    {
+        foreach (var (flag, button) in _snapButtons)
+        {
+            bool on = offered.HasFlag(flag);
+            button.Disabled = !on;
+            button.TooltipText = on ? "" : "Not offered by this profile";
+        }
     }
 
     public void SetProfiles(IReadOnlyList<SplineProfile> profiles)

@@ -13,6 +13,7 @@ MinRadius = 200
 AllowHardCorners = false
 SpiralLength = 60
 SnapLength = 8
+SnapUnitName = "lot"
 ParallelPresets = "carriageways:-16,16"
 JunctionKind = 1
 MinJunctionAngle = 0

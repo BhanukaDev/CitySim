@@ -13,6 +13,7 @@ MinRadius = 300
 AllowHardCorners = false
 SpiralLength = 80
 SnapLength = 8
+SnapUnitName = "lot"
 ParallelPresets = "twin track:-4.5,4.5"
 JunctionKind = 1
 MinJunctionAngle = 0

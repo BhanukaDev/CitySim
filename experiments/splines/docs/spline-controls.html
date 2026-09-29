@@ -1,3 +1,6 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spline Controls</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -266,7 +269,7 @@ const main=[[20,50],[300,50]], S0=[70,50], S1=[140,160], S2=[290,150];
 svg('story','Click to start','Step 1','Click an existing road to branch off it. A dashed preview follows the mouse with length and angle beside the cursor.',s=>{
   net(s,line(...main),'street');
   E('path',{d:line(S0,[118,128]),stroke:'var(--accent)','stroke-width':1.3,'stroke-dasharray':'4 3',fill:'none'},s);
-  node(s,S0,'big');cursor(s,118,128);tag(s,128,120,'62 m · 90°');tag(s,78,72,'snap: 90° to road').setAttribute('opacity',.9);
+  node(s,S0,'big');cursor(s,118,128);tag(s,128,120,'62 m · ∡ 90°');tag(s,78,72,'∡ 90° · square to edge').setAttribute('opacity',.9);
 });
 svg('story','Click a corner','Step 2','The second click is a corner. It rounds itself to the street default (16 m) as you move on. Shift+wheel or [ ] grows or shrinks the radius live.',s=>{
   net(s,line(...main),'street');
@@ -355,13 +358,13 @@ curvChart('Highway and rail: spiral in, spiral out','Curvature ramps up over the
   [[0,0],[20,0],[38,1],[62,1],[80,0],[100,0]],(s,X,Y)=>{T(s,X(29),Y(.5)-6,'spiral','t-small','end');T(s,X(50),Y(1)-6,'arc','t-small','middle');T(s,X(71),Y(.5)-6,'spiral','t-small','start')});
 
 /* ---------- Snap ---------- */
-svg('snap','Extension guide','On by default','Existing roads project dashed guides past their ends. Where your cursor crosses one, the point locks and the tag says why.',s=>{
+svg('snap','Extension guide','On by default','Existing roads project dashed guides past their ends. Where your cursor crosses one, the point locks and the tag says why. With an angle snap active, the guide only picks where along that angle the point lands, so it never pulls the road off 90°.',s=>{
   net(s,line([20,60],[150,60]),'street');node(s,[150,60]);dash(s,[150,60],[315,60]);
   net(s,line([20,140],[120,140]),'street');dash(s,[120,140],[315,140],'var(--muted)',.7);
   net(s,line([240,185],[240,60]),'street','ghost');E('circle',{cx:240,cy:60,r:6,fill:'none',stroke:'var(--accent)','stroke-width':1.5},s);
-  cursor(s,241,61);tag(s,172,40,'guide · 90°');tag(s,248,112,'80 m');
+  cursor(s,241,61);tag(s,160,40,'extension · ∡ 90°');tag(s,248,112,'80 m');
 });
-svg('snap','Angle steps','Hold Ctrl','Ctrl snaps the heading to 15° steps, or 5° with Shift as well. Without it you get soft 45°/90° snaps relative to the road you started from.',s=>{
+svg('snap','Angle steps','Hold Ctrl','Ctrl snaps the heading to 15° steps, or 5° with Shift as well. Without it you get soft square (90°), diagonal (45°) and straight-on snaps against the road you started from or the previous leg, whichever is closer. The tag says the angle between the roads and what it means: ∡ 90° · square to edge.',s=>{
   const c=[70,150];for(let a=0;a<=180;a+=15){const r=a%45?58:78,rad=-a*Math.PI/180;
     E('line',{x1:c[0],y1:c[1],x2:c[0]+r*Math.cos(rad),y2:c[1]+r*Math.sin(rad),stroke:a%45?'var(--contour)':'var(--line)','stroke-width':a%45?1:1.3},s)}
   const e=[c[0]+200*Math.cos(-Math.PI/6),c[1]+200*Math.sin(-Math.PI/6)];
@@ -446,7 +449,7 @@ svg('guides','Node alignment','Smart guide','The cursor lines up with a node on 
   net(s,line([180,190],[250,70]),'street','ghost');node(s,[180,190]);
   dash(s,[70,70],[250,70]);hit(s,[250,70]);cursor(s,251,71);tag(s,120,58,'aligned · node');
 });
-svg('guides','Parallel to a road','Lot steps','A guide appears alongside a nearby road at 0, 8, 16 … m, measured side to side. Blocks between parallel roads come out a whole number of lots deep.',s=>{
+svg('guides','Parallel to a road','Lot steps','A guide appears alongside a nearby road at 0, 8, 16 … m (up to 10 lots), measured side to side. Blocks between parallel roads come out a whole number of lots deep.',s=>{
   net(s,line([20,60],[300,60]),'avenue');const y=60+6.5+20+4.5;
   dash(s,[20,y],[310,y]);net(s,line([60,y],[250,y]),'street','ghost');node(s,[60,y]);cursor(s,251,y+1);
   E('line',{x1:150,x2:150,y1:66.5,y2:y-4.5,stroke:'var(--accent)','stroke-width':1},s);

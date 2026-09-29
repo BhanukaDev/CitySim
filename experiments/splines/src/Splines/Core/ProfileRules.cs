@@ -31,6 +31,8 @@ public sealed record ProfileRules
     /// <summary>Steepest grade; null = follows the ground with no limit.</summary>
     public float? MaxGrade { get; init; }
     public float SnapLength { get; init; } = 8f;
+    /// <summary>What one <see cref="SnapLength"/> step is called in tags ("5 lots"), so the wording stays data.</summary>
+    public string SnapUnitName { get; init; } = "lot";
 
     /// <summary>Show a speed readout <c>v = √(a·R)</c> from the tightest radius.</summary>
     public bool SpeedFromRadius { get; init; }

@@ -28,6 +28,7 @@ public partial class SnapDemo : Node
         AngleSteps();
         LengthSteps();
         Guides();
+        StoryboardRules();
         SpaceAndMask();
         foreach (var f in _failures) GD.PrintErr($"Demo snap: FAILED {f}");
         GD.Print($"Demo snap: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
@@ -90,7 +91,9 @@ public partial class SnapDemo : Node
         float nearest15 = MathF.Round(targetDeg / 15f) * 15f;
         Check("ctrl overrides soft angle", ctrl.Kind == SnapKind.CtrlAngle);
         Check("ctrl 15deg differs from soft target", MathF.Abs(nearest15 - targetDeg) > 0.5f);
-        Check("ctrl 15deg direction", ctrl.Position, last + SplineMath.Direction(Rad(nearest15)) * 20f, tol: 0.05f);
+        // The locked point is the cursor projected onto the locked ray.
+        float along15 = 20f * MathF.Cos(Rad(nearest15 - targetDeg));
+        Check("ctrl 15deg direction", ctrl.Position, last + SplineMath.Direction(Rad(nearest15)) * along15, tol: 0.05f);
 
         var fine = SnapEngine.Evaluate(new SnapQuery
         {
@@ -135,7 +138,18 @@ public partial class SnapDemo : Node
         });
         Check("equal length kind", eqResult.Kind == SnapKind.EqualLength);
         Check("equal length position", eqResult.Position, V(13 + 13f, 0));
-        Check("equal length tick", eqResult.EqualLengthTickStation ?? -1f, 13f);
+        Check("equal length matched leg", eqResult.EqualLength?.Length ?? -1f, 13f);
+
+        // Equal length against a nearby built spline's leg (37 m), not only the previous leg of this draw.
+        var built = Line(V(0, 100), V(37, 100));
+        var builtEq = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(37.4f, 0), SessionPis = pis, Rules = Rules(snapLength: 8f), CatchDistance = 1f,
+            EnabledProviders = SnapProviders.Length | SnapProviders.EqualLength, Candidates = new[] { Candidate(built) },
+        });
+        Check("equal length to built leg kind", builtEq.Kind == SnapKind.EqualLength);
+        Check("equal length to built leg position", builtEq.Position, V(37, 0));
+        Check("equal length to built leg ends", builtEq.EqualLength?.A ?? V(-1, -1), V(0, 100));
     }
 
     private void Guides()
@@ -194,7 +208,7 @@ public partial class SnapDemo : Node
             var dir = SplineMath.Direction(arc.StartAngle + arc.Sweep * t);
             return arc.Centre + dir * (insetRadius + radial);
         }
-        foreach (var (t, radial, label) in new[] { (0.3f, 1.5f, "a"), (0.7f, -1.5f, "b") })
+        foreach (var (t, radial, label) in new[] { (0.3f, 1f, "a"), (0.7f, -1f, "b") })
         {
             var r = SnapEngine.Evaluate(new SnapQuery
             {
@@ -241,6 +255,87 @@ public partial class SnapDemo : Node
             Candidates = new[] { Candidate(c1), Candidate(c2), Candidate(c3) },
         });
         Check("max two guides lit", manyResult.Guides.Count <= 2);
+    }
+
+    /// <summary>The storyboard's rules: angles rank above guides (a guide only picks where along a locked direction
+    /// the point lands), the perpendicular foot is a snap, parallel steps any number of lots, and the soft angle is
+    /// measured against the road the draw started on or the previous leg, whichever is closer.</summary>
+    private void StoryboardRules()
+    {
+        var road = Line(V(0, 0), V(100, 0)); // extension runs east along z = 0
+        var start = new List<Pi> { new(V(150, 50)) };
+
+        // Started on a horizontal road, heading roughly square to it, near the extension: "extension · ∡ 90°", and
+        // the leg stays at exactly 90.0° (the guide doesn't pull it to the cursor's x).
+        var locked = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(151.5f, 1), SessionPis = start, StartHeading = V(1, 0), Rules = Rules(), CatchDistance = 3f,
+            Candidates = new[] { Candidate(road) },
+        });
+        Check("angle + guide kind", locked.Kind == SnapKind.GuideSingle);
+        Check("angle + guide tag", locked.Tag == "extension · ∡ 90°");
+        Check("angle + guide position", locked.Position, V(150, 0));
+        Check("angle + guide exact 90.0", MathF.Abs(Vector2.Dot(Vector2.Normalize(locked.Position - V(150, 50)), V(1, 0))), 0f, tol: 1e-5f);
+        var unlocked = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(151.5f, 1), SessionPis = start, StartHeading = V(1, 0), Rules = Rules(), CatchDistance = 3f,
+            Candidates = new[] { Candidate(road) }, EnabledProviders = SnapProviders.All & ~SnapProviders.Angle,
+        });
+        Check("guide alone follows the cursor", unlocked.Position, V(151.5f, 0));
+
+        // Angle only (no guide near): "∡ 90° · square to edge".
+        var squareToRoad = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(152, 20), SessionPis = start, StartHeading = V(1, 0), Rules = Rules(), CatchDistance = 1f,
+            EnabledProviders = SnapProviders.Angle,
+        });
+        Check("square to edge tag", squareToRoad.Tag == "∡ 90° · square to edge");
+        Check("square to edge position", squareToRoad.Position, V(150, 20));
+
+        // Straight on after a leg: "∡ 180° · straight on".
+        var straightOn = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(100, 3), SessionPis = new List<Pi> { new(V(0, 0)), new(V(50, 0)) }, Rules = Rules(),
+            CatchDistance = 1f, EnabledProviders = SnapProviders.Angle,
+        });
+        Check("straight on tag", straightOn.Tag == "∡ 180° · straight on");
+        Check("straight on position", straightOn.Position, V(100, 0), tol: 0.01f);
+
+        // Road reference vs previous leg: whichever target is closer wins.
+        var legs = new List<Pi> { new(V(-100, 0)), new(V(0, 0)) }; // previous leg heads east (0°)
+        Vector2 At(float deg) => SplineMath.Direction(Rad(deg)) * 50f;
+        AngleLock? Lock(float cursorDeg, float roadDeg) => SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = At(cursorDeg), SessionPis = legs, StartHeading = SplineMath.Direction(Rad(roadDeg)), Rules = Rules(),
+            CatchDistance = 0.5f, EnabledProviders = SnapProviders.Angle,
+        }).Angle;
+        var roadWins = Lock(118, 30);   // leg: 118° is 17° off 135; road: 88° off a 30° road, 2° off square
+        Check("road reference wins", roadWins?.Against == AngleReference.StartEdge);
+        Check("road reference direction", SplineMath.Angle(roadWins?.Direction ?? default) * 180f / MathF.PI, 120f, tol: 0.01f);
+        var legWins = Lock(91, 30);     // leg: 1° off square; road: 61°, 16° off diagonal
+        Check("leg reference wins", legWins?.Against == AngleReference.Leg);
+        Check("leg reference direction", SplineMath.Angle(legWins?.Direction ?? default) * 180f / MathF.PI, 90f, tol: 0.01f);
+        var closer = Lock(92, 3);       // leg: 2° off square; road: 89°, 1° off square — the road is closer
+        Check("closer reference wins", closer?.Against == AngleReference.StartEdge);
+
+        // Perpendicular foot: landing on the foot from the leg's start is a snap, above the plain edge.
+        var foot = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(51, 1), SessionPis = new List<Pi> { new(V(50, 50)) }, Rules = Rules(), CatchDistance = 3f,
+            Candidates = new[] { Candidate(road) },
+        });
+        Check("perpendicular foot kind", foot.Kind == SnapKind.PerpendicularFoot);
+        Check("perpendicular foot position", foot.Position, V(50, 0));
+        Check("perpendicular foot tag", foot.Tag == "90° to edge");
+
+        // Parallel at any number of lots: a 24 m wide road, a 12 m new one, cursor 41 m clear → 40 m = 5 lots.
+        var parallel = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(50, -(18 + 41)), Rules = Rules(width: 12f), CatchDistance = 3f,
+            EnabledProviders = SnapProviders.Parallel, Candidates = new[] { Candidate(road, width: 24f) },
+        });
+        Check("parallel lots tag", parallel.Tag == "parallel · 40 m gap (5 lots)");
+        Check("parallel lots position", parallel.Position, V(50, -58));
     }
 
     private void SpaceAndMask()

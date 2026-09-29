@@ -6,322 +6,459 @@ using System.Numerics;
 namespace CitySim.Splines;
 
 /// <summary>
-/// Resolves one frame's snapped cursor position (DESIGN.md → Snapping and guides): existing node, then existing
-/// edge, then a guide crossing, then a single guide (extension, node alignment, parallel, perpendicular), then an
-/// angle lock (soft 90°/45°, or Ctrl's absolute 15°/5° steps, which override the guides and the soft angle), then
-/// a length step or equal length. First hit wins; <see cref="SnapQuery.Disabled"/> (Space) skips every level.
-/// Pure and stateless — candidates are the caller's already-built alignments, so this needs no graph (S4) and
-/// stays engine-agnostic and checkable headlessly (<c>--demo-snap</c>).
+/// Resolves one frame's snapped cursor position (DESIGN.md → Snapping and guides → Priority):
+/// <list type="number">
+/// <item>an existing node, then the perpendicular foot from the leg's start, then an existing edge;</item>
+/// <item>a direction lock: Ctrl's absolute 15°/5° steps, or a soft square/diagonal/straight-on angle against the edge
+///   the draw started on or the previous leg (whichever is closer);</item>
+/// <item>with a lock, a guide (or guide crossing) only picks <i>where along</i> the locked direction the point lands
+///   ("extension · ∡ 90°"), else a length step or equal length does; a guide never pulls a leg off its angle;</item>
+/// <item>with no lock: a guide crossing, then a single guide, then a length step or equal length.</item>
+/// </list>
+/// <see cref="SnapQuery.Disabled"/> (Space) skips everything. Pure and stateless: candidates are the caller's built
+/// alignments, so this needs no graph (S4) and is checked headlessly by <c>--demo-snap</c>.
 /// </summary>
 public static class SnapEngine
 {
     private const float SoftAngleTolerance = 6f * MathF.PI / 180f;
+    /// <summary>The perpendicular foot is a bigger target than a plain edge point: it's the clean T players want.</summary>
+    private const float FootCatchFactor = 1.5f;
+    /// <summary>A lit straight guide is drawn from its source to this many catch distances past the snapped point.</summary>
+    private const float DisplayMarginFactor = 5f;
+    /// <summary>Parallel guides reach this many snap steps out; further away "parallel" stops meaning "alongside".</summary>
+    private const int MaxParallelSteps = 10;
+    /// <summary>Parallel guides are caught at this fraction of the catch distance: there's one every snap step (8 m),
+    /// so at the full catch one would be lit almost everywhere near an edge when zoomed out.</summary>
+    private const float ParallelCatchFactor = 0.5f;
 
     public static SnapResult Evaluate(SnapQuery q)
     {
         if (q.Disabled) return SnapResult.None(q.Cursor);
-
         var providers = q.Rules.SnapProviders & q.EnabledProviders;
 
-        if (providers.HasFlag(SnapProviders.Node) && TryNode(q, out var nodeHit)) return nodeHit;
-        if (providers.HasFlag(SnapProviders.Edge) && TryEdge(q, out var edgeHit)) return edgeHit;
+        if (providers.HasFlag(SnapProviders.Node) && TryNode(q) is { } node) return node;
+        if (providers.HasFlag(SnapProviders.Perpendicular) && q.SessionPis.Count > 0 && TryFoot(q) is { } foot) return foot;
+        if (providers.HasFlag(SnapProviders.Edge) && TryEdge(q) is { } edge) return edge;
 
         var guides = GatherGuides(q, providers);
 
-        if (providers.HasFlag(SnapProviders.Crossing) && guides.Count == 2 &&
-            TryGuideCrossing(q, guides[0], guides[1], out var crossHit)) return crossHit;
+        if (q.SessionPis.Count > 0 && DirectionLock(q, providers) is { } angle)
+            return Locked(q, providers, angle, guides);
 
-        if (guides.Count > 0) return SingleGuideResult(q, guides);
+        var lit = guides.Where(g => g.Dist <= q.CatchDistance).OrderBy(g => g.Dist).Take(2).Select(g => g.Guide).ToList();
+        if (lit.Count == 2 && providers.HasFlag(SnapProviders.Crossing) && TryCrossing(q, lit[0], lit[1]) is { } cross)
+            return cross;
+        if (lit.Count > 0)
+        {
+            var p = ClosestPointOnPolyline(lit[0].Points, q.Cursor);
+            return new SnapResult
+            {
+                Position = p, Kind = SnapKind.GuideSingle, Tag = lit[0].Tag, TagAt = TagAnchor(lit[0], p),
+                Guides = lit.Select(g => Trim(g, ClosestPointOnPolyline(g.Points, q.Cursor), q)).ToList(),
+            };
+        }
 
-        return q.SessionPis.Count > 0 ? AngleAndLength(q, providers) : SnapResult.None(q.Cursor);
+        if (q.SessionPis.Count == 0) return SnapResult.None(q.Cursor);
+        var last = q.SessionPis[^1].Position;
+        var toCursor = q.Cursor - last;
+        if (toCursor.Length() < SplineMath.Epsilon) return SnapResult.None(q.Cursor);
+        var dir = Vector2.Normalize(toCursor);
+        var length = MatchLength(q, providers, toCursor.Length());
+        if (length.Kind == SnapKind.None) return SnapResult.None(q.Cursor);
+        return new SnapResult
+        {
+            Position = last + dir * length.Length, Kind = length.Kind,
+            LengthSteps = length.Steps, EqualLength = length.Match,
+        };
     }
 
-    // --- Levels 1-2: node, edge ---
+    // --- Level 1-2: node, perpendicular foot, edge ---
 
-    private static bool TryNode(SnapQuery q, out SnapResult result)
+    private static SnapResult? TryNode(SnapQuery q)
     {
-        Vector2 best = default;
+        SnapResult? best = null;
         float bestDist = float.PositiveInfinity;
-        bool found = false;
         foreach (var c in q.Candidates)
         {
-            if (c.Alignment.Pis.Count == 0) continue;
+            var curve = c.Alignment.Curve;
+            if (curve.Length <= 0) continue;
             float radius = MathF.Max(q.CatchDistance, c.Width / 2f);
-            foreach (var pi in Ends(c.Alignment))
+            foreach (var end in new[] { curve.Sample(0), curve.Sample(curve.Length) })
             {
-                float d = Vector2.Distance(q.Cursor, pi);
-                if (d <= radius && d < bestDist) { bestDist = d; best = pi; found = true; }
+                float d = Vector2.Distance(q.Cursor, end.Position);
+                if (d > radius || d >= bestDist) continue;
+                bestDist = d;
+                best = new SnapResult
+                {
+                    Position = end.Position, Kind = SnapKind.Node, Tag = "snap: node", TagAt = end.Position,
+                    EdgeTangent = end.Tangent,
+                };
             }
         }
-        result = found ? new SnapResult(best, SnapKind.Node, "node", Array.Empty<GuideLine>(), null) : default;
+        return best;
+    }
+
+    /// <summary>The foot of the perpendicular from the current leg's start onto a nearby edge: landing there gives a
+    /// T-junction at exactly 90.0°.</summary>
+    private static SnapResult? TryFoot(SnapQuery q)
+    {
+        var anchor = q.SessionPis[^1].Position;
+        SnapResult? best = null;
+        float bestDist = float.PositiveInfinity;
+        foreach (var c in q.Candidates)
+        {
+            if (PerpendicularGuide(c.Alignment.Curve, anchor, q) is not { } guide) continue;
+            float d = Vector2.Distance(guide.Source, q.Cursor);
+            if (d > q.CatchDistance * FootCatchFactor || d >= bestDist) continue;
+            bestDist = d;
+            best = new SnapResult
+            {
+                Position = guide.Source, Kind = SnapKind.PerpendicularFoot, Tag = guide.Tag, TagAt = guide.Source,
+                Guides = new[] { Trim(guide, guide.Source, q) }, EdgeTangent = guide.EdgeDirection,
+            };
+        }
+        return best;
+    }
+
+    private static SnapResult? TryEdge(SnapQuery q)
+    {
+        SnapResult? best = null;
+        float bestDist = float.PositiveInfinity;
+        foreach (var c in q.Candidates)
+        {
+            var curve = c.Alignment.Curve;
+            if (curve.Length <= 0) continue;
+            var cp = curve.ClosestPoint(q.Cursor);
+            float d = Vector2.Distance(cp.Position, q.Cursor);
+            if (d > MathF.Max(q.CatchDistance, c.Width / 2f) || d >= bestDist) continue;
+            bestDist = d;
+            best = new SnapResult
+            {
+                Position = cp.Position, Kind = SnapKind.Edge, Tag = "snap: edge", TagAt = cp.Position,
+                EdgeTangent = curve.Sample(cp.S).Tangent,
+            };
+        }
+        return best;
+    }
+
+    // --- Direction lock ---
+
+    private static AngleLock? DirectionLock(SnapQuery q, SnapProviders providers)
+    {
+        if (!providers.HasFlag(SnapProviders.Angle)) return null;
+        var last = q.SessionPis[^1].Position;
+        var to = q.Cursor - last;
+        if (to.Length() < SplineMath.Epsilon) return null;
+
+        if (q.CtrlSteps)
+        {
+            float step = (q.FineSteps ? 5f : 15f) * (MathF.PI / 180f);
+            float snapped = MathF.Round(SplineMath.Angle(to) / step) * step;
+            // Plan angles grow clockwise seen from above (z points south); players read headings counter-clockwise.
+            float heading = -snapped * 180f / MathF.PI;
+            heading = (heading % 360f + 360f) % 360f;
+            return new AngleLock(last, Vector2.UnitX, SplineMath.Direction(snapped), heading, AngleReference.Absolute, "Ctrl");
+        }
+
+        AngleLock? best = null;
+        float bestErr = SoftAngleTolerance;
+
+        if (q.SessionPis.Count >= 2)
+        {
+            var prev = q.SessionPis[^2].Position;
+            if (Vector2.Distance(last, prev) > SplineMath.Epsilon)
+            {
+                var along = Vector2.Normalize(last - prev);
+                float turn = SplineMath.Turn(along, to);
+                // Turn targets: straight on, a diagonal bend, square, a sharp diagonal. Degrees are the angle between
+                // the two edges at the corner (180 − turn).
+                foreach (var (target, meaning) in new[] { (0f, "straight on"), (45f, "diagonal"), (90f, "square"), (135f, "diagonal") })
+                {
+                    float err = MathF.Abs(MathF.Abs(turn) - target * MathF.PI / 180f);
+                    if (err > bestErr) continue;
+                    bestErr = err;
+                    float sign = turn < 0 ? -1f : 1f;
+                    best = new AngleLock(last, -along, Rotate(along, sign * target * MathF.PI / 180f), 180f - target,
+                        AngleReference.Leg, meaning);
+                }
+            }
+        }
+
+        if (q.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon)
+        {
+            // An edge is a line, so measure against whichever of its two directions is closer to the leg.
+            var edge = Vector2.Normalize(h);
+            if (Vector2.Dot(edge, to) < 0) edge = -edge;
+            float turn = SplineMath.Turn(edge, to);
+            foreach (var (target, meaning) in new[] { (45f, "diagonal"), (90f, "square") })
+            {
+                float err = MathF.Abs(MathF.Abs(turn) - target * MathF.PI / 180f);
+                if (err > bestErr) continue;
+                bestErr = err;
+                float sign = turn < 0 ? -1f : 1f;
+                best = new AngleLock(last, edge, Rotate(edge, sign * target * MathF.PI / 180f), target,
+                    AngleReference.StartEdge, meaning);
+            }
+        }
+        return best;
+    }
+
+    /// <summary>With the direction locked, a guide picks the point where the locked ray meets it; otherwise the length
+    /// snaps along the ray.</summary>
+    private static SnapResult Locked(SnapQuery q, SnapProviders providers, AngleLock angle, List<(GuideLine Guide, float Dist)> guides)
+    {
+        var origin = angle.Vertex;
+        var kind = angle.Against == AngleReference.Absolute ? SnapKind.CtrlAngle : SnapKind.Angle;
+
+        GuideLine? hitGuide = null;
+        Vector2 hit = default;
+        float hitDist = q.CatchDistance;
+        foreach (var (guide, _) in guides)
+            foreach (var p in RayPolylineHits(origin, angle.Direction, guide.Points))
+            {
+                float d = Vector2.Distance(p, q.Cursor);
+                if (d >= hitDist) continue; // ties keep the earlier guide (extension before node alignment)
+                hitDist = d;
+                hit = p;
+                hitGuide = guide;
+            }
+        if (hitGuide is not null)
+        {
+            return new SnapResult
+            {
+                Position = hit, Kind = SnapKind.GuideSingle, Tag = $"{hitGuide.Tag} · {AngleText(angle)}",
+                TagAt = TagAnchor(hitGuide, hit), Guides = new[] { Trim(hitGuide, hit, q) }, Angle = angle,
+            };
+        }
+
+        float along = MathF.Max(Vector2.Dot(q.Cursor - origin, angle.Direction), 0f);
+        var length = MatchLength(q, providers, along);
+        return new SnapResult
+        {
+            Position = origin + angle.Direction * length.Length, Kind = kind, Tag = AngleTag(angle), TagAt = origin,
+            Angle = angle, LengthSteps = length.Steps, EqualLength = length.Match,
+        };
+    }
+
+    public static string AngleText(AngleLock a) =>
+        a.Against == AngleReference.Absolute ? $"{a.Degrees:0.0}°" : $"∡ {a.Degrees:0}°";
+
+    public static string AngleTag(AngleLock a) => a.Against switch
+    {
+        AngleReference.Absolute => $"{a.Degrees:0.0}° · Ctrl",
+        _ when a.Meaning == "straight on" => $"∡ {a.Degrees:0}° · straight on",
+        AngleReference.StartEdge => $"∡ {a.Degrees:0}° · {a.Meaning} to edge",
+        _ => $"∡ {a.Degrees:0}° · {a.Meaning} to leg",
+    };
+
+    // --- Guides ---
+
+    private static List<(GuideLine Guide, float Dist)> GatherGuides(SnapQuery q, SnapProviders providers)
+    {
+        var found = new List<(GuideLine, float)>();
+        foreach (var c in q.Candidates)
+        {
+            var curve = c.Alignment.Curve;
+            if (curve.Length <= 0) continue;
+            if (providers.HasFlag(SnapProviders.Extension))
+            {
+                AddExtension(found, q, curve, atStart: true);
+                AddExtension(found, q, curve, atStart: false);
+            }
+            if (providers.HasFlag(SnapProviders.Perpendicular) && q.SessionPis.Count > 0 &&
+                PerpendicularGuide(curve, q.SessionPis[^1].Position, q) is { } perp)
+                found.Add((perp, DistanceToPolyline(perp.Points, q.Cursor)));
+            if (providers.HasFlag(SnapProviders.Parallel)) AddParallel(found, q, c);
+            if (providers.HasFlag(SnapProviders.NodeAlign)) AddNodeAlign(found, q, c);
+        }
         return found;
     }
 
-    private static bool TryEdge(SnapQuery q, out SnapResult result)
-    {
-        CurvePoint? best = null;
-        float bestDist = float.PositiveInfinity;
-        foreach (var c in q.Candidates)
-        {
-            if (c.Alignment.Curve.Length <= 0) continue;
-            var cp = c.Alignment.Curve.ClosestPoint(q.Cursor);
-            float d = Vector2.Distance(cp.Position, q.Cursor);
-            float radius = MathF.Max(q.CatchDistance, c.Width / 2f);
-            if (d <= radius && d < bestDist) { bestDist = d; best = cp; }
-        }
-        if (best is { } b) { result = new SnapResult(b.Position, SnapKind.Edge, "edge", Array.Empty<GuideLine>(), null); return true; }
-        result = default;
-        return false;
-    }
-
-    /// <summary>The two ends of an alignment, stood in for graph nodes until S4.</summary>
-    private static IEnumerable<Vector2> Ends(Alignment a)
-    {
-        yield return a.Pis[0].Position;
-        if (a.Pis.Count > 1) yield return a.Pis[^1].Position;
-    }
-
-    // --- Levels 3-4: guide crossing, single guide ---
-
-    private static List<GuideLine> GatherGuides(SnapQuery q, SnapProviders providers)
-    {
-        var found = new List<(GuideLine Guide, float Dist)>();
-
-        foreach (var c in q.Candidates)
-        {
-            if (c.Alignment.Curve.Length <= 0) continue;
-            if (providers.HasFlag(SnapProviders.Extension))
-            {
-                TryAddExtension(found, q, c.Alignment.Curve, atStart: true);
-                TryAddExtension(found, q, c.Alignment.Curve, atStart: false);
-            }
-            if (providers.HasFlag(SnapProviders.Perpendicular) && q.SessionPis.Count > 0)
-                TryAddPerpendicular(found, q, c.Alignment.Curve, q.SessionPis[^1].Position);
-            if (providers.HasFlag(SnapProviders.Parallel)) TryAddParallel(found, q, c);
-            if (providers.HasFlag(SnapProviders.NodeAlign)) TryAddNodeAlign(found, q, c);
-        }
-
-        found.Sort((a, b) => a.Dist.CompareTo(b.Dist));
-        var result = new List<GuideLine>();
-        foreach (var (guide, dist) in found)
-        {
-            if (dist > q.CatchDistance) break;
-            result.Add(guide);
-            if (result.Count == 2) break;
-        }
-        return result;
-    }
-
-    private static void TryAddExtension(List<(GuideLine, float)> found, SnapQuery q, Curve curve, bool atStart)
+    private static void AddExtension(List<(GuideLine, float)> found, SnapQuery q, Curve curve, bool atStart)
     {
         var end = atStart ? curve.Sample(0) : curve.Sample(curve.Length);
         if (Vector2.Distance(end.Position, q.Cursor) > q.GuideSearchRadius) return;
         var dir = atStart ? -end.Tangent : end.Tangent;
         if (dir.LengthSquared() < SplineMath.Epsilon) return;
         dir = Vector2.Normalize(dir);
-        float dist = DistanceToRay(end.Position, dir, q.Cursor);
-        var guide = new GuideLine(new[] { end.Position, end.Position + dir * q.GuideSearchRadius }, GuideKind.Extension, "extension");
-        found.Add((guide, dist));
-    }
-
-    /// <summary>A candidate heading for the current leg, square to a nearby edge, anchored at the leg's start
-    /// point (like a "perpendicular from here" osnap) — not re-derived from the live cursor, or the guide would
-    /// always pass exactly through it (distance always zero) and crowd out every other guide.</summary>
-    private static void TryAddPerpendicular(List<(GuideLine, float)> found, SnapQuery q, Curve curve, Vector2 anchor)
-    {
-        var cp = curve.ClosestPoint(q.Cursor); // which part of a (possibly curved) edge is "nearby"
-        if (MathF.Abs(cp.Offset) > q.GuideSearchRadius) return;
-        var dir = SplineMath.Left(curve.Sample(cp.S).Tangent);
-        if (dir.LengthSquared() < SplineMath.Epsilon) return;
-        dir = Vector2.Normalize(dir);
-        float dist = DistanceToLine(anchor, dir, q.Cursor);
-        var guide = new GuideLine(
-            new[] { anchor - dir * q.GuideSearchRadius, anchor + dir * q.GuideSearchRadius },
-            GuideKind.Perpendicular, "90° to edge");
-        found.Add((guide, dist));
-    }
-
-    private static void TryAddParallel(List<(GuideLine, float)> found, SnapQuery q, SnapCandidate c)
-    {
-        float halfWidths = c.Width / 2f + q.Rules.Width / 2f;
-        for (int side = -1; side <= 1; side += 2)
+        var guide = new GuideLine(new[] { end.Position, end.Position + dir * q.GuideSearchRadius }, GuideKind.Extension, "extension")
         {
-            for (int k = 0; k <= 2; k++)
-            {
-                float gap = k * q.Rules.SnapLength;
-                float d = side * (halfWidths + gap);
-                var offset = c.Alignment.Curve.Offset(d);
-                if (offset.Length <= 0) continue;
-                var cp = offset.ClosestPoint(q.Cursor);
-                float dist = Vector2.Distance(cp.Position, q.Cursor);
-                if (dist > q.GuideSearchRadius) continue;
-                // A fixed, tight spacing (not derived from the whole curve's length): SampleEvery divides each
-                // segment independently, so a short, sharply-curved arc segment needs its own fine spacing to stay
-                // visually and numerically concentric — a spacing derived from the total length starves it.
-                var points = offset.SampleEvery(2f).Select(s => s.Sample.Position).ToList();
-                var guide = new GuideLine(points, GuideKind.Parallel, $"parallel · {gap:0.#} m gap");
-                found.Add((guide, dist));
-            }
-        }
-    }
-
-    private static void TryAddNodeAlign(List<(GuideLine, float)> found, SnapQuery q, SnapCandidate c)
-    {
-        if (c.Alignment.Curve.Length <= 0) return;
-        var refDir = ReferenceHeading(q);
-        var startTangent = c.Alignment.Curve.Sample(0).Tangent;
-        var endTangent = c.Alignment.Curve.Sample(c.Alignment.Curve.Length).Tangent;
-        var nodes = new[]
-        {
-            (Pos: c.Alignment.Curve.Sample(0).Position, EdgeDir: startTangent),
-            (Pos: c.Alignment.Curve.Sample(c.Alignment.Curve.Length).Position, EdgeDir: -endTangent),
+            Source = end.Position,
         };
+        found.Add((guide, DistanceToPolyline(guide.Points, q.Cursor)));
+    }
+
+    /// <summary>The line square to <paramref name="curve"/> through <paramref name="anchor"/> (the leg's start), with
+    /// its foot on the curve as <see cref="GuideLine.Source"/>. Anchored at the leg's start, not re-derived from the
+    /// cursor, or it would always pass exactly through the cursor and crowd out every other guide. Null when the
+    /// anchor is on the edge or its closest point is an end (not a true perpendicular).</summary>
+    private static GuideLine? PerpendicularGuide(Curve curve, Vector2 anchor, SnapQuery q)
+    {
+        if (curve.Length <= 0) return null;
+        var cp = curve.ClosestPoint(anchor);
+        if (MathF.Abs(cp.Offset) < 0.5f || MathF.Abs(cp.Offset) > q.GuideSearchRadius) return null;
+        if (cp.S <= 1e-3f || cp.S >= curve.Length - 1e-3f) return null;
+        var tangent = curve.Sample(cp.S).Tangent;
+        var up = Vector2.Normalize(anchor - cp.Position);
+        return new GuideLine(new[] { cp.Position - up * q.GuideSearchRadius, cp.Position + up * q.GuideSearchRadius },
+            GuideKind.Perpendicular, "90° to edge")
+        {
+            Source = cp.Position, EdgeDirection = tangent,
+        };
+    }
+
+    /// <summary>Alongside an edge at a gap of whole <see cref="ProfileRules.SnapLength"/> steps (up to
+    /// <see cref="MaxParallelSteps"/>), measured between the
+    /// two corridors' sides. The step is picked from the cursor's offset, so any number of lots works. It follows arcs
+    /// as concentric arcs because it's the edge's exact <see cref="Curve.Offset"/>.</summary>
+    private static void AddParallel(List<(GuideLine, float)> found, SnapQuery q, SnapCandidate c)
+    {
+        var curve = c.Alignment.Curve;
+        var cp = curve.ClosestPoint(q.Cursor);
+        float halfWidths = c.Width / 2f + q.Rules.Width / 2f;
+        if (MathF.Abs(cp.Offset) > q.GuideSearchRadius || q.Rules.SnapLength <= SplineMath.Epsilon) return;
+        float side = cp.Offset >= 0 ? 1f : -1f;
+        int k = Math.Max(0, (int)MathF.Round((MathF.Abs(cp.Offset) - halfWidths) / q.Rules.SnapLength));
+        if (k > MaxParallelSteps) return;
+        float gap = k * q.Rules.SnapLength;
+        var offset = curve.Offset(side * (halfWidths + gap));
+        if (offset.Length <= 0) return;
+        // A fixed 2 m spacing: SampleEvery divides each segment on its own, so a short tight arc keeps its shape.
+        var points = offset.SampleEvery(2f).Select(s => s.Sample.Position).ToList();
+        string unit = q.Rules.SnapUnitName;
+        string steps = k > 0 && !string.IsNullOrEmpty(unit) ? $" ({k} {unit}{(k == 1 ? "" : "s")})" : "";
+        var guide = new GuideLine(points, GuideKind.Parallel, $"parallel · {gap:0.#} m gap{steps}")
+        {
+            Source = points[0], Along = curve, Side = side, EdgeHalfWidth = c.Width / 2f, Gap = gap,
+        };
+        found.Add((guide, DistanceToPolyline(points, q.Cursor) / ParallelCatchFactor));
+    }
+
+    private static void AddNodeAlign(List<(GuideLine, float)> found, SnapQuery q, SnapCandidate c)
+    {
+        var curve = c.Alignment.Curve;
+        var refDir = q.SessionPis.Count >= 2 ? Vector2.Normalize(q.SessionPis[^1].Position - q.SessionPis[^2].Position) : q.StartHeading;
         string label = string.IsNullOrEmpty(c.Label) ? "node" : $"{c.Label} node";
-        foreach (var (pos, edgeDir) in nodes)
+        foreach (var (pos, edgeDir) in new[]
+                 {
+                     (curve.Sample(0).Position, curve.Sample(0).Tangent),
+                     (curve.Sample(curve.Length).Position, -curve.Sample(curve.Length).Tangent),
+                 })
         {
             if (Vector2.Distance(pos, q.Cursor) > q.GuideSearchRadius) continue;
-            var dirs = new List<Vector2> { edgeDir, SplineMath.Left(edgeDir) };
-            if (refDir is { } r) { dirs.Add(r); dirs.Add(SplineMath.Left(r)); }
+            // The session's own start isn't a node to align with.
+            if (q.SessionPis.Count > 0 && Vector2.Distance(pos, q.SessionPis[^1].Position) < SplineMath.Epsilon) continue;
+            // Square to the node's edge (along the edge is the extension guide's line already), plus the current
+            // leg's reference directions.
+            var dirs = new List<Vector2> { SplineMath.Left(edgeDir) };
+            if (refDir is { } r && r.LengthSquared() > SplineMath.Epsilon) { dirs.Add(r); dirs.Add(SplineMath.Left(r)); }
             foreach (var raw in dirs)
             {
                 if (raw.LengthSquared() < SplineMath.Epsilon) continue;
                 var dir = Vector2.Normalize(raw);
-                float dist = DistanceToLine(pos, dir, q.Cursor);
-                var guide = new GuideLine(
-                    new[] { pos - dir * q.GuideSearchRadius, pos + dir * q.GuideSearchRadius },
-                    GuideKind.NodeAlign, $"aligned · {label}");
-                found.Add((guide, dist));
+                var guide = new GuideLine(new[] { pos - dir * q.GuideSearchRadius, pos + dir * q.GuideSearchRadius },
+                    GuideKind.NodeAlign, $"aligned · {label}")
+                {
+                    Source = pos,
+                };
+                found.Add((guide, DistanceToPolyline(guide.Points, q.Cursor)));
             }
         }
     }
 
-    private static bool TryGuideCrossing(SnapQuery q, GuideLine a, GuideLine b, out SnapResult result)
+    private static SnapResult? TryCrossing(SnapQuery q, GuideLine a, GuideLine b)
     {
-        var (pa, da) = LineOf(a);
-        var (pb, db) = LineOf(b);
-        float den = SplineMath.Cross(da, db);
-        if (MathF.Abs(den) < 1e-6f) { result = default; return false; }
-        float t = SplineMath.Cross(pb - pa, db) / den;
-        var point = pa + da * t;
-        if (Vector2.Distance(point, q.Cursor) > q.CatchDistance) { result = default; return false; }
-        result = new SnapResult(point, SnapKind.GuideCrossing, $"{a.Tag} × {b.Tag}", new[] { a, b }, null);
-        return true;
-    }
-
-    private static SnapResult SingleGuideResult(SnapQuery q, List<GuideLine> guides)
-    {
-        var top = guides[0];
-        return new SnapResult(ClosestPointOnGuide(top, q.Cursor), SnapKind.GuideSingle, top.Tag, guides, null);
-    }
-
-    // --- Levels 5-7: angle, length ---
-
-    private static SnapResult AngleAndLength(SnapQuery q, SnapProviders providers)
-    {
-        var last = q.SessionPis[^1].Position;
-        var toCursor = q.Cursor - last;
-        float rawLen = toCursor.Length();
-        if (rawLen < SplineMath.Epsilon) return SnapResult.None(q.Cursor);
-
-        Vector2? lockedDir = null;
-        var angleKind = SnapKind.None;
-        string angleTag = "";
-
-        if (q.CtrlSteps && providers.HasFlag(SnapProviders.Angle))
+        Vector2? best = null;
+        float bestDist = q.CatchDistance;
+        foreach (var p in PolylineHits(a.Points, b.Points))
         {
-            float step = (q.FineSteps ? 5f : 15f) * (MathF.PI / 180f);
-            float snapped = MathF.Round(SplineMath.Angle(toCursor) / step) * step;
-            lockedDir = SplineMath.Direction(snapped);
-            angleKind = SnapKind.CtrlAngle;
-            angleTag = $"{snapped * 180f / MathF.PI:0.#}°";
+            float d = Vector2.Distance(p, q.Cursor);
+            if (d > bestDist) continue;
+            bestDist = d;
+            best = p;
         }
-        else if (providers.HasFlag(SnapProviders.Angle) && ReferenceHeading(q) is { } refDir)
+        if (best is not { } point) return null;
+        return new SnapResult
         {
-            float turn = SplineMath.Turn(refDir, toCursor);
-            float abs = MathF.Abs(turn);
-            foreach (float target in new[] { MathF.PI / 2f, MathF.PI / 4f })
+            Position = point, Kind = SnapKind.GuideCrossing, Tag = $"{a.Tag} × {b.Tag}", TagAt = point,
+            Guides = new[] { Trim(a, point, q), Trim(b, point, q) },
+        };
+    }
+
+    /// <summary>Where a lit guide's tag goes: halfway between its source and the snapped point (the storyboard puts it
+    /// over the guide), or at the point for a parallel guide.</summary>
+    private static Vector2 TagAnchor(GuideLine g, Vector2 p) => g.Kind == GuideKind.Parallel ? p : (g.Source + p) / 2f;
+
+    /// <summary>A lit straight guide, cut to run from its source to a little past the snapped point, so it reads as
+    /// "this lines up with that" instead of a line across the map.</summary>
+    private static GuideLine Trim(GuideLine g, Vector2 p, SnapQuery q)
+    {
+        if (g.Kind == GuideKind.Parallel) return g;
+        var d = p - g.Source;
+        float m = q.CatchDistance * DisplayMarginFactor;
+        if (d.Length() < SplineMath.Epsilon)
+        {
+            var along = Vector2.Normalize(g.Points[^1] - g.Points[0]);
+            return g with { Points = new[] { p - along * m, p + along * m } };
+        }
+        var u = Vector2.Normalize(d);
+        var start = g.Kind == GuideKind.Perpendicular ? g.Source - u * m : g.Source;
+        return g with { Points = new[] { start, p + u * m } };
+    }
+
+    // --- Length ---
+
+    private readonly record struct LengthMatch(float Length, SnapKind Kind, int? Steps, LegMatch? Match);
+
+    /// <summary>A leg of <paramref name="rawLen"/> metres snapped to equal length (a nearby leg, if within catch and
+    /// closer than the step) or to whole <see cref="ProfileRules.SnapLength"/> steps.</summary>
+    private static LengthMatch MatchLength(SnapQuery q, SnapProviders providers, float rawLen)
+    {
+        LegMatch? equal = null;
+        float equalDist = q.CatchDistance;
+        if (providers.HasFlag(SnapProviders.EqualLength))
+            foreach (var leg in NearbyLegs(q))
             {
-                if (MathF.Abs(abs - target) > SoftAngleTolerance) continue;
-                lockedDir = Rotate(refDir, MathF.Sign(turn) * target);
-                angleKind = SnapKind.Angle;
-                angleTag = $"{target * 180f / MathF.PI:0}°";
-                break;
+                float d = MathF.Abs(leg.Length - rawLen);
+                if (d > equalDist) continue;
+                equalDist = d;
+                equal = leg;
             }
-        }
 
-        var dir = lockedDir ?? Vector2.Normalize(toCursor);
-        var length = ApplyLengthSnap(q, providers, rawLen);
-
-        if (angleKind == SnapKind.None && length.Kind == SnapKind.None)
-            return SnapResult.None(q.Cursor) with { EqualLengthTickStation = length.Tick };
-
-        var kind = angleKind != SnapKind.None ? angleKind : length.Kind;
-        string tag = angleKind != SnapKind.None
-            ? (length.Kind != SnapKind.None ? $"{angleTag} · {length.Tag}" : angleTag)
-            : length.Tag;
-
-        return new SnapResult(last + dir * length.Length, kind, tag, Array.Empty<GuideLine>(), length.Tick);
-    }
-
-    private readonly record struct LengthMatch(float Length, string Tag, SnapKind Kind, float? Tick);
-
-    private static LengthMatch ApplyLengthSnap(SnapQuery q, SnapProviders providers, float rawLen)
-    {
-        float? stepLen = null;
+        int? steps = null;
         float stepDist = float.PositiveInfinity;
         if (providers.HasFlag(SnapProviders.Length) && q.Rules.SnapLength > SplineMath.Epsilon)
         {
-            float candidate = MathF.Round(rawLen / q.Rules.SnapLength) * q.Rules.SnapLength;
-            stepLen = candidate;
-            stepDist = MathF.Abs(candidate - rawLen);
+            int n = (int)MathF.Round(rawLen / q.Rules.SnapLength);
+            float d = MathF.Abs(n * q.Rules.SnapLength - rawLen);
+            if (n > 0 && d <= q.CatchDistance) { steps = n; stepDist = d; }
         }
 
-        float? equalLen = null;
-        float equalDist = float.PositiveInfinity;
-        if (providers.HasFlag(SnapProviders.EqualLength))
-        {
-            foreach (float candidate in EqualLengthCandidates(q))
-            {
-                float d = MathF.Abs(candidate - rawLen);
-                if (d < equalDist) { equalDist = d; equalLen = candidate; }
-            }
-        }
-
-        float? tick = equalLen is not null && equalDist <= q.CatchDistance ? equalLen : null;
-
-        bool equalWins = equalLen is not null && equalDist <= q.CatchDistance && equalDist <= stepDist;
-        if (equalWins) return new LengthMatch(equalLen!.Value, $"= {equalLen.Value:0.#} m", SnapKind.EqualLength, tick);
-
-        bool stepWins = stepLen is not null && stepDist <= q.CatchDistance;
-        if (stepWins)
-        {
-            int n = (int)MathF.Round(stepLen!.Value / q.Rules.SnapLength);
-            return new LengthMatch(stepLen.Value, $"{stepLen.Value:0.#} m · {n} × {q.Rules.SnapLength:0.#} m", SnapKind.Length, tick);
-        }
-
-        return new LengthMatch(rawLen, "", SnapKind.None, tick);
+        if (equal is { } e && equalDist <= stepDist)
+            return new LengthMatch(e.Length, SnapKind.EqualLength, null, e);
+        if (steps is { } s)
+            return new LengthMatch(s * q.Rules.SnapLength, SnapKind.Length, s, null);
+        return new LengthMatch(rawLen, SnapKind.None, null, null);
     }
 
-    private static IEnumerable<float> EqualLengthCandidates(SnapQuery q)
+    /// <summary>The previous leg of this draw, and the PI-to-PI legs of nearby built alignments.</summary>
+    private static IEnumerable<LegMatch> NearbyLegs(SnapQuery q)
     {
         if (q.SessionPis.Count >= 2)
         {
-            float prevLeg = Vector2.Distance(q.SessionPis[^1].Position, q.SessionPis[^2].Position);
-            if (prevLeg > SplineMath.Epsilon) yield return prevLeg;
+            var a = q.SessionPis[^2].Position;
+            var b = q.SessionPis[^1].Position;
+            if (Vector2.Distance(a, b) > SplineMath.Epsilon) yield return new LegMatch(a, b, Vector2.Distance(a, b));
         }
         foreach (var c in q.Candidates)
-            if (c.Alignment.Curve.Length > SplineMath.Epsilon) yield return c.Alignment.Curve.Length;
-    }
-
-    private static Vector2? ReferenceHeading(SnapQuery q)
-    {
-        if (q.SessionPis.Count >= 2)
-        {
-            var d = q.SessionPis[^1].Position - q.SessionPis[^2].Position;
-            return d.LengthSquared() > SplineMath.Epsilon * SplineMath.Epsilon ? Vector2.Normalize(d) : null;
-        }
-        return q.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon * SplineMath.Epsilon
-            ? Vector2.Normalize(h) : null;
+            for (int i = 0; i + 1 < c.Alignment.Pis.Count; i++)
+            {
+                var a = c.Alignment.Pis[i].Position;
+                var b = c.Alignment.Pis[i + 1].Position;
+                if (Vector2.Distance((a + b) / 2f, q.Cursor) > q.GuideSearchRadius) continue;
+                float len = Vector2.Distance(a, b);
+                if (len > SplineMath.Epsilon) yield return new LegMatch(a, b, len);
+            }
     }
 
     // --- Small shared helpers ---
@@ -332,24 +469,17 @@ public static class SnapEngine
         return new Vector2(v.X * c - v.Y * s, v.X * s + v.Y * c);
     }
 
-    private static float DistanceToRay(Vector2 origin, Vector2 dir, Vector2 p)
-    {
-        float t = Vector2.Dot(p - origin, dir);
-        if (t < 0) return Vector2.Distance(origin, p);
-        return Vector2.Distance(origin + dir * t, p);
-    }
+    private static float DistanceToPolyline(IReadOnlyList<Vector2> points, Vector2 p) =>
+        Vector2.Distance(ClosestPointOnPolyline(points, p), p);
 
-    private static float DistanceToLine(Vector2 origin, Vector2 dir, Vector2 p) =>
-        Vector2.Distance(origin + dir * Vector2.Dot(p - origin, dir), p);
-
-    private static Vector2 ClosestPointOnGuide(GuideLine guide, Vector2 cursor)
+    private static Vector2 ClosestPointOnPolyline(IReadOnlyList<Vector2> points, Vector2 cursor)
     {
-        var best = guide.Points[0];
+        var best = points[0];
         float bestDist = float.PositiveInfinity;
-        for (int i = 0; i + 1 < guide.Points.Count; i++)
+        for (int i = 0; i + 1 < points.Count; i++)
         {
-            var a = guide.Points[i];
-            var ab = guide.Points[i + 1] - a;
+            var a = points[i];
+            var ab = points[i + 1] - a;
             float len2 = ab.LengthSquared();
             float t = len2 > SplineMath.Epsilon ? Math.Clamp(Vector2.Dot(cursor - a, ab) / len2, 0, 1) : 0;
             var p = a + ab * t;
@@ -359,10 +489,37 @@ public static class SnapEngine
         return best;
     }
 
-    private static (Vector2 Origin, Vector2 Dir) LineOf(GuideLine guide)
+    /// <summary>Where the ray <c>origin + t·dir</c> (t &gt; 0) crosses a polyline.</summary>
+    private static IEnumerable<Vector2> RayPolylineHits(Vector2 origin, Vector2 dir, IReadOnlyList<Vector2> points)
     {
-        var a = guide.Points[0];
-        var b = guide.Points[^1];
-        return (a, Vector2.Normalize(b - a));
+        for (int i = 0; i + 1 < points.Count; i++)
+        {
+            var a = points[i];
+            var ab = points[i + 1] - a;
+            float den = SplineMath.Cross(dir, ab);
+            if (MathF.Abs(den) < 1e-6f) continue;
+            float t = SplineMath.Cross(a - origin, ab) / den;
+            float u = SplineMath.Cross(a - origin, dir) / den;
+            if (t > SplineMath.Epsilon && u is >= 0 and <= 1) yield return origin + dir * t;
+        }
+    }
+
+    /// <summary>Where two polylines cross.</summary>
+    private static IEnumerable<Vector2> PolylineHits(IReadOnlyList<Vector2> a, IReadOnlyList<Vector2> b)
+    {
+        for (int i = 0; i + 1 < a.Count; i++)
+        {
+            var p = a[i];
+            var r = a[i + 1] - p;
+            for (int j = 0; j + 1 < b.Count; j++)
+            {
+                var s = b[j + 1] - b[j];
+                float den = SplineMath.Cross(r, s);
+                if (MathF.Abs(den) < 1e-6f) continue;
+                float t = SplineMath.Cross(b[j] - p, s) / den;
+                float u = SplineMath.Cross(b[j] - p, r) / den;
+                if (t is >= 0 and <= 1 && u is >= 0 and <= 1) yield return p + r * t;
+            }
+        }
     }
 }

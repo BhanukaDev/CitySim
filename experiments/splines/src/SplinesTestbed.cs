@@ -29,7 +29,13 @@ public partial class SplinesTestbed : Node
         layer.AddChild(_bar);
         _bar.SetProfiles(Profiles);
         Profile = _bar.Profile;
-        _bar.ProfileChanged += p => { Profile = p; GD.Print($"Splines: profile {p.Id}"); };
+        if (Profile is not null) _bar.SetOfferedSnaps(Profile.SnapProviders);
+        _bar.ProfileChanged += p =>
+        {
+            Profile = p;
+            _bar.SetOfferedSnaps(p.SnapProviders);
+            GD.Print($"Splines: profile {p.Id}");
+        };
         _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
         _bar.SnapProvidersChanged += p => EnabledSnaps = p;
         EnabledSnaps = _bar.EnabledSnaps;

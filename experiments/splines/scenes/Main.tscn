@@ -9,7 +9,7 @@
 [ext_resource type="Script" path="res://src/Splines/Godot/SplineDrawTool.cs" id="8_drawtool"]
 [ext_resource type="Script" path="res://src/Demos/DrawDemo.cs" id="14_drawdemo"]
 [ext_resource type="Script" path="res://src/Demos/SnapDemo.cs" id="15_snapdemo"]
-[ext_resource type="Script" path="res://src/Demos/TempSnapVisualCheck.cs" id="16_tempvisual"]
+[ext_resource type="Script" path="res://src/Demos/StoryboardDemo.cs" id="16_storyboard"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
@@ -111,7 +111,7 @@ Testbed = NodePath("../SplinesTestbed")
 [node name="SnapDemo" type="Node" parent="."]
 script = ExtResource("15_snapdemo")
 
-[node name="TempSnapVisualCheck" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed")]
-script = ExtResource("16_tempvisual")
+[node name="StoryboardDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed")]
+script = ExtResource("16_storyboard")
 DrawTool = NodePath("../SplineDrawTool")
 Testbed = NodePath("../SplinesTestbed")

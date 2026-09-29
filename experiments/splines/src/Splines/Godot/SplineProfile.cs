@@ -28,6 +28,8 @@ public partial class SplineProfile : Resource
     [Export] public bool AllowHardCorners { get; set; }
     [Export(PropertyHint.Range, "0,500,1")] public float SpiralLength { get; set; }
     [Export(PropertyHint.Range, "0.5,100,0.5")] public float SnapLength { get; set; } = 8f;
+    /// <summary>What one snap step is called in tags ("parallel · 40 m gap (5 lots)").</summary>
+    [Export] public string SnapUnitName { get; set; } = "lot";
     [Export] public SnapProviders SnapProviders { get; set; } = SnapProviders.All;
     /// <summary>Named offset sets, e.g. <c>twin:-4.5,4.5; wide:-8,8</c> (metres, + = left).</summary>
     [Export] public string ParallelPresets { get; set; } = "";
@@ -74,6 +76,7 @@ public partial class SplineProfile : Resource
         TurnoutMaxAngle = TurnoutMaxAngle,
         MaxGrade = MaxGradePercent < 0 ? null : MaxGradePercent / 100f,
         SnapLength = SnapLength,
+        SnapUnitName = SnapUnitName,
         SpeedFromRadius = SpeedFromRadius,
         LateralAccel = LateralAccel,
         ParallelPresets = ParsePresets(ParallelPresets),

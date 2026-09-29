@@ -53,8 +53,14 @@ public sealed class DrawSession
         return true;
     }
 
-    /// <summary>Sets the pending radius, clamped to the profile's <c>MinRadius</c>.</summary>
-    public void SetPendingRadius(float radius, float minRadius) => PendingRadius = MathF.Max(radius, minRadius);
+    /// <summary>Sets the pending radius, clamped to the profile's <c>MinRadius</c>. The live corner (the last PI placed,
+    /// which the preview rounds as the mouse moves on) takes it too, so Shift+wheel grows or shrinks it in place
+    /// (storyboard step 2).</summary>
+    public void SetPendingRadius(float radius, float minRadius)
+    {
+        PendingRadius = MathF.Max(radius, minRadius);
+        if (_pis.Count >= 2 && !_pis[^1].Hard) _pis[^1] = _pis[^1] with { Radius = PendingRadius };
+    }
 
     /// <summary>The placed PIs plus a floating end point at <paramref name="cursor"/> (not yet committed) — for the
     /// preview ribbon.</summary>
