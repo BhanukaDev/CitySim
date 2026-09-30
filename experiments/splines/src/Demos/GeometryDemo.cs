@@ -69,12 +69,14 @@ public partial class GeometryDemo : Node
         var a = new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(100, 0), 40), new Pi(V(100, 20), 40), new Pi(V(200, 20)) });
         Check("clamped radius (shared leg)", a.EffectiveRadius(1), 10);
         Check("clamped flag", a.IsClamped(1) && a.IsClamped(2));
+        Check("max radius (shared leg)", a.MaxRadius(1), 10);
         Check("clamped arcs meet", a.Curve.Segments.Count, 4); // line, arc, arc, line: no gap line between the arcs
 
         // An end leg can be used whole: 30 m legs cap R at 30.
         var b = new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(30, 0), 100), new Pi(V(30, 30)) });
         Check("clamped radius (end legs)", b.EffectiveRadius(1), 30);
         Check("clamped end legs: pure arc", b.Curve.Segments.Count, 1);
+        Check("max radius (end legs)", b.MaxRadius(1), 30);
     }
 
     private void HardCorner()

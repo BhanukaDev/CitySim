@@ -65,12 +65,13 @@ public sealed class DrawSession
         return true;
     }
 
-    /// <summary>Sets the pending radius, clamped to <paramref name="minRadius"/> (the profile's, or ~0 with Anarchy).
-    /// The live corner (the last point, when the next leg continues the road there) takes it too, so Shift+wheel grows
-    /// or shrinks it in place (storyboard step 2).</summary>
-    public void SetPendingRadius(float radius, float minRadius)
+    /// <summary>Sets the pending radius, kept at or below <paramref name="maxRadius"/> (the most the live corner fits,
+    /// Anarchy or not) and at or above <paramref name="minRadius"/> (the profile's, or ~0 with Anarchy). The live
+    /// corner (the last point, when the next leg continues the road there) takes it too, so Shift+wheel grows or
+    /// shrinks it in place (storyboard step 2).</summary>
+    public void SetPendingRadius(float radius, float minRadius, float maxRadius = float.PositiveInfinity)
     {
-        PendingRadius = MathF.Max(radius, minRadius);
+        PendingRadius = MathF.Max(MathF.Min(radius, maxRadius), minRadius);
         if (StartIsCorner && _placed.Count > 0 && !_placed[^1].Hard) _placed[^1] = _placed[^1] with { Radius = PendingRadius };
     }
 

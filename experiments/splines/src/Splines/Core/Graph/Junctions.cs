@@ -31,8 +31,11 @@ public static class Junctions
 {
     /// <summary>A pair of arms this close to straight on gets no curb (the sides just run on).</summary>
     private const float StraightGapDegrees = 178f;
-    /// <summary>An arm's cut-back never takes more than this share of its edge, so both ends fit.</summary>
+    /// <summary>An arm's cut-back never takes more than this share of an edge with a footprint at its other end too,
+    /// so both ends fit.</summary>
     private const float MaxCutShare = 0.45f;
+    /// <summary>The share for an edge whose other end has no footprint (a dead end, a bend): nearly all of it.</summary>
+    private const float MaxCutShareFree = 0.9f;
 
     /// <summary>The strictest kind among the arms: a turnout profile makes the node a turnout, then Node, then Join.</summary>
     public static JunctionKind KindOf(IReadOnlyList<Arm> arms)
@@ -145,20 +148,36 @@ public static class Junctions
             var narrow = a.Rules.Width < b.Rules.Width || (a.Rules.Width == b.Rules.Width && a.Rules.DefaultRadius <= b.Rules.DefaultRadius) ? a.Rules : b.Rules;
             float r = MathF.Max(narrow.DefaultRadius, 0);
             // The curb's centre is r off both facing sides: where a's side toward b, pushed out by r, meets b's side
-            // toward a, pushed out by r. The nearest such point to the node wins.
-            var pa = paths[i].Side(+1, a.Rules.Width / 2 + r);
-            var pb = paths[j].Side(-1, b.Rules.Width / 2 + r);
-            if (FirstCross(pa, pb) is not { } hit) continue;
-            cut[i] = MathF.Max(cut[i], hit.SA);
-            cut[j] = MathF.Max(cut[j], hit.SB);
-            curbAt[i] = (hit.SA, hit.SB);
-            if (r > 0)
-                curbs[i] = new Curb(hit.Point, r, paths[i].SidePoint(hit.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.SB, -1, b.Rules.Width / 2));
+            // toward a, pushed out by r. The nearest such point to the node wins. The sides only run out to each arm's
+            // cap, so a curb too big for a short arm or a sharp angle finds no crossing: it shrinks to the largest
+            // radius that fits (down to a sharp corner) instead of being left out, which left the arms overlapping.
+            var hit = CurbCentre(r);
+            if (hit is null && r > 0)
+            {
+                float lo = 0, hi = r;
+                var best = CurbCentre(0);
+                for (int k = 0; k < 12 && best is not null; k++)
+                {
+                    float mid = (lo + hi) / 2;
+                    if (CurbCentre(mid) is { } h) { lo = mid; best = h; }
+                    else hi = mid;
+                }
+                (r, hit) = (lo, best);
+            }
+            if (hit is null) continue;
+            cut[i] = MathF.Max(cut[i], hit.Value.SA);
+            cut[j] = MathF.Max(cut[j], hit.Value.SB);
+            curbAt[i] = (hit.Value.SA, hit.Value.SB);
+            if (r > 0.1f)
+                curbs[i] = new Curb(hit.Value.Point, r, paths[i].SidePoint(hit.Value.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.Value.SB, -1, b.Rules.Width / 2));
+
+            CurveHit? CurbCentre(float radius) =>
+                FirstCross(paths[i].Side(+1, a.Rules.Width / 2 + radius), paths[j].Side(-1, b.Rules.Width / 2 + radius));
         }
 
         // Keep both ends of a short edge room: cap each cut-back at a share of its edge.
         for (int i = 0; i < n; i++)
-            cut[i] = Math.Clamp(cut[i], 0, paths[i].Length * MaxCutShare);
+            cut[i] = Math.Clamp(cut[i], 0, paths[i].Cap);
 
         // Round the outline: for each arm, its side toward the previous arm (from that curb out to the cut), the cut
         // end, its side toward the next arm (back in to that curb), then the curb itself.
@@ -190,11 +209,20 @@ public static class Junctions
 
         public ArmPath(SplineGraph g, Arm arm)
         {
-            _curve = g.Edge(arm.EdgeId).Alignment.Curve;
+            var e = g.Edge(arm.EdgeId);
+            _curve = e.Alignment.Curve;
             _atStart = arm.AtStart;
+            int far = arm.AtStart ? e.End : e.Start;
+            var farArms = g.Arms(far);
+            bool shared = e.Start == e.End || (farArms.Count >= 3 && KindOf(farArms) == JunctionKind.Node);
+            Cap = _curve.Length * (shared ? MaxCutShare : MaxCutShareFree);
         }
 
         public float Length => _curve.Length;
+
+        /// <summary>The furthest this arm can be cut back: a share of its edge, leaving room for a footprint at the
+        /// other end if there is one.</summary>
+        public float Cap { get; }
 
         /// <summary>The centre point and the direction away from the node at station <paramref name="s"/>.</summary>
         public (Vector2 Position, Vector2 Direction) At(float s)
@@ -214,7 +242,7 @@ public static class Junctions
         /// <summary>The side at <paramref name="offset"/> as a polyline of (station, point), out to the cut-back cap.</summary>
         public List<(float S, Vector2 P)> Side(int side, float offset)
         {
-            float max = _curve.Length * MaxCutShare;
+            float max = Cap;
             var pts = new List<(float, Vector2)>();
             for (float s = 0; ; s += Step)
             {

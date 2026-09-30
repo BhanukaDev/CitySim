@@ -132,7 +132,7 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
 - `SplineOverlay` (Godot) replaced `GuideRenderer` + `DrawCursorTag`, styled after CS2's road tool: thick white
   dashed legs and guides, white ribbon outline, ground discs/rings, an angle arc + `∡` pill at every corner, a `↔`
   length pill mid-leg, mouse-hint pills by the cursor (DESIGN.md → Feedback → Overlay visual language).
-  `RibbonRenderer`: light-blue ghost preview, **amber halo when a corner is clamped**, built ribbons with a centre dash.
+  `RibbonRenderer`: light-blue ghost preview, **amber halo with a warning**, built ribbons with a centre dash.
 - `SplineDrawTool` records the start road's heading when the first click snaps to a node/edge; Shift+wheel / `[` `]`
   now resize the **live** corner (`DrawSession.SetPendingRadius`), as in storyboard step 2; `Total … m` flashes after a
   finish. `Alignment.Corner(i)` / `AnyClamped` give the corner geometry for drawing.
@@ -162,8 +162,8 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   (curb arcs between neighbouring arms at the narrower arm's `DefaultRadius`, arm cut-backs, an outline polygon),
   turnout violations, and `TurnoutGhost` (the nearest legal turnout: leaves along the line at `MinRadius`, the arc
   starting at the switch; a square target is moved ahead until it fits).
-- `Core/Graph/Validation`: `Issue{Severity, Code, Message, Where, EdgeId, NodeId}`. Clamped radius → Warn
-  (`R 191 m (wants 500)`), below `MinRadius` → Invalid, junction angle below the minimum → Warn (`22°, min 30° ·
+- `Core/Graph/Validation`: `Issue{Severity, Code, Message, Where, EdgeId, NodeId}`. A corner built below `MinRadius`
+  → Invalid (`R 191 m, min 300 m · Ctrl+A allows`), whether asked for or clamped; a clamp above it is no issue, junction angle below the minimum → Warn (`22°, min 30° ·
   Ctrl+A allows`), square branch at a turnout → Invalid (`90° not allowed`), crossing an edge it doesn't connect to →
   Invalid (`crosses street · not connected`), corridor overlap (incl. drawn back over a road from a shared node) →
   Invalid, crosses itself → Invalid, too short for its junctions → Warn.
@@ -243,6 +243,18 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   as a fallback). A curb that doesn't fit within the cut-back cap is left out and adds no cut-back (before, both arms
   were cut to the cap). Straight junctions are unchanged. `--demo-junctions` (Curve: curbs touch the real sides, the
   outline has each cut corner), `--storyboard=junction-curved`.
+- **Fix (2026-09-30): short arms and sharp angles** (user's avenue screenshot). A curb that didn't fit an arm's cap was
+  dropped with no cut-back, so stubs butted in square and sharp pairs overlapped. Now the curb shrinks to the largest
+  radius that fits (down to a sharp corner), and an arm whose far end has no footprint may be cut back 90 % of its edge
+  (45 % only when both ends are junctions). Also: a corner that exactly fills its leg (a split inside an arc) no longer
+  counts as clamped from float error (`R 40 m (wants 40)` and its amber halo). `--storyboard=junction-stubs`.
+- **Fix (2026-09-30): clamped corners under `MinRadius`** (user's screenshot). A clamped corner was only a Warn even
+  when the radius it got was under the minimum, so it built without Anarchy; continuing that road later pinned the
+  corner to its built radius, so the same corner then came up as a *new* Invalid and blocked an unrelated draw. Now a
+  corner below `MinRadius` is Invalid however it got there, and a clamp above it is no issue (no amber, no `wants`).
+  Shift+wheel / `[` `]` stop at the largest radius the live corner fits (`Alignment.MaxRadius`), Anarchy or not.
+  `--demo-draw` (wheel capped at the fit, squeezed corner refused then built with Anarchy), `--demo-junctions`,
+  `--storyboard=rail-clamped` (now red: R 191 m, min 300 m).
 
 ### ⬜ S5: Edit tool
 - Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.
@@ -256,7 +268,7 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.
 - Speed readout from the tightest radius (`SpeedFromRadius`) in the cursor tag and the amber clamp tag
-  (`R 191 m (wants 500)` · `≈ 97 km/h`, the storyboard's rail frame), and a curvature strip in the HUD for the selected edge.
+  (`R 191 m` · `≈ 97 km/h`, the storyboard's rail frame), and a curvature strip in the HUD for the selected edge.
 
 ### ⬜ S8: Vertical profile and terrain shaping
 - Stations (`Ground` / `Absolute` / `Offset`), PgUp/PgDn steps, grade in the tag, `MaxGrade` check.
@@ -304,7 +316,6 @@ Only after the features. Things to expect:
 
 ## Open questions
 - Should Curve mode's bend point be the PI (current plan) or a point the arc passes through?
-- Should an amber clamped radius on rail/highway build as is (current plan), or refuse until there's room?
 - Should the grid mode rotate to the terrain or to the first edge only?
 
 ## Research notes
@@ -353,6 +364,9 @@ version:
 - 2026-09-30 (S4): **Severity doesn't depend on Anarchy.** Warn builds; Invalid is refused unless Anarchy is on, and
   what Anarchy builds stays red (the storyboard's "shows red", Network Anarchy's behaviour). A too-sharp junction
   angle is Warn, so it always builds. DESIGN.md's "Anarchy downgrades Invalid to Warn" is reworded to match.
+- 2026-09-30 (from the user): **no "wants" radius.** A radius never asks for more than fits (Shift+wheel stops at
+  the fit), a corner clamped below `MinRadius` is refused like one drawn that tight, and a clamp above it is fine.
+  This replaces the storyboard's amber `R 191 m (wants 500)` rail frame, which is now red.
 - 2026-09-30 (S4): `ConnectsTo` is mutual (both profiles must accept each other); crossings that don't connect are
   left unsplit and reported Invalid (bridges/tunnels later). A node's kind is the strictest of its arms (Turnout >
   Node > Join); footprints only for Node junctions with 3+ arms. Merging happens on delete only, never on add.

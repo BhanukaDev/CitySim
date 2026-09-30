@@ -12,7 +12,8 @@ public enum Severity { Warn, Invalid }
 public sealed record Issue(Severity Severity, string Code, string Message, Vector2 Where, int? EdgeId = null, int? NodeId = null);
 
 /// <summary>
-/// The checks (DESIGN.md → Validation): a clamped radius (Warn) or one below the profile's minimum (Invalid), a
+/// The checks (DESIGN.md → Validation): a corner built below the profile's minimum radius (Invalid, whether it was
+/// asked for or clamped to fit; a clamp above the minimum isn't an issue, the corner just takes what fits), a
 /// junction angle below the minimum (Warn), a square branch off a turnout profile (Invalid), a crossing or overlap
 /// with an edge it doesn't connect to (Invalid), crossing itself (Invalid), and an edge too short for the junctions
 /// at its ends (Warn). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade comes
@@ -48,9 +49,7 @@ public static class Validation
         {
             var c = a.Corner(i);
             if (a.Pis[i].Hard || c.Radius <= 0) continue;
-            if (c.Clamped)
-                issues.Add(new Issue(Severity.Warn, "radius-clamped", $"R {c.Radius:0} m (wants {c.Wanted:0})", c.Mid, e.Id));
-            else if (c.Radius < rules.MinRadius - 1e-2f)
+            if (c.Radius < rules.MinRadius - 1e-2f)
                 issues.Add(new Issue(Severity.Invalid, "radius-min", $"R {c.Radius:0} m, min {rules.MinRadius:0} m · Ctrl+A allows", c.Mid, e.Id));
         }
 

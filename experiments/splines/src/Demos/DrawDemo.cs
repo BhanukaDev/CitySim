@@ -113,6 +113,33 @@ public partial class DrawDemo : Node
         Check("continued: undo restores the old end", network.Graph.EdgeCount, start + 2);
         Check("continued: undo restores the node", network.Graph.NodeAt(new NumVector2(400, 1400)) is null ? 0 : 1, 1);
 
+        // Shift+wheel can't grow the live corner past what fits: a 40 m end leg at 90° fits R 40 at most.
+        Click(400, 1400);
+        DrawTool.ForcedPlanCursor = new NumVector2(400, 1440);
+        DrawTool.ForcedModifiers = DrawModifiers.Space; // no snapping: the headless catch distance is huge
+        DrawTool._Process(0);
+        DrawTool.ForcedModifiers = DrawModifiers.None;
+        DrawTool.AdjustRadiusForTest(10f);
+        Click(400, 1440);
+        DrawTool.FinishForTest();
+        road = network.Graph.Edges.First(e => e.Alignment.Pis.Any(p => p.Position == new NumVector2(400, 1400)));
+        int joint = road.Alignment.Pis.FindIndex(p => p.Position == new NumVector2(400, 1400));
+        Check("wheel capped at the fit (m)", (int)MathF.Round(road.Alignment.Pis[joint].Radius), 40);
+        Check("capped corner isn't clamped", road.Alignment.IsClamped(joint) ? 1 : 0, 0);
+        network.Undo();
+
+        // A corner squeezed below MinRadius (a 5 m leg fits R 5 < 10) is refused, even though it was only clamped.
+        Click(400, 1400);
+        Click(400, 1405);
+        Check("clamped below min: refused", network.Graph.NodeAt(new NumVector2(400, 1405)) is null ? 0 : 1, 0);
+        Testbed.SetAnarchy(true);
+        Click(400, 1405);
+        Testbed.SetAnarchy(false);
+        DrawTool.FinishForTest();
+        Check("clamped below min: built with Anarchy", network.Graph.NodeAt(new NumVector2(400, 1405)) is null ? 0 : 1, 1);
+        Check("and it stays red", network.Issues.Count(i => i.Code == "radius-min"), 1);
+        network.Undo();
+
         // Ending on a dead end: that click places the point and finishes (no double-click).
         DrawTool.AddBuiltForTest(street, new Alignment(new[] { new Pi(new NumVector2(600, 1300)), new Pi(new NumVector2(600, 1100)) }));
         Click(400, 1400);

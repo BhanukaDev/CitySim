@@ -27,6 +27,7 @@ public sealed class Alignment
 {
     private float[] _effective = Array.Empty<float>();
     private bool[] _clamped = Array.Empty<bool>();
+    private float[] _fit = Array.Empty<float>();
     private CornerGeometry[] _corners = Array.Empty<CornerGeometry>();
     private float[] _cornerStart = Array.Empty<float>(), _cornerEnd = Array.Empty<float>();
 
@@ -46,8 +47,9 @@ public sealed class Alignment
     /// <summary>True when PI <paramref name="i"/>'s radius didn't fit and was reduced.</summary>
     public bool IsClamped(int i) => _clamped[i];
 
-    /// <summary>True when any corner's radius didn't fit (the preview turns amber).</summary>
-    public bool AnyClamped => Array.IndexOf(_clamped, true) >= 0;
+    /// <summary>The largest radius that fits at PI <paramref name="i"/> (∞ for ends and straight-through corners): the
+    /// most Shift+wheel offers, so a radius never asks for more than it can build.</summary>
+    public float MaxRadius(int i) => _fit[i];
 
     /// <summary>The built corner at interior PI <paramref name="i"/> (1 … Count − 2).</summary>
     public CornerGeometry Corner(int i) => _corners[i];
@@ -61,6 +63,8 @@ public sealed class Alignment
         int n = Pis.Count;
         _effective = new float[n];
         _clamped = new bool[n];
+        _fit = new float[n];
+        Array.Fill(_fit, float.PositiveInfinity);
         _corners = new CornerGeometry[n];
         _cornerStart = new float[n];
         _cornerEnd = new float[n];
@@ -84,19 +88,22 @@ public sealed class Alignment
             float delta = MathF.Abs(turn);
             float radius = Pis[i].Hard ? 0 : Pis[i].Radius;
             _corners[i] = _corners[i] with { TurnDegrees = turn * 180f / MathF.PI };
-            // Straight through, sharp, or doubling back: no arc.
-            if (radius <= 0 || delta < 1e-4f || delta > MathF.PI - 1e-3f) { AddLine(p); MarkSharp(i); continue; }
-
             float tanHalf = MathF.Tan(delta / 2);
             float maxIn = i - 1 == 0 ? lenIn : lenIn / 2;
             float maxOut = i + 1 == n - 1 ? lenOut : lenOut / 2;
             float tMax = MathF.Min(maxIn, maxOut);
+            if (delta >= 1e-4f && delta <= MathF.PI - 1e-3f) _fit[i] = tMax / tanHalf;
+            // Straight through, sharp, or doubling back: no arc.
+            if (radius <= 0 || delta < 1e-4f || delta > MathF.PI - 1e-3f) { AddLine(p); MarkSharp(i); continue; }
+
             float t = radius * tanHalf;
             if (t > tMax)
             {
+                // A corner that fills its leg exactly (a split inside an arc builds these) lands a hair over in float:
+                // that's the radius it asked for, not a clamp.
+                _clamped[i] = t - tMax > 1e-3f * MathF.Max(1f, t);
                 t = tMax;
                 radius = t / tanHalf;
-                _clamped[i] = true;
             }
             _effective[i] = radius;
 

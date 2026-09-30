@@ -46,6 +46,7 @@ public partial class StoryboardDemo : Node
             ["junction-turnout"] = JunctionTurnout,
             ["junction-canal"] = JunctionCanal,
             ["junction-curved"] = JunctionCurved,
+            ["junction-stubs"] = JunctionStubs,
             ["continue"] = Continue,
             ["continue-built"] = ContinueBuilt,
             ["continue-mix"] = ContinueMix,
@@ -242,6 +243,17 @@ public partial class StoryboardDemo : Node
         BuildCurve("avenue", 120, (10, 170), (160, 30), (310, 170));
         BuildCurve("street", 40, (40, 20), (110, 110), (70, 195));
         BuildCurve("street", 40, (190, 195), (215, 110), (300, 60));
+        Hover((300, 20));
+    }
+
+    /// <summary>Short stub branches off a street, and a 4-way where a street leaves a bend (the user's screenshot).</summary>
+    private void JunctionStubs()
+    {
+        Use("avenue");
+        BuildCurve("avenue", 60, (-60, 80), (240, 105), (330, -40));
+        Build("avenue", (0, 190), (30, 87.5f));
+        Build("avenue", (120, -10), (30, 87.5f));
+        Build("avenue", (110, 170), (110, 94.17f));
         Hover((300, 20));
     }
 

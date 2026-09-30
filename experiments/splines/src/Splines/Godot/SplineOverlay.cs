@@ -160,10 +160,10 @@ public partial class SplineOverlay : Control
         float s0 = f.LeadIn ? preview.CornerStations(1).Start : 0;
         float s1 = f.LeadOut ? preview.CornerStations(pis.Count - 2).End : preview.Length;
 
-        // The ribbon's outline along both edges: amber with a warning (a corner that didn't fit), red when refused.
+        // The ribbon's outline along both edges: amber with a warning, red when refused.
         if (f.Rules is { Width: > 0.5f } rules && s1 > s0)
         {
-            var outline = f.Worst == Severity.Invalid ? Bad : f.Worst == Severity.Warn || preview.AnyClamped ? Warn : Line with { A = 0.9f };
+            var outline = f.Worst == Severity.Invalid ? Bad : f.Worst == Severity.Warn ? Warn : Line with { A = 0.9f };
             int n = Math.Max(1, (int)MathF.Ceiling((s1 - s0) / 2f));
             foreach (float side in new[] { -1f, 1f })
             {
@@ -194,10 +194,9 @@ public partial class SplineOverlay : Control
             var lk = snap?.Angle is { } a && (a.Against == AngleReference.Leg || a.Against == AngleReference.StartEdge && f.LeadIn && i == 1)
                 && NumVector2.Distance(a.Vertex, at) < 1e-3f ? a : (AngleLock?)null;
             var c = preview.Corner(i);
-            // The live corner's pill also carries its radius (amber when it didn't fit).
-            string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null
-                : c.Clamped ? $"R {c.Radius:0} m (wants {c.Wanted:0})" : $"R {c.Radius:0} m";
-            AngleWithPill(at, u, v, lk, radius, c.Clamped && i == live);
+            // The live corner's pill also carries the radius it builds.
+            string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null : $"R {c.Radius:0} m";
+            AngleWithPill(at, u, v, lk, radius);
 
             if (pis[i].Hard || c.Radius <= 0)
             {
@@ -211,9 +210,8 @@ public partial class SplineOverlay : Control
                     _tags.Add(new PendingTag(hs + new Vector2(16, 18), "Hard corner", TagStyle.Plain, false, "Alt"));
                 continue;
             }
-            var ring = c.Clamped ? Warn : Line;
             GroundDisc(c.Mid, 6f, TagBg);
-            GroundRing(c.Mid, 6f, ring, 2.5f);
+            GroundRing(c.Mid, 6f, Line, 2.5f);
         }
 
         // The first leg against the edge the draw started on.

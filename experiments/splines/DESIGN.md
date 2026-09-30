@@ -53,7 +53,8 @@ Geometry is derived: straights, then spiral + arc + spiral at each PI. We don't 
 
 If a radius doesn't fit between its neighbours, the corner is **clamped** to the largest radius that fits
 (the tangent length is at most half of each neighbouring leg, or the whole leg at an end). The clamped value is
-stored as `EffectiveRadius`, and validation flags it.
+stored as `EffectiveRadius`; validation flags it only when that is below `MinRadius`, and Shift+wheel never
+grows a radius past what fits.
 
 Queries on an alignment: length, position / tangent / curvature at a distance, closest point, sampling at a spacing,
 offset curve, intersection with another alignment, and minimum radius over a range.
@@ -192,7 +193,7 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
   road the draw started on (`∡ 87°`), else the heading. Grade % joins it in S8, speed when `SpeedFromRadius` is on (S7).
 - **Snap tag**: names the snap, angle or guide that caught, next to it: `snap: node`, `90° to edge`, `extension · ∡ 90°`,
   `parallel · 40 m gap (5 lots)`, `extension × extension`, `∡ 90° · square to edge`.
-- **Corner tags**: `R 36 m` next to the live corner's radius knob (amber `R 191 m (wants 500)` when it didn't fit), a
+- **Corner tags**: `R 36 m` next to the live corner's radius knob (the radius it builds; below `MinRadius` it's red), a
   `Shift+wheel` key hint, and `Alt · hard corner` / `62° turn` on a hard corner. `Total 277 m` shows briefly after a
   finish. A red `hard corners not allowed` flashes when the profile refuses Alt.
 - **Cut/fill tag** (profiles with shaping): the largest cut and fill along the centre, e.g. `cut 4 m · fill 6 m`.
@@ -209,7 +210,7 @@ and arcs are laid on the ground plane so they follow the camera's perspective.
 - **Nodes**: white discs on the ground at the start and the cursor end; a small dot at each corner point; a ring
   knob at each arc's middle (the radius knob); a white square at a hard corner.
 - **Angles**: at every corner, an arc drawn between the two legs with a dark pill next to it: `∡ 97°`. The live
-  corner's pill adds its radius (`∡ 118° · R 36 m`, amber `R 191 m (wants 500)` when clamped). The first leg gets an
+  corner's pill adds its radius (`∡ 118° · R 36 m`, the radius it builds, never more than fits). The first leg gets an
   arc against the edge the draw started on. A snapped angle's pill has a blue border and says what it means
   (`∡ 90° · square`).
 - **Lengths**: a pill in the middle of every leg: `↔ 130 m`; the current leg adds whole steps (`↔ 168 m · 21 × 8 m`)

@@ -466,8 +466,21 @@ public partial class SplineDrawTool : Node
     private void AdjustRadius(float factor)
     {
         if (Testbed?.Profile is not { } profile) return;
-        // Anarchy lifts the profile's minimum (the corner then shows red but builds).
-        _session.SetPendingRadius(_session.PendingRadius * factor, Testbed.Anarchy ? 1f : profile.MinRadius);
+        // Stepping starts from what the corner builds now, so the first step down always shows; it can't grow past
+        // what fits (there's nothing to gain). Anarchy lifts the profile's minimum (the corner then shows red but builds).
+        float fit = LiveCornerFit();
+        _session.SetPendingRadius(MathF.Min(_session.PendingRadius, fit) * factor, Testbed.Anarchy ? 1f : profile.MinRadius, fit);
+    }
+
+    /// <summary>The largest radius the live corner (the continued joint the preview leg rounds) fits right now, from
+    /// the road the draw would build; ∞ when there's no live corner.</summary>
+    private float LiveCornerFit()
+    {
+        if (!_session.StartIsCorner || _session.IsEmpty || _trial?.Result.Alignment is not { } a) return float.PositiveInfinity;
+        var at = _session.Pis[0].Position;
+        for (int i = 1; i < a.Pis.Count - 1; i++)
+            if (NumVector2.Distance(a.Pis[i].Position, at) < 1e-3f) return a.MaxRadius(i);
+        return float.PositiveInfinity;
     }
 
     /// <summary>Builds one leg as one undo step, unless it has an Invalid issue and Anarchy is off: then it flashes

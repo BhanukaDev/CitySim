@@ -51,7 +51,6 @@ public sealed class RibbonRenderer
         var mesh = new ArrayMesh();
         var curve = alignment.Curve;
         float s0 = Math.Clamp(solidUntil, 0, curve.Length), s1 = Math.Clamp(solidFrom, s0, curve.Length);
-        if (worst is null && alignment.AnyClamped) worst = Severity.Warn;
         if (s1 > s0)
         {
             if (worst is { } w)

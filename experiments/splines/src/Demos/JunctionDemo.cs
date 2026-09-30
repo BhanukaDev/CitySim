@@ -197,10 +197,14 @@ public partial class JunctionDemo : Node
         ok.AddSpline(Line(V(0, 12), V(200, 12)), Street); // touching at a 0 m gap
         Check("0 m gap: fine", Validation.Check(ok).Count, 0);
 
+        // Clamped below the minimum is red, the same as asking for it; clamped above it is no issue.
         var c = new SplineGraph();
         c.AddSpline(new Alignment(new[] { new Pi(V(20, 178)), new Pi(V(160, 48), 500), new Pi(V(300, 178)) }), Rail);
         var issue = Validation.Check(c).FirstOrDefault();
-        Check("clamped: amber", issue?.Code == "radius-clamped" && issue.Severity == Severity.Warn);
+        Check("clamped below min: red", issue?.Code == "radius-min" && issue.Severity == Severity.Invalid);
+        var roomy = new SplineGraph();
+        roomy.AddSpline(new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(100, 0), 60), new Pi(V(100, 30)) }), Street);
+        Check("clamped above min: fine", roomy.Edges.Single().Alignment.IsClamped(1) && Validation.Check(roomy).Count == 0);
     }
 
     private void SplitMerge()
