@@ -20,6 +20,12 @@ public sealed class OverlayFrame
     public bool ClickFinishes { get; init; }
     public SnapResult? Snap { get; init; }
     public NumVector2? StartHeading { get; init; }
+    /// <summary>The draw starts / ends on a dead end it doesn't continue (another profile, say a narrower road): the
+    /// direction from that point along the old road, so the joint's angle is drawn between the two roads.</summary>
+    public NumVector2? StartArm { get; init; }
+    public NumVector2? EndArm { get; init; }
+    /// <summary>The draw ends on the side of a road (a T drawn into it): that road's direction there.</summary>
+    public NumVector2? EndHeading { get; init; }
     public ProfileRules? Rules { get; init; }
     public IReadOnlyList<NumVector2> BuiltEnds { get; init; } = Array.Empty<NumVector2>();
     /// <summary>Where the mouse is on screen (the hint stack sits next to it).</summary>
@@ -114,6 +120,7 @@ public partial class SplineOverlay : Control
     public void Show(OverlayFrame? frame)
     {
         _frame = frame;
+        _edit = null;
         QueueRedraw();
     }
 
@@ -121,6 +128,12 @@ public partial class SplineOverlay : Control
     {
         _placedTags.Clear();
         _tags.Clear();
+        if (_edit is { } ef && Project is not null)
+        {
+            DrawEdit(ef);
+            foreach (var t in _tags) Tag(t);
+            return;
+        }
         if (_frame is not { } f || Project is null) return;
 
         foreach (var end in f.BuiltEnds) GroundDisc(end, 4f, Line with { A = 0.75f });
@@ -188,15 +201,21 @@ public partial class SplineOverlay : Control
             var u = pis[i - 1].Position - at;
             var v = pis[i + 1].Position - at;
             if (u.Length() < SplineMath.Epsilon || v.Length() < SplineMath.Epsilon) continue;
-            // Straight on (a continued road's joint, drawn in line): nothing to show.
-            if (NumVector2.Dot(NumVector2.Normalize(u), NumVector2.Normalize(v)) < -0.99996f) continue;
             // A lock against the start road shows on the continued joint, where that road is the previous leg.
             var lk = snap?.Angle is { } a && (a.Against == AngleReference.Leg || a.Against == AngleReference.StartEdge && f.LeadIn && i == 1)
                 && NumVector2.Distance(a.Vertex, at) < 1e-3f ? a : (AngleLock?)null;
+            // The joint with a continued road gets arms: the old road's leg isn't dashed.
+            bool joint = f.LeadIn && i == 1 || f.LeadOut && i == pis.Count - 2;
+            // Straight on: the 180° mark, and no radius to show.
+            if (Straight(u, v))
+            {
+                AngleWithPill(at, u, v, lk, arms: joint);
+                continue;
+            }
             var c = preview.Corner(i);
             // The live corner's pill also carries the radius it builds.
             string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null : $"R {c.Radius:0} m";
-            AngleWithPill(at, u, v, lk, radius);
+            AngleWithPill(at, u, v, lk, radius, arms: joint);
 
             if (pis[i].Hard || c.Radius <= 0)
             {
@@ -214,17 +233,24 @@ public partial class SplineOverlay : Control
             GroundRing(c.Mid, 6f, Line, 2.5f);
         }
 
-        // The first leg against the edge the draw started on.
-        if (!f.LeadIn && f.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon && pis.Count >= 2)
+        // The first leg against the road the draw started on: the old road itself at a dead end it joins, else the
+        // edge's line on the smaller-angle side (a branch).
+        var first = pis.Count >= 2 ? pis[1].Position - pis[0].Position : NumVector2.Zero;
+        if (!f.LeadIn && first.Length() > SplineMath.Epsilon)
         {
-            var first = pis[1].Position - pis[0].Position;
-            if (first.Length() > SplineMath.Epsilon)
-            {
-                var edge = NumVector2.Normalize(h);
-                if (NumVector2.Dot(edge, first) < 0) edge = -edge;
-                var lk = snap?.Angle is { Against: AngleReference.StartEdge } a && NumVector2.Distance(a.Vertex, pis[0].Position) < 1e-3f ? a : (AngleLock?)null;
-                AngleWithPill(pis[0].Position, edge, first, lk);
-            }
+            var lk = snap?.Angle is { Against: AngleReference.StartEdge } a && NumVector2.Distance(a.Vertex, pis[0].Position) < 1e-3f ? a : (AngleLock?)null;
+            if (f.StartArm is { } arm) AngleWithPill(pis[0].Position, arm, first, lk, arms: true);
+            else if (f.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon)
+                AngleWithPill(pis[0].Position, SideOf(h, first), first, lk, arms: true);
+        }
+
+        // The same at the cursor end, when it lands on a road it doesn't continue (a T drawn into it, or a joint).
+        var last = pis.Count >= 2 ? pis[cur - 1].Position - pis[cur].Position : NumVector2.Zero;
+        if (!f.LeadOut && last.Length() > SplineMath.Epsilon)
+        {
+            if (f.EndArm is { } arm) AngleWithPill(pis[cur].Position, arm, last, null, arms: true);
+            else if (f.EndHeading is { } h && h.LengthSquared() > SplineMath.Epsilon)
+                AngleWithPill(pis[cur].Position, SideOf(h, last), last, null, arms: true);
         }
 
         // Nodes: a disc at the start and at the cursor end, a small dot at each corner point.
@@ -269,23 +295,45 @@ public partial class SplineOverlay : Control
     }
 
     /// <summary>The arc between two directions at a vertex (the angle between the lines, drawn from them) and a pill
-    /// just outside it: <c>∡ 97°</c>, or <c>∡ 90° · square</c> in the snap style when it's the locked angle.</summary>
-    private void AngleWithPill(NumVector2 vertex, NumVector2 dirA, NumVector2 dirB, AngleLock? locked, string? suffix = null, bool warn = false)
+    /// just outside it: <c>∡ 97°</c>, or <c>∡ 90° · square</c> in the snap style when it's the locked angle. With
+    /// <paramref name="arms"/>, short white lines run out from the vertex along both directions, for a road that has
+    /// no dashed leg of its own there. Straight on, a rectangle stands on the line instead of the arc (<c>∡ 180°</c>).</summary>
+    private void AngleWithPill(NumVector2 vertex, NumVector2 dirA, NumVector2 dirB, AngleLock? locked, string? suffix = null,
+        bool warn = false, bool arms = false)
     {
         var a = NumVector2.Normalize(dirA);
         var b = NumVector2.Normalize(dirB);
         float deg = MathF.Acos(Math.Clamp(NumVector2.Dot(a, b), -1f, 1f)) * 180f / MathF.PI;
         if (PxPerMetre(vertex) is not { } k) return;
         float r = ArcPx / k;
-        GroundArc(vertex, a, b, r, Line, ThinWidth);
+        bool straight = Straight(a, b);
+        if (arms)
+            foreach (var d in new[] { a, b }) SolidPolyline(new[] { vertex, vertex + d * r * 1.5f }, Line, ThinWidth + 0.5f);
+        if (straight)
+        {
+            var n = SplineMath.Left(b);
+            float w = r * 0.45f, h = r * 0.4f;
+            SolidPolyline(new[] { vertex - b * w, vertex - b * w + n * h, vertex + b * w + n * h, vertex + b * w }, Line, ThinWidth);
+        }
+        else GroundArc(vertex, a, b, r, Line, ThinWidth);
 
         var bis = a + b;
-        bis = bis.LengthSquared() > 1e-4f ? NumVector2.Normalize(bis) : SplineMath.Left(b);
+        bis = !straight ? NumVector2.Normalize(bis) : SplineMath.Left(b);
         if (ScreenOf(vertex + bis * r * 1.7f) is not { } at) return;
-        string text = locked is { } lk ? $"∡ {deg:0}° · {lk.Meaning}" : $"∡ {deg:0}°";
+        string text = locked is { } lk ? $"∡ {deg:0}° · {lk.Meaning}" : straight ? "∡ 180° · straight" : $"∡ {deg:0}°";
         if (suffix is not null) text += $" · {suffix}";
         var style = warn ? TagStyle.Warn : locked is null ? TagStyle.Plain : TagStyle.Snap;
         _tags.Add(new PendingTag(at, text, style, true, null));
+    }
+
+    /// <summary>Two directions from a vertex that carry on in one line (a 180° joint).</summary>
+    private static bool Straight(NumVector2 u, NumVector2 v) => NumVector2.Dot(NumVector2.Normalize(u), NumVector2.Normalize(v)) < -0.99996f;
+
+    /// <summary>A road's line through a point, pointed to the side of <paramref name="leg"/>: the smaller angle.</summary>
+    private static NumVector2 SideOf(NumVector2 heading, NumVector2 leg)
+    {
+        var edge = NumVector2.Normalize(heading);
+        return NumVector2.Dot(edge, leg) < 0 ? -edge : edge;
     }
 
     /// <summary>How many whole snap steps the current leg is, if it's (to the centimetre) a whole number.</summary>

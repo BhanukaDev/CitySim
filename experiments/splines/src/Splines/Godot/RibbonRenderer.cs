@@ -17,6 +17,9 @@ namespace CitySim.Splines.Godot;
 public sealed class RibbonRenderer
 {
     private const float Lift = 0.05f; // avoids z-fighting with the terrain
+    /// <summary>Footprints sit just above the ribbons, so where a squeezed junction can't cut an arm back far enough the
+    /// footprint still covers its end instead of z-fighting with it.</summary>
+    private const float FootprintLift = Lift * 1.5f;
     private const float CentreWidth = 0.5f;
     private const float DashOn = 3f, DashOff = 3f;
 
@@ -38,9 +41,11 @@ public sealed class RibbonRenderer
     /// <summary>Rebuilds the preview ghost from the in-progress alignment, with a halo in the worst issue's colour
     /// (a clamped corner is amber even before validation says so). Stations before <paramref name="solidUntil"/> and
     /// after <paramref name="solidFrom"/> are road already built that the draw continues unchanged: they're drawn as
-    /// built, in <paramref name="solidColor"/>, and only the rest is the ghost. Null clears it.</summary>
+    /// built, in <paramref name="solidColor"/>, and only the rest is the ghost. <paramref name="kept"/> are other
+    /// profiles' roads the draw shortens to its joint, drawn as built too. Null clears it.</summary>
     public void SetPreview(Alignment? alignment, float width, Severity? worst = null,
-        float solidUntil = 0, float solidFrom = float.PositiveInfinity, Color? solidColor = null)
+        float solidUntil = 0, float solidFrom = float.PositiveInfinity, Color? solidColor = null,
+        IReadOnlyList<(Alignment Alignment, float Width, Color Color)>? kept = null)
     {
         if (alignment is null || alignment.Curve.Length <= 0f)
         {
@@ -70,11 +75,17 @@ public sealed class RibbonRenderer
             {
                 if (b - a < 1e-3f) continue;
                 quads += Span(fill, curve, a, b, width, Lift);
-                for (float s = a + DashOff / 2; s < b; s += DashOn + DashOff)
-                    dashes += Span(centre, curve, s, MathF.Min(s + DashOn, b), CentreWidth, Lift * 2);
+                dashes += Dashes(centre, curve, a, b);
             }
             if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
             if (dashes > 0) AddSurface(mesh, centre, color.Lightened(0.55f), opaque: true);
+        }
+        foreach (var (a, w, keptColor) in kept ?? Array.Empty<(Alignment, float, Color)>())
+        {
+            var fill = NewStrip();
+            var centre = NewStrip();
+            if (Span(fill, a.Curve, 0, a.Length, w, Lift) > 0) AddSurface(mesh, fill, keptColor, opaque: true);
+            if (Dashes(centre, a.Curve, 0, a.Length) > 0) AddSurface(mesh, centre, keptColor.Lightened(0.55f), opaque: true);
         }
         _preview.Mesh = mesh;
     }
@@ -135,8 +146,10 @@ public sealed class RibbonRenderer
                 float s0 = cs, s1 = e.Alignment.Length - ce;
                 if (s1 <= s0) continue;
                 quads += Span(fill, e.Alignment.Curve, s0, s1, e.Rules.Width, Lift);
-                for (float s = s0 + DashOff / 2; s < s1; s += DashOn + DashOff)
-                    dashes += Span(centre, e.Alignment.Curve, s, MathF.Min(s + DashOn, s1), CentreWidth, Lift * 2);
+                // The centre line runs on through a width transition to the node, so it carries on into the next road.
+                float d0 = Junctions.RunsOn(e, true, footprints) ? 0 : s0;
+                float d1 = Junctions.RunsOn(e, false, footprints) ? e.Alignment.Length : s1;
+                dashes += Dashes(centre, e.Alignment.Curve, d0, d1);
             }
             var color = colorOf(group.Key);
             if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
@@ -149,13 +162,13 @@ public sealed class RibbonRenderer
             var poly = f.Outline.Select(p => new Vector2(p.X, p.Y)).ToArray();
             var tris = Geometry2D.TriangulatePolygon(poly);
             if (tris.Length > 0)
-                foreach (int i in tris) st.AddVertex(Drape(f.Outline[i], Lift));
+                foreach (int i in tris) st.AddVertex(Drape(f.Outline[i], FootprintLift));
             else // not a simple polygon (arms overlapping under Anarchy): a fan still covers most of it
                 for (int i = 0; i < f.Outline.Count; i++)
                 {
-                    st.AddVertex(Drape(f.Centre, Lift));
-                    st.AddVertex(Drape(f.Outline[i], Lift));
-                    st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], Lift));
+                    st.AddVertex(Drape(f.Centre, FootprintLift));
+                    st.AddVertex(Drape(f.Outline[i], FootprintLift));
+                    st.AddVertex(Drape(f.Outline[(i + 1) % f.Outline.Count], FootprintLift));
                 }
             var widest = f.Cuts.Select(c => graph.Edge(c.EdgeId)).OrderByDescending(e => e.Rules.Width).First();
             AddSurface(mesh, st, colorOf(widest.Rules.Id), opaque: true);
@@ -239,6 +252,24 @@ public sealed class RibbonRenderer
             for (float s = DashOff / 2; s < curve.Length; s += DashOn + DashOff)
                 quads += Span(st, curve, s, MathF.Min(s + DashOn, curve.Length), width, lift);
         return quads > 0 ? st : null;
+    }
+
+    /// <summary>A dashed centre line from <paramref name="s0"/> to <paramref name="s1"/>, the pattern stretched to a
+    /// whole number of dashes with half a gap at each end, so two pieces meeting end to end read as one line.</summary>
+    private int Dashes(SurfaceTool st, Curve curve, float s0, float s1)
+    {
+        const float period = DashOn + DashOff;
+        float len = s1 - s0;
+        if (len <= 0) return 0;
+        int n = Math.Max(1, (int)MathF.Round(len / period));
+        float p = len / n, on = p * DashOn / period;
+        int quads = 0;
+        for (int k = 0; k < n; k++)
+        {
+            float a = s0 + k * p + (p - on) / 2;
+            quads += Span(st, curve, a, a + on, CentreWidth, Lift * 2);
+        }
+        return quads;
     }
 
     private int Span(SurfaceTool st, Curve curve, float s0, float s1, float width, float lift)

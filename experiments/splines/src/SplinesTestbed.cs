@@ -6,7 +6,7 @@ namespace CitySim.Splines;
 
 /// <summary>
 /// The testbed's wiring: loads the test profiles from <see cref="ProfileDir"/> and shows the options bar. The Draw
-/// tool (S2) hangs off this.
+/// tool (S2) and the Edit tool (S5) hang off this: <c>M</c> switches between them, <c>1</c>–<c>4</c> pick a draw mode.
 /// </summary>
 public partial class SplinesTestbed : Node
 {
@@ -15,6 +15,7 @@ public partial class SplinesTestbed : Node
     public IReadOnlyList<SplineProfile> Profiles { get; private set; } = new List<SplineProfile>();
     public SplineProfile? Profile { get; private set; }
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
+    public SplineTool Tool { get; private set; } = SplineTool.Draw;
     public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
     /// <summary>Ctrl+A: Invalid issues still build (and stay red), and radii may go below the profile's minimum.</summary>
     public bool Anarchy { get; private set; }
@@ -39,9 +40,26 @@ public partial class SplinesTestbed : Node
             GD.Print($"Splines: profile {p.Id}");
         };
         _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
+        _bar.ToolChanged += t => { Tool = t; GD.Print($"Splines: tool {t}"); };
         _bar.SnapProvidersChanged += p => EnabledSnaps = p;
         _bar.AnarchyChanged += on => SetAnarchy(on);
         EnabledSnaps = _bar.EnabledSnaps;
+    }
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey { Pressed: true, Echo: false } key || key.IsCommandOrControlPressed() || key.AltPressed) return;
+        if (key.Keycode == Key.M) SetTool(Tool == SplineTool.Edit ? SplineTool.Draw : SplineTool.Edit);
+        else if (key.Keycode is >= Key.Key1 and <= Key.Key4) _bar?.SetMode((DrawMode)(key.Keycode - Key.Key1));
+        else return;
+        GetViewport().SetInputAsHandled();
+    }
+
+    /// <summary>Switches tool (M, the options bar, or a scripted frame).</summary>
+    public void SetTool(SplineTool tool)
+    {
+        if (_bar is null) { Tool = tool; return; }
+        _bar.SetTool(tool);
     }
 
     public void SetAnarchy(bool on)

@@ -6,13 +6,18 @@ namespace CitySim.Splines.Godot;
 
 /// <summary>
 /// The Draw tool's options bar along the top of the screen: a profile picker, the mode strip (Draw · Curve ·
-/// Freehand · Grid), and the snap-provider toggle row (DESIGN.md → Snapping and guides: "each snap and guide type
+/// Freehand · Grid) with the Edit tool (M) beside it, and the snap-provider toggle row (DESIGN.md → Snapping and guides: "each snap and guide type
 /// toggles in the options bar"), and the Anarchy toggle (Ctrl+A). Radius and elevation step join it in later milestones.
 /// </summary>
 public partial class SplineOptionsBar : PanelContainer
 {
     private readonly OptionButton _profilePicker = new() { TooltipText = "Profile" };
     private readonly Dictionary<DrawMode, Button> _modeButtons = new();
+    private readonly Button _editButton = new()
+    {
+        Text = "M Edit", ToggleMode = true, FocusMode = FocusModeEnum.None,
+        TooltipText = "M: select, move and reshape built splines",
+    };
     private readonly Dictionary<SnapProviders, Button> _snapButtons = new();
     private readonly Button _anarchy = new()
     {
@@ -23,12 +28,14 @@ public partial class SplineOptionsBar : PanelContainer
 
     public event Action<SplineProfile>? ProfileChanged;
     public event Action<DrawMode>? ModeChanged;
+    public event Action<SplineTool>? ToolChanged;
     public event Action<SnapProviders>? SnapProvidersChanged;
     public event Action<bool>? AnarchyChanged;
 
     public SplineProfile? Profile => _profilePicker.Selected >= 0 && _profilePicker.Selected < _profiles.Count
         ? _profiles[_profilePicker.Selected] : null;
     public DrawMode Mode { get; private set; } = DrawMode.Draw;
+    public SplineTool Tool { get; private set; } = SplineTool.Draw;
 
     /// <summary>The bar's own toggle bitmask, ANDed with the active profile's <c>SnapProviders</c> — the profile
     /// is a ceiling this can only narrow, never widen.</summary>
@@ -64,6 +71,9 @@ public partial class SplineOptionsBar : PanelContainer
             row.AddChild(b);
             _modeButtons[mode] = b;
         }
+        _editButton.ButtonGroup = group;
+        _editButton.Pressed += () => SetTool(SplineTool.Edit);
+        row.AddChild(_editButton);
         row.AddChild(new VSeparator());
         _anarchy.Toggled += on => AnarchyChanged?.Invoke(on);
         row.AddChild(_anarchy);
@@ -132,11 +142,27 @@ public partial class SplineOptionsBar : PanelContainer
     /// <summary>Shows Anarchy on or off (Ctrl+A) without firing <see cref="AnarchyChanged"/>.</summary>
     public void SetAnarchy(bool on) => _anarchy.SetPressedNoSignal(on);
 
+    /// <summary>Picks a draw mode, which also switches to the Draw tool.</summary>
     public void SetMode(DrawMode mode)
     {
         _modeButtons[mode].SetPressedNoSignal(true);
+        SetToolState(SplineTool.Draw);
         if (mode == Mode) return;
         Mode = mode;
         ModeChanged?.Invoke(mode);
+    }
+
+    /// <summary>Switches tool; back to Draw it's in the last draw mode.</summary>
+    public void SetTool(SplineTool tool)
+    {
+        (tool == SplineTool.Edit ? _editButton : _modeButtons[Mode]).SetPressedNoSignal(true);
+        SetToolState(tool);
+    }
+
+    private void SetToolState(SplineTool tool)
+    {
+        if (tool == Tool) return;
+        Tool = tool;
+        ToolChanged?.Invoke(tool);
     }
 }

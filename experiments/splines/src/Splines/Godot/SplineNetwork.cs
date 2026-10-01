@@ -10,7 +10,7 @@ namespace CitySim.Splines.Godot;
 /// junction footprints, and the flat-ribbon visuals of every edge and footprint. Every change goes through
 /// <see cref="Apply"/> as one undo step (DESIGN.md → Undo: one stack, one command per tool action). The history keeps
 /// whole graph snapshots, which is simple and cheap while alignments are shared between them (S11 can revisit).
-/// Tools (Draw now, Edit in S5) share this node.
+/// The Draw and Edit tools share this node.
 /// </summary>
 public partial class SplineNetwork : Node
 {
@@ -23,6 +23,7 @@ public partial class SplineNetwork : Node
     private readonly Dictionary<string, SplineProfile> _profiles = new();
     private RibbonRenderer? _renderer;
     private HashSet<int> _hidden = new();
+    private bool _showingTrial;
 
     public SplineGraph Graph { get; private set; } = new();
     public IReadOnlyList<Issue> Issues { get; private set; } = Array.Empty<Issue>();
@@ -83,8 +84,24 @@ public partial class SplineNetwork : Node
         _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
     }
 
+    /// <summary>Draws a changed copy of the graph in place of the built one (an Edit drag in progress, before it's
+    /// built), with its footprints and issue halos; null goes back to the built graph.</summary>
+    public void ShowTrial(SplineGraph? trial, IReadOnlyList<Issue>? issues = null)
+    {
+        if (trial is null)
+        {
+            if (!_showingTrial) return;
+            _showingTrial = false;
+            _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
+            return;
+        }
+        _showingTrial = true;
+        _renderer?.SetNetwork(trial, Junctions.Footprints(trial), issues ?? Validation.Check(trial), ColorOf);
+    }
+
     private void Refresh()
     {
+        _showingTrial = false;
         Footprints = Junctions.Footprints(Graph);
         Issues = Validation.Check(Graph);
         _hidden.RemoveWhere(id => !Graph.HasEdge(id));

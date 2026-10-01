@@ -44,3 +44,10 @@ public enum SnapProviders
 
 /// <summary>The Draw tool's modes (keys 1–4). All of them produce PIs.</summary>
 public enum DrawMode { Draw, Curve, Freehand, Grid }
+
+/// <summary>The spline tools: Draw (in one of its <see cref="DrawMode"/>s) and Edit (<c>M</c>).</summary>
+public enum SplineTool { Draw, Edit }
+
+/// <summary>Which ends of a spline something applies to.</summary>
+[Flags]
+public enum Ends { None = 0, Start = 1, End = 2, Both = Start | End }

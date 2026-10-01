@@ -48,6 +48,7 @@ $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-ch
 $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --headless --path . --quit-after 200 -- --demo-junctions  # S4+: graph, junctions, validation, prints "Demo junctions: all ok"
+$G --headless --path . --quit-after 200 -- --demo-edit-splines  # S5+: Edit tool graph ops, prints "Demo edit-splines: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 $G --path . -- --test-pad[=2000]   # levels a sand-painted square (metres) at the map centre; "Splines: Play" uses it
 # S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
@@ -233,6 +234,12 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
     two ends meeting at its node no longer count as a self-crossing. Checked in `--demo-junctions` (loop over own
     road → 4-way, ends on own road → T, one spline across itself → 4-way, solid station), `--demo-draw` (loop by
     clicks), `--storyboard=chain | chain-loop`.
+  - Fix after play-test (`docs/joint-angle-arcs.html`): angle arcs were missing at three joints. A leg starting or
+    ending on a dead end it doesn't continue (another profile, say a street off an avenue) now shows the angle between
+    the two roads (`OverlayFrame.StartArm`/`EndArm`); a leg drawn from open ground onto a road's side shows the T's
+    arc at its end, on the smaller-angle side like a branch's start (`EndHeading`). Road-reference arcs get short white
+    arms along both directions. A straight joint (180°) shows one rectangle standing on the line and
+    `∡ 180° · straight` instead of nothing. `--storyboard=joint-angle | joint-straight | t-into | continue-straight`.
 
 - **Fix (2026-09-30): junctions on curves** (from the user: "road curves don't render right in junctions"). The
   footprint treated each arm as a straight line along its direction at the node, so on a curve the curbs, cut ends and
@@ -248,6 +255,33 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   radius that fits (down to a sharp corner), and an arm whose far end has no footprint may be cut back 90 % of its edge
   (45 % only when both ends are junctions). Also: a corner that exactly fills its leg (a split inside an arc) no longer
   counts as clamped from float error (`R 40 m (wants 40)` and its amber halo). `--storyboard=junction-stubs`.
+- **Fix (2026-10-02): squeezed junctions and width transitions** (user's screenshot: a street end lying across an
+  avenue in a cluster of close junctions, and an avenue running on into a street with a hard step).
+  - A pair of arms too sharp and short for even a sharp corner within the caps (a 30° street, 30 m long, off an
+    avenue) found no curb crossing and was skipped, so the arm stayed **uncut** and its end ran across the other road.
+    Now the sides are followed on past a short arm's end and back through the node to where they really cross: a
+    squeezed pair is cut back there (clamped to the caps, cut ends joined straight), and on the wide side the outline
+    runs on past the node to where the street's side leaves the avenue (a sharp corner, no wedge). Near-parallel arms
+    are cut as far as they can go; a wide gap with no crossing at all still needs nothing.
+  - Footprints are drawn just above the ribbons (`FootprintLift`), so an arm the caps can't fully clear is covered
+    instead of z-fighting.
+  - `Junctions.IsTransition`: two arms of different widths at a node (avenue → street) get a footprint that tapers
+    the wider arm down to the narrower one over 2.5 × the width difference (30 m for 24 → 12, within its cap), eased
+    at both ends, in the wider arm's colour. A bend at such a node gets its `BendFill` at the narrower width.
+  - `--demo-junctions` (Squeezed, Transition), `--storyboard=junction-cluster` (rebuild of the screenshot) |
+    `junction-squeeze` | `transition`.
+  - Still open: the cluster's 36° street pairs are refused as `overlaps avenue`. That's correct for the rules, but
+    the sliver islands they leave are just what that geometry gives.
+  - Fix after play-test (from the user: "this is not a junction, continuous road"; the centre line stopped at the
+    taper and a bent avenue → street joint was a hard kink with a notch). `DeadEndAt` now takes a dead end of any
+    profile the drawn one `Connects` to, so drawing a street on from an avenue's end continues it like one road: the
+    joint becomes a corner with every corner rule (drawn radius, Shift+wheel, clamps), then the avenue is split back
+    off where that corner starts (at most half of it goes to the corner) and kept as its own edge (`AddResult.Kept`).
+    The street carries the whole curve, the two meet straight on, and the taper sits on the avenue's straight. The
+    preview draws the kept avenue solid in its colour; the snap tag reads `continue · avenue → street`. A transition
+    footprint is `Continuous`: `RibbonRenderer` runs the centre line through it to the node, and every centre line is
+    now spaced evenly with half a gap at each end, so dashes read as one line across the joint. `--demo-junctions`
+    (continue other profile, at the start and at the end), `--storyboard=continue-mix | continue-mix-draw | transition`.
 - **Fix (2026-09-30): clamped corners under `MinRadius`** (user's screenshot). A clamped corner was only a Warn even
   when the radius it got was under the minimum, so it built without Anarchy; continuing that road later pinned the
   corner to its built radius, so the same corner then came up as a *new* Invalid and blocked an unrelated draw. Now a
@@ -257,8 +291,39 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   `--storyboard=rail-clamped` (now red: R 191 m, min 300 m).
 
 ### ⬜ S5: Edit tool
-- Select, drag PI/node, radius knob, Alt-straighten, radial menu, box select + move, delete. Everything undoable.
-- `--demo-edit-splines`.
+Two passes, with a play-test between them (from the user, 2026-10-02).
+
+**S5a (built 2026-10-02, waiting for the user's play-test):**
+- `M` switches Draw ↔ Edit (`SplinesTestbed.Tool`, an `M Edit` button beside the mode strip); `1`–`4` pick a draw
+  mode and switch back to Draw. Leaving Draw ends a chain in progress.
+- `SplineEditTool`: a click selects **one edge** (between two nodes), Shift+click adds or removes one, a click on
+  empty ground or Esc clears it (Esc again goes back to Draw). Junctions split roads into edges, so deleting part of
+  a road is select + Delete.
+- Drag a selected edge's corner point, or any node: connected edges follow and keep their radii. The point snaps
+  (node, edge, guides; Space off), Alt slides a corner point onto its neighbours' line (straighten). Drag a radius
+  knob (the ring in the middle of each arc): the same limits as drawing (`MinRadius` unless Anarchy, up to what fits).
+- Each frame of a drag is tried on a copy of the graph and drawn in place of the built one
+  (`SplineNetwork.ShowTrial`), the old shape a faint outline, an accent arrow from where the point was, and a tag:
+  the change in length (`−35 m`) or `R 50 → 140 m` (amber at the most that fits, red under the minimum).
+- On release it's **joined like a draw** (`SplineGraph.Reconnect`, from the user): the edited edges are taken out
+  and added again with their nodes kept, so a crossing with a connecting profile becomes a junction, an end dropped
+  on a node or road joins it, and a dead end dropped on a connecting dead end continues it (same profile merges,
+  another profile splits back). Re-adding never continues anything else (`AddSpline(continueAt: Ends.None)`),
+  otherwise a dragged junction's arms would merge into each other. An Invalid result is refused unless Anarchy: it
+  springs back with `Can't move: …`. New junctions flash their tags. One undo step; the selection follows the
+  edited edges to their new ids. Delete removes the selection.
+- Core: `SplineGraph.Edit.cs` (`MoveNode`, `MovePi`, `SetRadius`, `Reconnect`, `KnobRadius`, `OntoLine`). The
+  shared mouse/ground/projection code moved from the Draw tool to `SplineToolView`.
+- Checked: `--demo-edit-splines`; `--storyboard=edit-drag | edit-knob` (storyboard frames 1 and 2),
+  `edit-join` (a dead end dragged across an avenue: a 4-way) and `edit-refused` (across a canal: springs back).
+- For the play-test: the Draw tool still deletes the edge under the cursor with Delete. Keep it, or leave Delete to
+  Edit?
+
+**S5b (next):**
+- RMB on a PI / node: the radial menu, Smooth · Hard · Straighten · Delete (actions that don't apply greyed out).
+  `--storyboard=edit-radial` (frame 3).
+- Shift+drag box select, and dragging the selection to move it (edges with both ends selected move rigidly, the
+  rest stretch).
 
 ### ⬜ S6: Curve, Freehand and Grid modes
 - Curve: 3 clicks → one PI with the largest fitting radius.
@@ -373,9 +438,14 @@ version:
 - 2026-09-30 (S4 follow-up, from the user): **a same-profile dead end is continued, not joined**. The node becomes
   a corner of one edge and every drawing rule applies to it, with no special case for sharp angles (a 25° joint rounds
   and clamps like a drawn 25° corner). This is the one case where edges merge on add. Different profiles keep the node
-  with a bend fill; width tapers come later.
+  with a bend fill; width tapers come later (superseded 2026-10-02, at the end).
 - 2026-09-30 (from the user): **Draw mode builds each leg on click**; double-click only ends the chain. One point is
   ever in the preview in Draw mode (two in Curve mode later). RMB stops instead of removing a point; Ctrl+Z takes
   back legs.
 - 2026-09-30 (S4): undo is whole-graph snapshots in `SplineNetwork` (simple, and cheap because alignments are
   shared); S8's terrain shaping will join the same step. Revisit in S11 if memory matters.
+- 2026-10-02 (S5, from the user): **Edit selects one edge** (between two nodes; Shift adds), and **an edit joins
+  like a draw** on release (crossings become junctions, dropped ends join). S5 comes in two passes (S5a, S5b).
+- 2026-10-02 (from the user): **a road running on into another profile is one continuous road, not a junction.** A
+  connecting profile's dead end is continued (rounded joint, every corner rule), then split back off where the corner
+  starts so each part keeps its profile; the wider one tapers on its straight and the centre line runs through.

@@ -177,13 +177,19 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 ### Edit tool (`M`)
 | Input | Action |
 |---|---|
-| LMB on a spline | select it: shows PIs, nodes and a radius knob on each corner |
+| LMB on a spline | select that edge (between two nodes): shows its PIs and a radius knob on each corner. Shift+click adds or removes an edge; a click on empty ground clears |
 | Drag a PI / node | move it; connected edges follow and keep their radii |
 | Drag a radius knob | change that corner's radius (same limits as drawing) |
 | Alt + drag a PI | snap it onto the line through its neighbours (straighten) |
 | RMB on a PI / node | radial menu: Smooth · Hard corner · Straighten · Delete |
 | Drag on empty ground | box select; drag the selection to move it |
 | Delete | delete the selection |
+| Esc | cancel a drag, else clear the selection, else back to Draw |
+
+A drag is tried live and drawn in place of the built network, the old shape a faint outline. On release the edited
+edges are **joined like a draw**: a crossing with a profile they connect to becomes a junction, an end dropped on a
+node or a road joins it, and a dead end dropped on a connecting dead end continues it. An Invalid result is refused
+unless Anarchy (it springs back with the reason in red). Each release is one undo step.
 
 ### Feedback
 - **Colours**: blue preview / valid, amber warning (still buildable: clamped radius, tight junction), red invalid
@@ -285,8 +291,12 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
   radius. The snap tag says `continue · <profile>`, and the preview shows the whole road it becomes. Clicking a dead
   end after the first point also finishes the draw (hint `LMB Place and finish`), no double-click needed. A draw back onto
   the other end of the same edge closes a loop instead. See `docs/dead-end-joins.html`.
-- Two arms meeting at an angle that can't be one edge (two profiles, or what a delete leaves) keep their node, and
-  the addon gives the **bend fill**: the outside of the bend, from one arm's side round to the other's.
+- A dead end of **another profile it connects to** is continued the same way (it's one road changing type, not a
+  junction): the joint is rounded with the drawn profile's rules, then the old road is split back off where that
+  corner starts, so it keeps its profile and the drawn one carries the curve. The two meet straight on; a width
+  difference tapers on the wider one, and the centre line runs on through. Tag `continue · avenue → street`.
+- Two arms meeting at an angle that can't be one edge (what a delete leaves) keep their node, and the addon gives
+  the **bend fill**: the outside of the bend, from one arm's side round to the other's.
 - An angle below `MinJunctionAngle` (the strictest Node arm's) is amber, and always buildable.
 - A crossing that isn't allowed by `ConnectsTo` is red, or becomes a bridge/tunnel if the vertical gap is enough
   (later milestone).

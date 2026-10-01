@@ -46,6 +46,8 @@ public partial class JunctionDemo : Node
         OverlapAndClamp();
         SplitMerge();
         Continue();
+        Squeezed();
+        Transition();
         foreach (var f in _failures) GD.PrintErr($"Demo junctions: FAILED {f}");
         GD.Print($"Demo junctions: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
     }
@@ -245,7 +247,7 @@ public partial class JunctionDemo : Node
     }
 
     /// <summary>Drawing on from a dead end of the same profile makes one road, the joint a corner with every drawn
-    /// corner's rules; a different profile keeps the node and fills the bend.</summary>
+    /// corner's rules; a different profile runs on round the same corner, split off where it starts.</summary>
     private void Continue()
     {
         // An L from a dead end: one edge, the joint rounded at the drawn radius.
@@ -328,13 +330,69 @@ public partial class JunctionDemo : Node
         Check("crosses itself: 4-way", fig.NodeAt(V(100, 0)) is { } fn ? Junctions.Label(fig, fn) ?? "" : "", "4-way · 90°");
         Check("crosses itself: no issues", Validation.Check(fig).Count, 0);
 
-        // Another profile: the node stays, with a filled bend and no label.
+        // Another profile: the joint is rounded like one road, and the avenue keeps its edge up to where the corner
+        // starts, so the street carries the whole corner and they meet straight on (no bend, no label, a taper).
         var mix = new SplineGraph();
         mix.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);
         var m = mix.AddSpline(Line(V(100, 0), V(100, 100)), Street);
-        Check("continue other profile: node kept", mix.EdgeCount, 2);
-        Check("continue other profile: bend fill", Junctions.BendFill(mix, m.Nodes[0]) is { Count: > 0 });
-        Check("continue other profile: no label", Junctions.Label(mix, m.Nodes[0]) is null);
+        float tl = Street.DefaultRadius; // a 90° corner's tangent length
+        Check("continue other profile: two edges", mix.EdgeCount, 2);
+        Check("continue other profile: kept the avenue", m.Kept.Count == 1 && mix.Edge(m.Kept[0]).Rules.Id == "avenue");
+        Check("continue other profile: avenue ends where the corner starts", mix.Edge(m.Kept[0]).Alignment.Length, 100 - tl);
+        int joint = m.Nodes[0];
+        Check("continue other profile: node at the corner start", Vector2.Distance(mix.Node(joint).Position, V(100 - tl, 0)) < 0.01f);
+        Check("continue other profile: street curves at its radius", mix.Edge(m.Edges[0]).Alignment.EffectiveRadius(1), Street.DefaultRadius);
+        Check("continue other profile: straight on, no bend fill", Junctions.BendFill(mix, joint) is null);
+        Check("continue other profile: no label, no issues", Junctions.Label(mix, joint) is null && Validation.Check(mix).Count == 0);
+        Check("continue other profile: taper, centre line runs on", Junctions.Footprint(mix, joint) is { Continuous: true });
+        Check("continue other profile: old node gone", mix.NodeCount, 3);
+
+        // The same drawn the other way: a street ending on the avenue's dead end.
+        var mixEnd = new SplineGraph();
+        mixEnd.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);
+        var me = mixEnd.AddSpline(new Alignment(new[] { new Pi(V(100, 100)), new Pi(V(100, 0), 16) }), Street);
+        Check("continue other profile at the end: kept", me.Kept.Count == 1 && mixEnd.Edge(me.Kept[0]).Alignment.Length is var l && MathF.Abs(l - 84) < 0.01f);
+        Check("continue other profile at the end: avenue's direction kept", Vector2.Distance(mixEnd.Edge(me.Kept[0]).Alignment.Pis[0].Position, V(0, 0)) < 0.01f);
+        Check("continue other profile at the end: no issues", Validation.Check(mixEnd).Count, 0);
+    }
+
+    /// <summary>A short street at 30° off an avenue: not even a sharp corner fits within its cap. The street is cut back
+    /// (it used to stay uncut and run across the avenue), the avenue on the sharp side to where the sides cross, and on
+    /// the wide side the outline runs on past the node to where the street's side leaves the avenue.</summary>
+    private void Squeezed()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(200, 0)), Avenue);
+        var d = SplineMath.Direction(-30f * MathF.PI / 180f) * 30f;
+        var r = g.AddSpline(Line(V(100, 0), V(100, 0) + d), Street);
+        int node = r.Nodes[0];
+        var f = Junctions.Footprint(g, node)!;
+        var street = r.Edges[0];
+        var avenue = g.Arms(node).Where(a => a.Rules.Id == "avenue").ToList();
+        float CutOf(Arm a) => f.CutBack(a.EdgeId, a.AtStart);
+        Check("squeezed: street cut to its cap", f.CutBack(street, true), 27f);
+        Check("squeezed: avenue cut on the sharp side", CutOf(avenue.Single(a => a.Direction.X > 0)), 32.785f);
+        Check("squeezed: avenue uncut on the wide side", CutOf(avenue.Single(a => a.Direction.X < 0)), 0f);
+        Check("squeezed: outline corner past the node", f.Outline.Any(p => Vector2.Distance(p, V(108.8f, -12)) < 0.6f));
+    }
+
+    /// <summary>An avenue running on into a street tapers down to it instead of ending in a step.</summary>
+    private void Transition()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);
+        var r = g.AddSpline(Line(V(100, 0), V(200, 0)), Street);
+        int node = r.Nodes[0];
+        var f = Junctions.Footprint(g, node);
+        Check("transition: footprint", f is not null);
+        if (f is null) return;
+        var avenue = g.Arms(node).Single(a => a.Rules.Id == "avenue");
+        Check("transition: avenue cut by the taper", f.CutBack(avenue.EdgeId, avenue.AtStart), 30f);
+        Check("transition: street uncut", f.CutBack(r.Edges[0], true), 0f);
+        bool Has(float x, float y) => f.Outline.Any(p => Vector2.Distance(p, V(x, y)) < 0.05f);
+        Check("transition: street width at the node", Has(100, 6) && Has(100, -6));
+        Check("transition: avenue width at the cut", Has(70, 12) && Has(70, -12));
+        Check("transition: no label, no issues", Junctions.Label(g, node) is null && Validation.Check(g).Count == 0);
     }
 
     private void Check(string name, bool ok)

@@ -8,8 +8,8 @@ using NumVector2 = System.Numerics.Vector2;
 namespace CitySim.Splines;
 
 /// <summary>
-/// <c>--storyboard=&lt;frame&gt;</c>: rebuilds one frame of <c>docs/spline-controls.html</c> (Draw, Snapping and Guides
-/// sections) in the testbed: its roads, the draw in progress, the cursor and any held keys. Pair it with
+/// <c>--storyboard=&lt;frame&gt;</c>: rebuilds one frame of <c>docs/spline-controls.html</c> (Draw, Snapping, Guides,
+/// Junctions and Editing sections) in the testbed: its roads, the draw in progress, the cursor and any held keys. Pair it with
 /// <c>--screenshot=</c> and <c>--cam=560,500,340,89,0</c> to compare the result with the HTML frame side by side.
 /// Frame coordinates are the HTML's 320 × 200 SVG units, one unit = one metre, offset to <see cref="Origin"/>.
 /// <c>--storyboard=list</c> prints the frame names.
@@ -17,6 +17,7 @@ namespace CitySim.Splines;
 public partial class StoryboardDemo : Node
 {
     [Export] public SplineDrawTool? DrawTool { get; set; }
+    [Export] public SplineEditTool? EditTool { get; set; }
     [Export] public SplinesTestbed? Testbed { get; set; }
 
     private static readonly NumVector2 Origin = new(400, 400);
@@ -50,9 +51,21 @@ public partial class StoryboardDemo : Node
             ["continue"] = Continue,
             ["continue-built"] = ContinueBuilt,
             ["continue-mix"] = ContinueMix,
+            ["continue-mix-draw"] = ContinueMixDraw,
             ["continue-both"] = ContinueBoth,
             ["chain"] = Chain,
             ["chain-loop"] = ChainLoop,
+            ["joint-angle"] = JointAngle,
+            ["joint-straight"] = JointStraight,
+            ["t-into"] = TInto,
+            ["continue-straight"] = ContinueStraight,
+            ["junction-cluster"] = JunctionCluster,
+            ["junction-squeeze"] = JunctionSqueeze,
+            ["transition"] = Transition,
+            ["edit-drag"] = EditDrag,
+            ["edit-knob"] = EditKnob,
+            ["edit-join"] = EditJoin,
+            ["edit-refused"] = EditRefused,
         };
     }
 
@@ -257,6 +270,48 @@ public partial class StoryboardDemo : Node
         Hover((300, 20));
     }
 
+    /// <summary>The user's play-test (2026-10-02): an avenue Y with streets packed round it (short edges between close
+    /// junctions, a 5-arm node, a street ending on the avenue's side) and an avenue running on into a street.</summary>
+    private void JunctionCluster()
+    {
+        Use("street");
+        Build("avenue", (35, 340), (77, 161));
+        Build("avenue", (77, 161), (14, 0));
+        Build("avenue", (77, 161), (105, 0));
+        Build("street", (55, 255), (470, 80));
+        Build("street", (77, 161), (143, 340));
+        Build("street", (77, 161), (299, 309));
+        Build("street", (340, 36), (414, 308));
+        Build("avenue", (340, 36), (326, -20));
+        Hover((440, 330));
+    }
+
+    /// <summary>Short streets meeting an avenue at 30° and 25°: too sharp and short for even a sharp corner, so both
+    /// arms are cut back as far as they can and joined straight (the street used to run on across the avenue).</summary>
+    private void JunctionSqueeze()
+    {
+        Use("street");
+        Build("avenue", (20, 100), (300, 100));
+        var d = SplineMath.Direction(-30f * MathF.PI / 180f) * 30f;
+        Build("street", (100, 100), (100 + d.X, 100 + d.Y));
+        var e = new NumVector2(220, 100) + SplineMath.Direction(-155f * MathF.PI / 180f) * 60f;
+        Build("street", (220, 100), (e.X, e.Y));
+        var x = new NumVector2(0.42f, -0.906f);
+        Build("street", (e.X - x.X * 10, e.Y - x.Y * 10), (e.X + x.X * 25, e.Y + x.Y * 25));
+        Hover((300, 180));
+    }
+
+    /// <summary>An avenue running on into a street, straight and at a bend: the avenue tapers down to the street.</summary>
+    private void Transition()
+    {
+        Use("street");
+        Build("avenue", (20, 60), (140, 60));
+        Build("street", (140, 60), (300, 60));
+        Build("avenue", (20, 160), (140, 160));
+        Build("street", (140, 160), (260, 110));
+        Hover((300, 180));
+    }
+
     /// <summary>A branch at 22° off a street (min 30°): amber, with the fix in the tag.</summary>
     private void JunctionSharp()
     {
@@ -345,6 +400,103 @@ public partial class StoryboardDemo : Node
         Click((220, 40));
         DrawTool!.FinishForTest();
         Hover((300, 120));
+    }
+
+    /// <summary>A street leg being drawn on from an avenue's dead end: the avenue stays solid up to where the joint's
+    /// corner starts, and the street ghost carries the corner on.</summary>
+    private void ContinueMixDraw()
+    {
+        Use("avenue");
+        Build("avenue", (40, 190), (220, 190));
+        Use("street");
+        Click((220, 190));
+        Hover((280, 60));
+    }
+
+    // --- Joint angle arcs (docs/joint-angle-arcs.html) ---
+
+    /// <summary>A street drawn on from an avenue's dead end, at an angle: arms along both roads and the arc.</summary>
+    private void JointAngle()
+    {
+        Use("street");
+        Build("avenue", (20, 150), (170, 150));
+        Click((170, 150));
+        var c = new NumVector2(170, 150) + SplineMath.Direction(-35f * MathF.PI / 180f) * 150f;
+        Hover((c.X, c.Y));
+    }
+
+    /// <summary>The same, straight on: arms and the 180° rectangle on the line.</summary>
+    private void JointStraight()
+    {
+        Use("street");
+        Build("avenue", (20, 150), (170, 150));
+        Click((170, 150));
+        Hover((300, 150));
+    }
+
+    /// <summary>A leg drawn from open ground onto a street's side: the arc at the end, as at a branch's start.</summary>
+    private void TInto()
+    {
+        Use("street");
+        Build("street", (10, 160), (350, 160));
+        Click((90, 30));
+        Hover((200, 160.5f));
+    }
+
+    /// <summary>A street continued straight on: the continued joint's 180° mark.</summary>
+    private void ContinueStraight()
+    {
+        Use("street");
+        Build("street", (20, 150), (170, 150));
+        Click((170, 150));
+        Hover((300, 150));
+    }
+
+    // --- Editing ---
+
+    /// <summary>Frame "Drag a node": a street's corner point dragged, the old shape a faint outline until release.</summary>
+    private void EditDrag()
+    {
+        BuildCurve("street", 24, (20, 160), (150, 60), (300, 150));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((85, 110)));
+        EditTool.DragForTest(P((150, 60)), P((170, 100)));
+    }
+
+    /// <summary>Frame "Drag a radius knob": an avenue's corner knob dragged out from R 50 to R 140.</summary>
+    private void EditKnob()
+    {
+        BuildCurve("avenue", 50, (25, 175), (160, 40), (295, 175));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((60, 140)));
+        var knob = EditTool.Network!.Graph.Edges.Single().Alignment.Corner(1).Mid;
+        // A 90° corner's arc middle sits R (√2 − 1) in from its point.
+        EditTool.DragForTest(knob, P((160, 40 + 140 * (MathF.Sqrt(2) - 1))));
+    }
+
+    /// <summary>A street's dead end dragged across an avenue and let go: it's built, the crossing a new 4-way (its tag
+    /// flashes), and the selection follows the street's new pieces.</summary>
+    private void EditJoin()
+    {
+        Build("avenue", (20, 60), (300, 60));
+        Build("street", (160, 100), (160, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((160, 150)));
+        EditTool.DragForTest(P((160, 100)), P((150, 20)));
+        EditTool.ReleaseForTest();
+        EditTool.ForcedPlanCursor = P((240, 150));
+    }
+
+    /// <summary>The same drag across a canal, which a street doesn't join: refused, it springs back with a red flash.</summary>
+    private void EditRefused()
+    {
+        Build("canal", (20, 60), (300, 60));
+        Build("street", (160, 100), (160, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((160, 150)));
+        EditTool.DragForTest(P((160, 100)), P((150, 20)));
+        EditTool.ReleaseForTest();
+        EditTool.ForcedPlanCursor = P((240, 150));
     }
 
     // --- Helpers ---

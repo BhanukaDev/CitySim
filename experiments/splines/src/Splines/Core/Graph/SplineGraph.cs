@@ -11,7 +11,7 @@ public sealed class GraphNode
     public GraphNode(int id, Vector2 position) { Id = id; Position = position; }
 
     public int Id { get; }
-    public Vector2 Position { get; }
+    public Vector2 Position { get; internal set; }
     public List<int> Edges { get; } = new();
 }
 
@@ -29,12 +29,16 @@ public sealed record GraphEdge(int Id, ProfileRules Rules, Alignment Alignment, 
 public readonly record struct Arm(int EdgeId, bool AtStart, Vector2 Direction, ProfileRules Rules);
 
 /// <summary>What <see cref="SplineGraph.AddSpline"/> made: the new edges in draw order, every node the new spline
-/// touches (its ends and its junctions), the whole alignment it added (the drawn one, grown by any dead ends it
-/// continued), the edges those dead ends were (now part of it), and the stations of <see cref="Alignment"/> before
-/// <see cref="SolidUntil"/> and after <see cref="SolidFrom"/> that are those old roads unchanged (up to where the
-/// corner at the joint starts), so a preview can draw them as built.</summary>
+/// touches (its ends and its junctions), the whole alignment it added (the drawn one, grown by any dead ends of its
+/// own profile it continued), the edges the continued dead ends were, and the stations of <see cref="Alignment"/>
+/// before <see cref="SolidUntil"/> and after <see cref="SolidFrom"/> that are those old roads unchanged (up to where the
+/// corner at the joint starts), so a preview can draw them as built. A dead end of another profile keeps its own edge,
+/// shortened to where the joint's corner starts: <see cref="Kept"/> are those edges (new ids), also built as they are.</summary>
 public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes, Alignment Alignment, IReadOnlyList<int> Continued,
-    float SolidUntil = 0, float SolidFrom = float.PositiveInfinity);
+    float SolidUntil = 0, float SolidFrom = float.PositiveInfinity)
+{
+    public IReadOnlyList<int> Kept { get; init; } = Array.Empty<int>();
+}
 
 /// <summary>
 /// The spline network (DESIGN.md → Graph): nodes and edges, each edge owning one alignment. Adding a spline splits it
@@ -43,7 +47,7 @@ public sealed record AddResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Node
 /// linear searches (S11 adds a spatial index). <see cref="Clone"/> is cheap enough for the draw preview and the undo
 /// history, since alignments are shared, never changed in place.
 /// </summary>
-public sealed class SplineGraph
+public sealed partial class SplineGraph
 {
     /// <summary>Points closer than this are the same node.</summary>
     public const float NodeTolerance = 0.5f;
@@ -128,30 +132,33 @@ public sealed class SplineGraph
 
     /// <summary>
     /// The edge a spline of <paramref name="rules"/>' profile would continue from a point: a node there with only that
-    /// edge, of the same profile (not a loop), so the two become one road (DESIGN.md → Junctions → Continuing a dead
-    /// end). Null anywhere else.
+    /// edge (not a loop), of a profile it <see cref="Connects"/> to, so the two run on as one road (DESIGN.md →
+    /// Junctions → Continuing a dead end). Null anywhere else.
     /// </summary>
     public (int EdgeId, bool AtStart)? DeadEndAt(Vector2 p, ProfileRules rules)
     {
         if (rules.JunctionKind == JunctionKind.None || NodeAt(p) is not { } n || _nodes[n].Edges.Count != 1) return null;
         var e = _edges[_nodes[n].Edges[0]];
-        if (e.Start == e.End || e.Rules.Id != rules.Id) return null;
+        if (e.Start == e.End || !Connects(rules, e.Rules)) return null;
         return (e.Id, e.Start == n);
     }
 
     /// <summary>
-    /// Adds a drawn spline. An end on a dead end of the same profile (<see cref="DeadEndAt"/>) continues that edge:
-    /// the edge is taken into the spline and its end node becomes a corner, with the drawn end's radius (or hard
-    /// corner), so every corner rule applies to it as if it had been drawn in one go. Its other corners keep their
-    /// built radius. Otherwise ends join a node or split an edge they land on, and every crossing with an edge splits
+    /// Adds a drawn spline. An end on a dead end (<see cref="DeadEndAt"/>) continues that edge: the edge is taken into
+    /// the spline and its end node becomes a corner, with the drawn end's radius (or hard corner), so every corner rule
+    /// applies to it as if it had been drawn in one go. Its other corners keep their built radius. A dead end of
+    /// another profile is then split off again where the joint's corner starts, so it keeps its profile and the drawn
+    /// one carries the corner on (an avenue running on round a bend into a street). Otherwise ends join a node or split an edge they land on, and every crossing with an edge splits
     /// both, wherever the two profiles <see cref="Connects"/>. Where they don't, nothing joins (validation reports the
-    /// crossing or overlap).
+    /// crossing or overlap). <paramref name="continueAt"/> limits which ends may continue a dead end (an edit re-adding
+    /// a junction's arms one by one mustn't merge them), and the new edges carry <paramref name="data"/>.
     /// </summary>
-    public AddResult AddSpline(Alignment alignment, ProfileRules rules)
+    public AddResult AddSpline(Alignment alignment, ProfileRules rules, Ends continueAt = Ends.Both, object? data = null)
     {
         var continued = new List<int>();
         var emptied = new List<int>();
-        (alignment, int startJoint, int endJoint) = Continue(alignment, rules, continued, emptied);
+        var kept = new List<int>();
+        (alignment, int startJoint, int endJoint) = Continue(alignment, rules, continueAt, continued, emptied, kept);
         var curve = alignment.Curve;
         float length = curve.Length;
         var cuts = new List<Cut>();
@@ -224,49 +231,89 @@ public sealed class SplineGraph
         {
             if (cuts[i].S < NodeTolerance || cuts[i].S > length - NodeTolerance) continue;
             var (left, right) = AlignmentOps.SplitAt(rest, cuts[i].S - offset);
-            edges.Add(NewEdge(rules, left, from, nodeOfCut[i]));
+            edges.Add(NewEdge(rules, left, from, nodeOfCut[i], data));
             from = nodeOfCut[i];
             nodes.Add(from);
             rest = right;
             offset = cuts[i].S;
         }
-        edges.Add(NewEdge(rules, rest, from, endNode));
+        edges.Add(NewEdge(rules, rest, from, endNode, data));
         nodes.Add(endNode);
         foreach (int n in emptied)
             if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
         float solidUntil = startJoint > 0 ? alignment.CornerStations(startJoint).Start : 0;
         float solidFrom = endJoint > 0 ? alignment.CornerStations(endJoint).End : float.PositiveInfinity;
-        return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued, solidUntil, solidFrom);
+        return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued, solidUntil, solidFrom) { Kept = kept };
 
         static Cut OnEdge(float s, Vector2 p, GraphEdge e, float edgeS) => new(s, p, null, e.Id, edgeS);
     }
 
     /// <summary>
     /// Grows a drawn alignment by the dead ends its ends continue, taking those edges out of the graph. Their far
-    /// nodes are left (maybe empty) for the spline to join, and listed in <paramref name="emptied"/> for clean-up.
+    /// nodes are left (maybe empty) for the spline to join, and listed in <paramref name="emptied"/> for clean-up. A
+    /// dead end of another profile is split off again where the joint's corner starts (at most half of it goes to the
+    /// corner) and put back as its own edge (<paramref name="kept"/>); the alignment returned starts or ends there.
     /// </summary>
-    private (Alignment Alignment, int StartJoint, int EndJoint) Continue(Alignment drawn, ProfileRules rules, List<int> continued, List<int> emptied)
+    private (Alignment Alignment, int StartJoint, int EndJoint) Continue(Alignment drawn, ProfileRules rules, Ends continueAt,
+        List<int> continued, List<int> emptied, List<int> kept)
     {
         var pis = drawn.Pis.ToList();
         int startJoint = -1, endJoint = -1;
-        if (DeadEndAt(pis[0].Position, rules) is { } s)
+        (GraphEdge Edge, bool AtStart)? startOld = null, endOld = null;
+        if (continueAt.HasFlag(Ends.Start) && DeadEndAt(pis[0].Position, rules) is { } s)
         {
             var old = _edges[s.EdgeId];
             var lead = AlignmentOps.Pinned(s.AtStart ? AlignmentOps.Reversed(old.Alignment) : old.Alignment);
             pis = lead.Pis.Take(lead.Pis.Count - 1).Append(Joint(pis[0], rules)).Concat(pis.Skip(1)).ToList();
             startJoint = lead.Pis.Count - 1;
             Take(old);
+            if (old.Rules.Id != rules.Id) startOld = (old, s.AtStart);
         }
         // After the start, so a draw back onto the other end of the same edge closes a loop instead.
-        if (DeadEndAt(pis[^1].Position, rules) is { } e)
+        if (continueAt.HasFlag(Ends.End) && DeadEndAt(pis[^1].Position, rules) is { } e)
         {
             var old = _edges[e.EdgeId];
             var tail = AlignmentOps.Pinned(e.AtStart ? old.Alignment : AlignmentOps.Reversed(old.Alignment));
             endJoint = pis.Count - 1;
             pis = pis.Take(pis.Count - 1).Append(Joint(pis[^1], rules)).Concat(tail.Pis.Skip(1)).ToList();
             Take(old);
+            if (old.Rules.Id != rules.Id) endOld = (old, e.AtStart);
         }
-        return (continued.Count == 0 ? drawn : new Alignment(pis), startJoint, endJoint);
+        if (continued.Count == 0) return (drawn, startJoint, endJoint);
+        var grown = new Alignment(pis);
+        if (startOld is null && endOld is null) return (grown, startJoint, endJoint);
+
+        // Split the other profiles' roads back off, the end first so the start's station still holds.
+        float length = grown.Length;
+        float s0 = startOld is null ? 0 : MathF.Max(grown.CornerStations(startJoint).Start, startOld.Value.Edge.Alignment.Length / 2);
+        float s1 = endOld is null ? length : MathF.Min(grown.CornerStations(endJoint).End, length - endOld.Value.Edge.Alignment.Length / 2);
+        if (s1 - s0 < NodeTolerance) return (grown, startJoint, endJoint); // nothing left between: leave it one road
+        var rest = grown;
+        if (endOld is not null)
+        {
+            var (l, r) = AlignmentOps.SplitAt(rest, s1);
+            Keep(endOld.Value, r, fromCut: true);
+            rest = l;
+        }
+        if (startOld is not null)
+        {
+            var (l, r) = AlignmentOps.SplitAt(rest, s0);
+            Keep(startOld.Value, l, fromCut: false);
+            rest = r;
+        }
+        return (rest, -1, -1);
+
+        // The old road's part (starting at the cut, or ending there) back as its own edge, in its old direction,
+        // between its far node and a new node at the cut. Its old end node is left empty for clean-up.
+        void Keep((GraphEdge Edge, bool AtStart) old, Alignment part, bool fromCut)
+        {
+            var (e, atStart) = old;
+            int far = atStart ? e.End : e.Start;
+            int cut = NewNode(fromCut ? part.Pis[0].Position : part.Pis[^1].Position);
+            var piece = atStart == fromCut ? part : AlignmentOps.Reversed(part);
+            kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData) : NewEdge(e.Rules, piece, far, cut, e.CustomData));
+            emptied.Add(atStart ? e.Start : e.End);
+        }
 
         void Take(GraphEdge old)
         {

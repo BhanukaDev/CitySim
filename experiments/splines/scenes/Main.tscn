@@ -12,6 +12,8 @@
 [ext_resource type="Script" path="res://src/Demos/SnapDemo.cs" id="15_snapdemo"]
 [ext_resource type="Script" path="res://src/Demos/StoryboardDemo.cs" id="16_storyboard"]
 [ext_resource type="Script" path="res://src/Demos/JunctionDemo.cs" id="17_junctiondemo"]
+[ext_resource type="Script" path="res://src/Demos/EditSplinesDemo.cs" id="20_editsplinesdemo"]
+[ext_resource type="Script" path="res://src/Splines/Godot/SplineEditTool.cs" id="21_edittool"]
 [ext_resource type="Script" path="res://src/Splines/Godot/SplineNetwork.cs" id="18_network"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
@@ -115,6 +117,13 @@ CityCamera = NodePath("../CityCamera")
 Testbed = NodePath("../SplinesTestbed")
 Network = NodePath("../SplineNetwork")
 
+[node name="SplineEditTool" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera", "Testbed", "Network")]
+script = ExtResource("21_edittool")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+Testbed = NodePath("../SplinesTestbed")
+Network = NodePath("../SplineNetwork")
+
 [node name="DrawDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed", "Network")]
 script = ExtResource("14_drawdemo")
 DrawTool = NodePath("../SplineDrawTool")
@@ -124,10 +133,14 @@ Network = NodePath("../SplineNetwork")
 [node name="SnapDemo" type="Node" parent="."]
 script = ExtResource("15_snapdemo")
 
-[node name="StoryboardDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed")]
+[node name="StoryboardDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "EditTool", "Testbed")]
 script = ExtResource("16_storyboard")
 DrawTool = NodePath("../SplineDrawTool")
+EditTool = NodePath("../SplineEditTool")
 Testbed = NodePath("../SplinesTestbed")
 
 [node name="JunctionDemo" type="Node" parent="."]
 script = ExtResource("17_junctiondemo")
+
+[node name="EditSplinesDemo" type="Node" parent="."]
+script = ExtResource("20_editsplinesdemo")

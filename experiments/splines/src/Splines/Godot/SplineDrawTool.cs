@@ -9,10 +9,6 @@ using NumVector3 = System.Numerics.Vector3;
 
 namespace CitySim.Splines.Godot;
 
-/// <summary>Modifier keys a scripted frame can hold down (<see cref="SplineDrawTool.ForcedModifiers"/>).</summary>
-[Flags]
-public enum DrawModifiers { None = 0, Ctrl = 1, Shift = 2, Alt = 4, Space = 8 }
-
 /// <summary>
 /// The Draw-mode tool (DESIGN.md → Draw tool, mode 1 of 4; ROADMAP.md S2-S4): click to place PIs on the terrain,
 /// with auto-rounded corners, Alt hard corner, Shift+wheel/<c>[</c>/<c>]</c> radius of the live corner, RMB/Ctrl+Z
@@ -22,7 +18,7 @@ public enum DrawModifiers { None = 0, Ctrl = 1, Shift = 2, Alt = 4, Space = 8 }
 /// junctions it would make and its issues (amber builds, red is refused unless Anarchy, Ctrl+A). A square branch off
 /// a turnout profile offers the legal turnout as a ghost, which a click takes. With no draw in progress, Ctrl+Z/Y
 /// undo and redo on the graph, and Delete removes the edge under the cursor. No-ops unless
-/// <see cref="SplinesTestbed.Mode"/> is <see cref="DrawMode.Draw"/>.
+/// the Draw tool is on (<see cref="SplinesTestbed.Tool"/>) in <see cref="DrawMode.Draw"/>; leaving it ends the chain.
 /// </summary>
 public partial class SplineDrawTool : Node
 {
@@ -44,6 +40,7 @@ public partial class SplineDrawTool : Node
     }
 
     private readonly DrawSession _session = new();
+    private readonly SplineToolView _view;
     private readonly List<(FlashTag Tag, double Until)> _flashes = new();
     private IGround? _ground;
     private RibbonRenderer? _renderer;
@@ -58,23 +55,29 @@ public partial class SplineDrawTool : Node
     private int? _deleteTarget;
 
     /// <summary>The current ground hit, world space. Null off the terrain or over UI.</summary>
-    public NumVector3? Cursor { get; private set; }
+    public NumVector3? Cursor => _view.Cursor;
     /// <summary>Scripted-demo override: a plan-space (map metres) position that replaces the mouse raycast.</summary>
-    public NumVector2? ForcedPlanCursor { get; set; }
+    public NumVector2? ForcedPlanCursor { get => _view.ForcedPlanCursor; set => _view.ForcedPlanCursor = value; }
     /// <summary>Scripted-demo override: modifier keys treated as held (added to the real ones).</summary>
-    public DrawModifiers ForcedModifiers { get; set; }
+    public DrawModifiers ForcedModifiers { get => _view.ForcedModifiers; set => _view.ForcedModifiers = value; }
     public int BuiltCount => Network?.Graph.EdgeCount ?? 0;
     /// <summary>A draw is in progress (at least one point placed).</summary>
     public bool IsDrawing => !_session.IsEmpty;
+    private bool Active => Testbed is { Tool: SplineTool.Draw, Mode: DrawMode.Draw };
+
+    public SplineDrawTool() => _view = new SplineToolView(this);
 
     public override void _Ready()
     {
         if (Terrain is null) { GD.PushError("SplineDrawTool needs a Terrain"); return; }
         _ground = new TerrainGround(Terrain);
+        _view.Terrain = Terrain;
+        _view.CityCamera = CityCamera;
+        _view.Ground = _ground;
         _renderer = new RibbonRenderer(Terrain, _ground);
         var layer = new CanvasLayer { Name = "SplineDrawHud" };
         AddChild(layer);
-        _overlay = new SplineOverlay { Project = ProjectPlan };
+        _overlay = new SplineOverlay { Project = _view.ProjectPlan };
         layer.AddChild(_overlay);
         _issueList = new SplineIssueList();
         layer.AddChild(_issueList);
@@ -82,7 +85,7 @@ public partial class SplineDrawTool : Node
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (Testbed?.Mode != DrawMode.Draw) return;
+        if (!Active) return;
         if (@event is InputEventKey { Pressed: true } key) HandleKey(key);
         else if (@event is InputEventMouseButton mb) HandleMouseButton(mb);
     }
@@ -132,7 +135,7 @@ public partial class SplineDrawTool : Node
         {
             GetViewport().SetInputAsHandled();
             if (_suggestion is { } turnout) TakeSuggestion(turnout);
-            else Place(_snap?.Position ?? PlanOf(hit), hard: mb.AltPressed);
+            else Place(_snap?.Position ?? _view.PlanOf(hit), hard: mb.AltPressed);
         }
     }
 
@@ -145,9 +148,10 @@ public partial class SplineDrawTool : Node
             CancelSession();
         }
 
-        UpdateCursor();
+        _view.UpdateCursor();
 
-        if (Testbed.Mode != DrawMode.Draw || Testbed.Profile is not { } profile || Cursor is not { } cursor || Network is null)
+        if (!Active && !_session.IsEmpty) EndChain();
+        if (!Active || Testbed.Profile is not { } profile || Cursor is not { } cursor || Network is null)
         {
             Network?.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
@@ -161,10 +165,10 @@ public partial class SplineDrawTool : Node
         }
 
         var rules = profile.ToRules();
-        var mods = Modifiers();
-        _snap = SnapEngine.Evaluate(BuildSnapQuery(PlanOf(cursor), cursor, rules, mods));
+        var mods = _view.Modifiers();
+        _snap = SnapEngine.Evaluate(BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods));
         bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
-        if (continues) _snap = _snap with { Tag = $"continue · {rules.Id}" };
+        if (continues) _snap = _snap with { Tag = ContinueTag(_snap.Position, rules) };
         bool clickFinishes = !_session.IsEmpty && _snap.Kind == SnapKind.Node && Network.Graph.DeadEndAt(_snap.Position, rules) is not null;
 
         Alignment? preview = null, shown = null;
@@ -185,8 +189,13 @@ public partial class SplineDrawTool : Node
             shown = continued.Count > 0 ? _trial!.Result.Alignment : drawn;
             (preview, leadIn, leadOut) = continued.Count > 0 ? WithLeads(drawn, rules) : (drawn, false, false);
             // The old road it continues stays drawn as built; only the new part (from the joint's corner) is the ghost.
+            // Another profile's road keeps its own edge up to the joint's corner, drawn as built in its colour.
             if (continued.Count > 0)
-                _renderer.SetPreview(shown, profile.Width, _trial?.Worst, _trial!.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id));
+            {
+                var kept = _trial!.Result.Kept.Select(id => _trial.Graph.Edge(id))
+                    .Select(e => (e.Alignment, e.Rules.Width, Network.ColorOf(e.Rules.Id))).ToList();
+                _renderer.SetPreview(shown, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id), kept);
+            }
             else
                 _renderer.SetPreview(shown, profile.Width, _trial?.Worst);
         }
@@ -194,7 +203,7 @@ public partial class SplineDrawTool : Node
         {
             Network.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
-            _deleteTarget = EdgeUnder(PlanOf(cursor));
+            _deleteTarget = EdgeUnder(_view.PlanOf(cursor));
         }
         _renderer.SetGhost(_suggestion, profile.Width);
         _issueList?.Show(_trial?.Issues ?? new List<Issue>(), Network.Issues, Testbed.Anarchy);
@@ -203,6 +212,18 @@ public partial class SplineDrawTool : Node
         _flashes.RemoveAll(f => now > f.Until);
         bool ctrl = mods.HasFlag(DrawModifiers.Ctrl) && !mods.HasFlag(DrawModifiers.Space);
         var graph = Network.Graph;
+        // What the leg's ends land on, for their angle arcs: a dead end they join without continuing (the old road's
+        // direction), or the side of a road (its line). A perpendicular foot already has its square mark.
+        NumVector2? startArm = null, endArm = null, endHeading = null;
+        if (!_session.IsEmpty)
+        {
+            if (!leadIn) startArm = DeadEndArm(_session.Pis[0].Position);
+            if (!leadOut && _snap is { Kind: SnapKind.Node or SnapKind.Edge } es)
+            {
+                endArm = DeadEndArm(es.Position);
+                if (endArm is null) endHeading = es.EdgeTangent;
+            }
+        }
         _overlay.Show(new OverlayFrame
         {
             SessionPis = _session.Placed,
@@ -212,9 +233,12 @@ public partial class SplineDrawTool : Node
             ClickFinishes = clickFinishes,
             Snap = _snap,
             StartHeading = _session.IsEmpty ? null : _startHeading,
+            StartArm = startArm,
+            EndArm = endArm,
+            EndHeading = endHeading,
             Rules = rules,
             BuiltEnds = graph.Nodes.Select(n => n.Position).ToList(),
-            Mouse = MouseScreen(),
+            Mouse = _view.MouseScreen(),
             CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
             HardRefused = now < _hardHintUntil,
             Flashes = _flashes.Select(f => f.Tag).ToList(),
@@ -231,6 +255,21 @@ public partial class SplineDrawTool : Node
     }
 
     // --- Continuing a dead end ---
+
+    /// <summary>The direction out along the one road ending at a point, when it's a dead end.</summary>
+    private NumVector2? DeadEndArm(NumVector2 p)
+    {
+        var g = Network!.Graph;
+        return g.NodeAt(p) is { } n && g.Arms(n) is { Count: 1 } arms ? arms[0].Direction : null;
+    }
+
+    /// <summary>The snap tag on a dead end the leg continues: <c>continue · street</c>, or <c>continue · avenue → street</c>
+    /// onto another profile.</summary>
+    private string ContinueTag(NumVector2 p, ProfileRules rules)
+    {
+        var old = Network!.Graph.Edge(Network.Graph.DeadEndAt(p, rules)!.Value.EdgeId).Rules.Id;
+        return old == rules.Id ? $"continue · {rules.Id}" : $"continue · {old} → {rules.Id}";
+    }
 
     /// <summary>Whether a point is a dead end the preview leg would continue: not the road the leg starts from,
     /// which it closes into a loop instead.</summary>
@@ -349,16 +388,6 @@ public partial class SplineDrawTool : Node
         return best;
     }
 
-    private DrawModifiers Modifiers()
-    {
-        var m = ForcedModifiers;
-        if (Input.IsKeyPressed(Key.Ctrl)) m |= DrawModifiers.Ctrl;
-        if (Input.IsKeyPressed(Key.Shift)) m |= DrawModifiers.Shift;
-        if (Input.IsKeyPressed(Key.Alt)) m |= DrawModifiers.Alt;
-        if (Input.IsKeyPressed(Key.Space)) m |= DrawModifiers.Space;
-        return m;
-    }
-
     /// <summary>Every currently-held-input flag and existing alignment <see cref="SnapEngine"/> needs, plus the
     /// screen-pixel catch distance converted to plan units for this frame's cursor depth.</summary>
     private SnapQuery BuildSnapQuery(NumVector2 rawPlan, NumVector3 worldCursor, ProfileRules rules, DrawModifiers mods)
@@ -369,67 +398,14 @@ public partial class SplineDrawTool : Node
             Cursor = rawPlan,
             SessionPis = _session.Placed,
             StartHeading = _session.IsEmpty ? null : _startHeading,
-            Candidates = Candidates(),
+            Candidates = SplineToolView.Candidates(Network!.Graph),
             Rules = rules,
             EnabledProviders = Testbed?.EnabledSnaps ?? SnapProviders.All,
-            CatchDistance = PixelsToPlanUnits(CatchPixels, worldCursor),
+            CatchDistance = _view.PixelsToPlanUnits(CatchPixels, worldCursor),
             CtrlSteps = ctrl,
             FineSteps = ctrl && mods.HasFlag(DrawModifiers.Shift),
             Disabled = mods.HasFlag(DrawModifiers.Space),
         };
-    }
-
-    /// <summary>Every built edge as a snap source; extension guides only leave dead ends.</summary>
-    private List<SnapCandidate> Candidates()
-    {
-        if (Network is null) return new List<SnapCandidate>();
-        var g = Network.Graph;
-        return g.Edges.Select(e => new SnapCandidate(e.Alignment, e.Rules.Width,
-            OpenStart: g.Node(e.Start).Edges.Count == 1, OpenEnd: g.Node(e.End).Edges.Count == 1)).ToList();
-    }
-
-    /// <summary>Converts a screen-pixel distance to plan units at <paramref name="worldHit"/>'s depth, so the catch
-    /// distance feels the same at every zoom (DESIGN.md → Snapping and guides).</summary>
-    private float PixelsToPlanUnits(float pixels, NumVector3 worldHit)
-    {
-        var world = new Vector3(worldHit.X, worldHit.Y, worldHit.Z);
-        if (CityCamera?.Camera is not { } cam || cam.IsPositionBehind(world)) return pixels;
-        var origin = cam.UnprojectPosition(world);
-        var offset = cam.UnprojectPosition(world + new Vector3(1f, 0, 0));
-        float pxPerMeter = origin.DistanceTo(offset);
-        return pxPerMeter > 1e-3f ? pixels / pxPerMeter : pixels;
-    }
-
-    /// <summary>A plan point draped on the ground, on screen (null when behind the camera) — for the overlay.</summary>
-    private Vector2? ProjectPlan(NumVector2 plan)
-    {
-        if (Terrain is null || _ground is null || CityCamera?.Camera is not { } cam) return null;
-        var o = Terrain.GlobalPosition;
-        var world = new Vector3(o.X + plan.X, _ground.GetHeight(plan), o.Z + plan.Y);
-        return cam.IsPositionBehind(world) ? null : cam.UnprojectPosition(world);
-    }
-
-    /// <summary>The mouse on screen, or where the forced cursor projects to in a scripted frame.</summary>
-    private Vector2 MouseScreen() =>
-        ForcedPlanCursor is { } forced && ProjectPlan(forced) is { } p ? p : GetViewport().GetMousePosition();
-
-    private void UpdateCursor()
-    {
-        if (Terrain is null || _ground is null) { Cursor = null; return; }
-        if (ForcedPlanCursor is { } forced)
-        {
-            var world = Terrain.MapToWorld(forced.X, forced.Y, _ground.GetHeight(forced));
-            Cursor = new NumVector3(world.X, world.Y, world.Z);
-            return;
-        }
-        Cursor = null;
-        if (CityCamera?.Camera is not { } cam) return;
-        var viewport = GetViewport();
-        if (viewport.GuiGetHoveredControl() is not null) return;
-        var mouse = viewport.GetMousePosition();
-        var origin = ToNumerics(cam.ProjectRayOrigin(mouse));
-        var dir = ToNumerics(cam.ProjectRayNormal(mouse));
-        if (_ground.Raycast(origin, dir, out var hit)) Cursor = hit;
     }
 
     /// <summary>
@@ -558,29 +534,21 @@ public partial class SplineDrawTool : Node
         _renderer?.SetPreview(null, 0);
     }
 
-    private NumVector2 PlanOf(NumVector3 worldHit)
-    {
-        var map = Terrain!.WorldToMap(new Vector3(worldHit.X, worldHit.Y, worldHit.Z));
-        return new NumVector2(map.X, map.Y);
-    }
-
-    private static NumVector3 ToNumerics(Vector3 v) => new(v.X, v.Y, v.Z);
-
     // --- Direct-API test hooks for --demo-draw and --storyboard (no simulated InputEvents) ---
 
     /// <summary>Places a PI at <see cref="ForcedPlanCursor"/> exactly (no snapping, so golden coordinates stay exact),
     /// but still records the start edge's heading if that point is on a built spline.</summary>
     public void PlaceForTest(bool hard)
     {
-        UpdateCursor(); // ForcedPlanCursor was just set; Cursor otherwise only refreshes in _Process
+        _view.UpdateCursor(); // ForcedPlanCursor was just set; Cursor otherwise only refreshes in _Process
         if (Cursor is not { } hit || Testbed?.Profile is not { } profile) return;
-        var plan = PlanOf(hit);
+        var plan = _view.PlanOf(hit);
         if (_session.IsEmpty)
             _snap = SnapEngine.Evaluate(new SnapQuery
             {
                 Cursor = plan, Rules = profile.ToRules(), CatchDistance = 0.5f,
                 EnabledProviders = SnapProviders.Node | SnapProviders.Edge,
-                Candidates = Candidates(),
+                Candidates = SplineToolView.Candidates(Network!.Graph),
             }) with { Position = plan };
         Place(plan, hard);
     }
