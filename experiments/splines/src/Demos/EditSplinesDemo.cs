@@ -10,7 +10,8 @@ namespace CitySim.Splines;
 /// <c>--demo-edit-splines</c> (S5): checks the Edit tool's graph operations in Core. Moving a corner point keeps the
 /// other radii, a dragged junction stays one junction, a road dragged across another joins it (or is an Invalid
 /// crossing where the profiles don't connect), a dropped dead end joins a node, a road or continues a dead end, the
-/// radius knob's maths, Alt-straighten, deleting one edge between two junctions, and custom data across a reconnect.
+/// radius knob's maths, Alt-straighten, deleting one edge between two junctions, custom data across a reconnect (S5a);
+/// the radial menu's Smooth · Hard · Straighten · Delete on a corner point and on a node, and moving a group (S5b).
 /// Prints each case, then <c>Demo edit-splines: all ok</c> or <c>FAILED</c>. Pure Core, no scene needed.
 /// </summary>
 public partial class EditSplinesDemo : Node
@@ -40,6 +41,9 @@ public partial class EditSplinesDemo : Node
         Straighten();
         DeletePart();
         KeepsData();
+        RadialPi();
+        RadialNode();
+        MoveGroup();
         foreach (var f in _failures) GD.PrintErr($"Demo edit-splines: FAILED {f}");
         GD.Print($"Demo edit-splines: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
     }
@@ -205,6 +209,119 @@ public partial class EditSplinesDemo : Node
         var r = g.Reconnect(new[] { e.Id });
         Check("Data: edited edge split at both crossings", r.Edges.Count, 3);
         Check("Data: kept on every piece", r.Edges.All(id => g.Edge(id).CustomData as string == "bus lane"));
+    }
+
+    /// <summary>The radial menu on a corner point: Smooth takes the largest radius that fits, Hard, Straighten keeps
+    /// the point on its neighbours' line, Delete takes it out.</summary>
+    private void RadialPi()
+    {
+        Alignment Bend() => new(new[] { new Pi(V(0, 0)), new Pi(V(100, 0), 16), new Pi(V(160, 60), 20), new Pi(V(300, 60)) });
+        var g = new SplineGraph();
+        g.AddSpline(Bend(), Street);
+        int id = g.Edges.Single().Id;
+        float fit = g.Edge(id).Alignment.MaxRadius(1);
+        g.SetRadius(id, 1, fit);
+        g.Reconnect(new[] { id });
+        var a = g.Edges.Single().Alignment;
+        Check("Smooth PI: largest that fits", a.EffectiveRadius(1), fit);
+        Check("Smooth PI: not clamped", !a.IsClamped(1));
+        Check("Smooth PI: other radius kept", a.EffectiveRadius(2), 20f);
+
+        g = new SplineGraph();
+        g.AddSpline(Bend(), Street);
+        id = g.Edges.Single().Id;
+        g.SetHard(id, 1);
+        Check("Hard PI: sharp", g.Edge(id).Alignment.EffectiveRadius(1), 0f);
+        Check("Hard PI: flagged", g.Edge(id).Alignment.Pis[1].Hard);
+
+        g = new SplineGraph();
+        g.AddSpline(Bend(), Street);
+        id = g.Edges.Single().Id;
+        g.RemovePi(id, 1);
+        var r = g.Reconnect(new[] { id });
+        a = g.Edge(r.Edges.Single()).Alignment;
+        Check("Delete PI: one fewer", a.Pis.Count, 3);
+        Check("Delete PI: next radius kept", a.EffectiveRadius(1), 20f);
+    }
+
+    /// <summary>The radial menu on a node: Smooth rounds a joint (same profile → one edge; another profile → a
+    /// rounded joint split back off), Straighten lines a joint up, Delete takes a junction's arms with it.</summary>
+    private void RadialNode()
+    {
+        // A kinked joint (as deleting a junction's third arm leaves; a draw onto the dead end would continue it).
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        g.AddSpline(Line(V(100, 0), V(200, 60)), Street, Ends.None);
+        int node = g.NodeAt(V(100, 0))!.Value;
+        Check("Smooth node: joint turn", MathF.Round(g.JointTurn(node) ?? -1), 31f);
+        var r = g.SmoothNode(node);
+        Check("Smooth node: one edge", g.EdgeCount, 1);
+        var a = g.Edges.Single().Alignment;
+        Check("Smooth node: a corner where the node was", a.Pis.Count, 3);
+        Check("Smooth node: largest that fits", a.EffectiveRadius(1), a.MaxRadius(1));
+        Check("Smooth node: stored as built", a.Pis[1].Radius < 1e5f && !a.IsClamped(1));
+        Check("Smooth node: no node left there", g.NodeAt(V(100, 0)) is null);
+        Check("Smooth node: result", r?.Edges.Count ?? 0, 1);
+
+        // Another profile: a street running on into an avenue keeps both, the corner rounded on the street.
+        g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(200, 0)), Avenue);
+        g.AddSpline(Line(V(200, 0), V(300, 100)), Street, Ends.None);
+        node = g.NodeAt(V(200, 0))!.Value;
+        g.SmoothNode(node);
+        Check("Smooth mixed: two edges", g.EdgeCount, 2);
+        Check("Smooth mixed: both profiles", g.Edges.Select(e => e.Rules.Id).Distinct().Count(), 2);
+        Check("Smooth mixed: rounded", g.Edges.Any(e => e.Alignment.Pis.Count == 3 && e.Alignment.EffectiveRadius(1) > 0));
+        Check("Smooth mixed: no issues", Validation.Check(g).Count, 0);
+
+        // Straighten: the joint moves onto the line through its neighbours.
+        g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(100, 20)), Street);
+        g.AddSpline(Line(V(100, 20), V(200, 0)), Street, Ends.None);
+        node = g.NodeAt(V(100, 20))!.Value;
+        var to = g.StraightenedNode(node);
+        Check("Straighten node: target", to ?? V(-1, -1), V(100, 0));
+        g.Reconnect(g.MoveNode(node, to!.Value), node);
+        Check("Straighten node: straight through", g.JointTurn(g.NodeAt(V(100, 0))!.Value) ?? -1, 0f);
+
+        // Delete a junction: its arms go, the through road's far pieces stay apart.
+        g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        g.AddSpline(Line(V(100, 0), V(100, 100)), Street);
+        g.RemoveNode(g.NodeAt(V(100, 0))!.Value);
+        Check("Delete node: arms gone", g.EdgeCount, 0);
+        Check("Delete node: no nodes left", g.NodeCount, 0);
+        Check("Smooth node: none at a dead end", new Func<bool>(() =>
+        {
+            var h = new SplineGraph();
+            h.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+            return h.SmoothNode(h.NodeAt(V(0, 0))!.Value) is null;
+        })());
+    }
+
+    /// <summary>Moving a group: a selected edge moves rigidly, an edge with one end in the group stretches, and the
+    /// moved end joins a road it's dropped on.</summary>
+    private void MoveGroup()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(50, 30), 16), new Pi(V(100, 0)) }), Street);
+        g.AddSpline(Line(V(100, 0), V(100, 100)), Street, Ends.None);
+        g.AddSpline(Line(V(0, 200), V(300, 200)), Street);
+        var bend = g.Edges.First(e => e.Alignment.Pis.Count == 3).Id;
+        var delta = V(0, 50);
+        var changed = g.MoveGroup(Array.Empty<int>(), new[] { bend }, delta);
+        Check("Group: moved and stretched", changed.Count, 2);
+        g.Reconnect(changed);
+        var moved = g.Edges.Single(e => e.Alignment.Pis.Count == 3).Alignment;
+        Check("Group: rigid corner moved", moved.Pis[1].Position, V(50, 80));
+        Check("Group: radius kept", moved.EffectiveRadius(1), 16f);
+        var stretched = g.Edges.Single(e => e.Alignment.Pis.Count == 2 && e.Alignment.Pis.Any(p => Vector2.Distance(p.Position, V(100, 100)) < 0.01f));
+        Check("Group: stretched end", stretched.Alignment.Pis.Any(p => Vector2.Distance(p.Position, V(100, 50)) < 0.01f));
+
+        // A node alone dropped onto the far road joins it.
+        int far = g.NodeAt(V(100, 100))!.Value;
+        g.Reconnect(g.MoveGroup(new[] { far }, Array.Empty<int>(), V(0, 100)));
+        Check("Group: dropped end joins the road", g.NodeAt(V(100, 200)) is { } n && g.Arms(n).Count == 3);
     }
 
     private void Check(string name, bool ok)

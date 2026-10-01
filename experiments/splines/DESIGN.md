@@ -177,14 +177,20 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 ### Edit tool (`M`)
 | Input | Action |
 |---|---|
-| LMB on a spline | select that edge (between two nodes): shows its PIs and a radius knob on each corner. Shift+click adds or removes an edge; a click on empty ground clears |
+| LMB on a spline / node | select that edge (between two nodes; shows its PIs and a radius knob on each corner) or node. Shift+click adds or removes one; a click on empty ground clears |
 | Drag a PI / node | move it; connected edges follow and keep their radii |
 | Drag a radius knob | change that corner's radius (same limits as drawing) |
 | Alt + drag a PI | snap it onto the line through its neighbours (straighten) |
-| RMB on a PI / node | radial menu: Smooth · Hard corner · Straighten · Delete |
-| Drag on empty ground | box select; drag the selection to move it |
-| Delete | delete the selection |
-| Esc | cancel a drag, else clear the selection, else back to Draw |
+| RMB on a PI / node | radial menu: Smooth · Hard · Straight · Delete (press-slide-release, or click; the hovered action is tried live; ones that don't apply are greyed) |
+| Drag on empty ground | box select: nodes inside and edges wholly inside (Shift adds) |
+| Drag a selected edge / node | move the selection: edges with both ends moving move rigidly, the rest stretch (an unselected edge's body is selected first) |
+| Delete | delete the selected edges and every edge at a selected node |
+| Esc | close the menu, else cancel a drag or box, else clear the selection, else back to Draw |
+
+**Radial menu actions.** On a corner point: Smooth = the largest radius that fits, Hard = hard corner (if the profile
+allows), Straight = onto the line through its neighbours, Delete = remove the point. On a node: Smooth rounds a joint
+of two edges like a draw onto a dead end (same profile → one edge), Straight puts a joint on its neighbours' line,
+Delete removes every edge at the node; Hard never applies to a node.
 
 A drag is tried live and drawn in place of the built network, the old shape a faint outline. On release the edited
 edges are **joined like a draw**: a crossing with a profile they connect to becomes a junction, an end dropped on a

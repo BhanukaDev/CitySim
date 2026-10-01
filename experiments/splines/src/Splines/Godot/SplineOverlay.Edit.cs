@@ -9,13 +9,27 @@ namespace CitySim.Splines.Godot;
 /// <summary>A built edge as the Edit tool shows it: its alignment and corridor width.</summary>
 public readonly record struct EditEdge(Alignment Alignment, float Width);
 
+/// <summary>One action round the radial menu: its label, its direction from the centre (degrees, screen space), and
+/// whether it applies; a <see cref="Danger"/> action (Delete) is red.</summary>
+public readonly record struct RadialItem(string Label, float Angle, bool Enabled, bool Danger);
+
+/// <summary>The open radial menu: its centre on screen, its actions, and the hovered one.</summary>
+public sealed record RadialMenu(Vector2 Centre, IReadOnlyList<RadialItem> Items, int? Hovered);
+
 /// <summary>What the Edit tool shows this frame, handed to <see cref="SplineOverlay.ShowEdit"/> (plan space).</summary>
 public sealed class EditFrame
 {
     /// <summary>Selected edges: outlined, with their tangent legs, corner points and radius knobs.</summary>
     public IReadOnlyList<EditEdge> Selected { get; init; } = Array.Empty<EditEdge>();
+    /// <summary>Selected nodes: an accent ring.</summary>
+    public IReadOnlyList<NumVector2> SelectedNodes { get; init; } = Array.Empty<NumVector2>();
     /// <summary>The edge a click would select (outlined thinner).</summary>
     public EditEdge? HoverEdge { get; init; }
+    /// <summary>A box select in progress (screen space) and what it would take.</summary>
+    public Rect2? Box { get; init; }
+    public IReadOnlyList<EditEdge> BoxEdges { get; init; } = Array.Empty<EditEdge>();
+    public IReadOnlyList<NumVector2> BoxNodes { get; init; } = Array.Empty<NumVector2>();
+    public RadialMenu? Menu { get; init; }
     /// <summary>Every node, a white disc.</summary>
     public IReadOnlyList<NumVector2> Nodes { get; init; } = Array.Empty<NumVector2>();
     /// <summary>The handle under the cursor or being dragged: drawn bigger, a knob in the accent colour.</summary>
@@ -60,6 +74,7 @@ public partial class SplineOverlay
         var ghost = Line with { A = 0.35f };
         foreach (var g in f.Ghosts) Outline(g, ghost, ThinWidth);
         if (f.HoverEdge is { } hover) Outline(hover, Line with { A = 0.7f }, 1.5f);
+        foreach (var e in f.BoxEdges) Outline(e, Accent, 1.5f);
 
         var outline = f.Worst == Severity.Invalid ? Bad : f.Worst == Severity.Warn ? Warn : Line with { A = 0.9f };
         foreach (var e in f.Selected)
@@ -69,6 +84,8 @@ public partial class SplineOverlay
         }
 
         foreach (var n in f.Nodes) GroundDisc(n, 5f, Line with { A = 0.85f }, outline: true);
+        foreach (var n in f.BoxNodes) GroundRing(n, 8f, Accent with { A = 0.7f }, 2f);
+        foreach (var n in f.SelectedNodes) GroundRing(n, 8f, Accent, 2.5f);
 
         foreach (var e in f.Selected)
         {
@@ -124,8 +141,47 @@ public partial class SplineOverlay
             if (ScreenOf(flash.At) is { } fa)
                 _tags.Add(new PendingTag(fa + new Vector2(14, 14), flash.Text, flash.Bad ? TagStyle.Bad : TagStyle.Plain, false, null));
 
-        var hintAt = f.Mouse + new Vector2(26, 10);
+        if (f.Box is { } box)
+        {
+            DrawRect(box, Accent with { A = 0.12f });
+            DrawRect(box, Accent, false, 1.5f);
+        }
+        if (f.Menu is { } menu) DrawRadial(menu);
+
+        // Beside the menu when it's open, so they don't cover its actions.
+        var hintAt = f.Menu is { } open ? open.Centre + new Vector2(RadialRadius + 12, -12) : f.Mouse + new Vector2(26, 10);
         foreach (var (key, text) in f.Hints) _tags.Add(new PendingTag(hintAt, text, TagStyle.Plain, false, key));
+    }
+
+    private const float RadialRadius = 60f, RadialInner = 16f, RadialLabel = 36f;
+
+    /// <summary>The radial menu (storyboard → Right-click a node): a dark disc round the point, an action in each
+    /// quarter, the hovered quarter lit in the accent colour, Delete in red, and actions that don't apply greyed.</summary>
+    private void DrawRadial(RadialMenu m)
+    {
+        var c = m.Centre;
+        DrawCircle(c, RadialRadius + 2, Shadow, true, -1, true);
+        DrawCircle(c, RadialRadius, TagBg, true, -1, true);
+        DrawArc(c, RadialRadius, 0, Mathf.Tau, 64, Line with { A = 0.25f }, 1f, true);
+        for (int i = 0; i < m.Items.Count; i++)
+        {
+            var item = m.Items[i];
+            float a = Mathf.DegToRad(item.Angle);
+            if (m.Hovered == i && item.Enabled)
+            {
+                // The quarter, from the inner ring out.
+                var wedge = new List<Vector2>();
+                for (int k = 0; k <= 12; k++) wedge.Add(c + Vector2.FromAngle(a - Mathf.Pi / 4 + k * Mathf.Pi / 24) * (RadialRadius - 2));
+                for (int k = 12; k >= 0; k--) wedge.Add(c + Vector2.FromAngle(a - Mathf.Pi / 4 + k * Mathf.Pi / 24) * RadialInner);
+                DrawColoredPolygon(wedge.ToArray(), (item.Danger ? Bad : Accent) with { A = 0.28f });
+            }
+            var color = !item.Enabled ? Line with { A = 0.3f } : item.Danger ? Bad : m.Hovered == i ? Accent : TagText;
+            var size = _font.GetStringSize(item.Label, HorizontalAlignment.Left, -1, FontSize);
+            var at = c + Vector2.FromAngle(a) * RadialLabel;
+            DrawString(_font, at + new Vector2(-size.X / 2, FontSize / 2f - 2), item.Label, HorizontalAlignment.Left, -1, FontSize, color);
+        }
+        DrawCircle(c, 6f, Shadow, true, -1, true);
+        DrawCircle(c, 5f, Line, true, -1, true);
     }
 
     /// <summary>Both sides of an edge's corridor.</summary>

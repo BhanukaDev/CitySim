@@ -41,6 +41,114 @@ public sealed partial class SplineGraph
     public void SetRadius(int edgeId, int i, float radius) =>
         ReplacePi(edgeId, i, pi => pi with { Radius = radius, Hard = false });
 
+    /// <summary>Makes interior PI <paramref name="i"/> of an edge a hard corner.</summary>
+    public void SetHard(int edgeId, int i) =>
+        ReplacePi(edgeId, i, pi => pi with { Hard = true });
+
+    /// <summary>Takes interior PI <paramref name="i"/> out of an edge: its two legs become one straight leg, and the
+    /// other corners keep their radii.</summary>
+    public void RemovePi(int edgeId, int i)
+    {
+        var e = _edges[edgeId];
+        if (i <= 0 || i >= e.Alignment.Pis.Count - 1) throw new ArgumentOutOfRangeException(nameof(i), "not an interior PI");
+        var pis = e.Alignment.Pis.ToList();
+        pis.RemoveAt(i);
+        _edges[edgeId] = e with { Alignment = new Alignment(pis) };
+    }
+
+    /// <summary>
+    /// Moves a group (the Edit tool's selection): the given nodes and both ends of the given edges move by
+    /// <paramref name="delta"/>. An edge with both ends moving moves rigidly, every PI with it; an edge with one end
+    /// moving stretches (only that end moves). Returns every edge that changed, for <see cref="Reconnect"/>.
+    /// </summary>
+    public List<int> MoveGroup(IEnumerable<int> nodeIds, IEnumerable<int> edgeIds, Vector2 delta)
+    {
+        var edgeList = edgeIds.Where(_edges.ContainsKey).ToList();
+        var moved = nodeIds.Where(_nodes.ContainsKey).Concat(edgeList.SelectMany(id => new[] { _edges[id].Start, _edges[id].End })).ToHashSet();
+        var changed = moved.SelectMany(n => _nodes[n].Edges).Distinct().ToList();
+        foreach (int n in moved) _nodes[n].Position += delta;
+        foreach (int id in changed)
+        {
+            var e = _edges[id];
+            bool start = moved.Contains(e.Start), end = moved.Contains(e.End);
+            var pis = e.Alignment.Pis.ToList();
+            for (int k = 0; k < pis.Count; k++)
+                if ((start && end) || (k == 0 && start) || (k == pis.Count - 1 && end))
+                    pis[k] = pis[k] with { Position = pis[k].Position + delta };
+            _edges[id] = e with { Alignment = new Alignment(pis) };
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// Rounds the joint at a node where two edges meet (the radial menu's Smooth on a node): one of them is taken out
+    /// and added back continuing the other, as a draw onto a dead end does, with the joint's corner at the largest
+    /// radius that fits. Same profiles become one edge; another profile is split back off where the corner starts.
+    /// Null when the node isn't a joint of two edges.
+    /// </summary>
+    public EditResult? SmoothNode(int nodeId)
+    {
+        if (!IsJoint(nodeId)) return null;
+        var arm = Arms(nodeId)[0];
+        var e = _edges[arm.EdgeId];
+        var pis = e.Alignment.Pis.ToList();
+        int at = arm.AtStart ? 0 : pis.Count - 1;
+        // Asks for more than can fit: the corner is clamped to the fit, then stored as what was built.
+        pis[at] = pis[at] with { Radius = Huge, Hard = false };
+        DetachEdge(e.Id);
+        int far = arm.AtStart ? e.End : e.Start;
+        if (_nodes[far].Edges.Count == 0) _nodes.Remove(far);
+        var r = AddSpline(new Alignment(pis), e.Rules, arm.AtStart ? Ends.Start : Ends.End, e.CustomData);
+        var edges = r.Edges.Concat(r.Kept).Where(_edges.ContainsKey).ToList();
+        foreach (int id in edges)
+        {
+            var a = _edges[id].Alignment;
+            if (a.Pis.All(p => p.Radius < Huge)) continue;
+            var fixedPis = a.Pis.Select((p, i) => p.Radius < Huge ? p
+                : p with { Radius = i == 0 || i == a.Pis.Count - 1 ? 0 : a.EffectiveRadius(i) });
+            _edges[id] = _edges[id] with { Alignment = new Alignment(fixedPis) };
+        }
+        return new EditResult(edges, r.Nodes.Where(_nodes.ContainsKey).ToList());
+    }
+
+    /// <summary>Where a node would move to straighten its joint: onto the line through the next PI along each of
+    /// its two edges. Null when it isn't a joint of two edges.</summary>
+    public Vector2? StraightenedNode(int nodeId)
+    {
+        if (!IsJoint(nodeId)) return null;
+        var arms = Arms(nodeId);
+        return OntoLine(Next(arms[0]), Next(arms[1]), _nodes[nodeId].Position);
+
+        Vector2 Next(Arm arm)
+        {
+            var pis = _edges[arm.EdgeId].Alignment.Pis;
+            return arm.AtStart ? pis[1].Position : pis[^2].Position;
+        }
+    }
+
+    /// <summary>The turn at a joint of two edges (degrees, 0 = straight through), or null at any other node.</summary>
+    public float? JointTurn(int nodeId)
+    {
+        if (!IsJoint(nodeId)) return null;
+        var arms = Arms(nodeId);
+        float dot = Math.Clamp(-Vector2.Dot(arms[0].Direction, arms[1].Direction), -1f, 1f);
+        return MathF.Acos(dot) * 180f / MathF.PI;
+    }
+
+    /// <summary>Removes every edge at a node (the radial menu's Delete on a node), merging what's left as
+    /// <see cref="RemoveEdge"/> does.</summary>
+    public void RemoveNode(int nodeId)
+    {
+        while (_nodes.TryGetValue(nodeId, out var node) && node.Edges.Count > 0) RemoveEdge(node.Edges[0]);
+        _nodes.Remove(nodeId);
+    }
+
+    private const float Huge = 1e6f;
+
+    /// <summary>Two different edges meet here (not a loop's own ends).</summary>
+    private bool IsJoint(int nodeId) =>
+        _nodes.TryGetValue(nodeId, out var n) && n.Edges.Count == 2 && n.Edges[0] != n.Edges[1];
+
     /// <summary>
     /// Joins edited edges to the network as a draw would (DESIGN.md → Edit tool): each is taken out and added again,
     /// so a crossing with a profile it connects to becomes a junction, and an end on a node or on a road joins it.

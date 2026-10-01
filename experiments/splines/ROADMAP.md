@@ -290,7 +290,7 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   `--demo-draw` (wheel capped at the fit, squeezed corner refused then built with Anarchy), `--demo-junctions`,
   `--storyboard=rail-clamped` (now red: R 191 m, min 300 m).
 
-### ⬜ S5: Edit tool
+### ⬜ S5: Edit tool (S5a + S5b built, play-test pending)
 Two passes, with a play-test between them (from the user, 2026-10-02).
 
 **S5a (built 2026-10-02, waiting for the user's play-test):**
@@ -319,11 +319,37 @@ Two passes, with a play-test between them (from the user, 2026-10-02).
 - For the play-test: the Draw tool still deletes the edge under the cursor with Delete. Keep it, or leave Delete to
   Edit?
 
-**S5b (next):**
-- RMB on a PI / node: the radial menu, Smooth · Hard · Straighten · Delete (actions that don't apply greyed out).
-  `--storyboard=edit-radial` (frame 3).
-- Shift+drag box select, and dragging the selection to move it (edges with both ends selected move rigidly, the
-  rest stretch).
+**S5b (built 2026-10-02, waiting for the user's play-test):**
+- **Radial menu**: RMB on a corner point (or its knob) or any node opens it round the point: Smooth (top), Hard
+  (right), Straight (bottom), Delete (left, red). Press-slide-release picks an action, or a plain right-click leaves
+  it open for a click; Esc, RMB or a click off it closes it. The hovered action is **tried live** like a drag (the
+  result drawn in place, the old shape faint, its issues listed); an Invalid result is refused unless Anarchy
+  (`Can't smooth: …`). One undo step each, joined like a draw. Actions that don't apply are greyed:
+  - Corner point: **Smooth** = the largest radius that fits (greyed when it's already there); **Hard** = hard corner
+    (only if the profile allows it, as when drawing); **Straight** = onto its neighbours' line, the point kept;
+    **Delete** = takes the point out, the two legs become one.
+  - Node: **Smooth** rounds a joint of two edges (a kink left by deleting a T's third arm, or a profile change):
+    same profile → one edge with a corner at the largest radius that fits; another profile → the rounded joint
+    split back off, like a draw onto a dead end (`SplineGraph.SmoothNode`). **Straight** moves a joint onto the
+    line through its neighbours. **Hard** is always greyed (a joint already is). **Delete** removes every edge at the
+    node (`RemoveNode`). Smooth/Straight are greyed at dead ends and junctions of 3+.
+- **Selection** now holds nodes too: a click on a node selects it (Shift toggles), shown with an accent ring.
+- **Box select**: a drag on empty ground draws a box (screen space) and takes the nodes inside it and the edges
+  **wholly** inside it (accent outlines while dragging); Shift adds to the selection.
+- **Move the selection**: drag a selected edge's body or a selected node. Every selected node and both ends of every
+  selected edge move; an edge with both ends moving moves rigidly, one with one end moving stretches
+  (`SplineGraph.MoveGroup`). Held by a node it snaps like a node drag; held by an edge's body it doesn't snap.
+  Dragging an unselected edge's body selects it first (Shift adds), so a road can be moved in one gesture. Joined
+  like a draw on release; the selection is found again where it moved to.
+- Delete removes the selected edges and every edge at a selected node.
+- Core: `SetHard`, `RemovePi`, `MoveGroup`, `SmoothNode`, `StraightenedNode`, `JointTurn`, `RemoveNode`.
+- Checked: `--demo-edit-splines` (new cases: Smooth/Hard/Straight/Delete on a corner and on a node, mixed-profile
+  smooth, group move rigid + stretch + dropped end joins); `--storyboard=edit-radial` (frame 3, Smooth hovered),
+  `edit-radial-node` (a kinked joint, Hard greyed), `edit-smoothed` (Smooth chosen: one rounded street),
+  `edit-box` (box over an avenue and two streets), `edit-move` (a street and its junction moved: the street rigid,
+  the avenue stretching).
+- For the play-test: is "largest that fits" right for Smooth, or should it be the profile's default radius? Should
+  a box take edges that are only partly inside?
 
 ### ⬜ S6: Curve, Freehand and Grid modes
 - Curve: 3 clicks → one PI with the largest fitting radius.
@@ -449,3 +475,7 @@ version:
 - 2026-10-02 (from the user): **a road running on into another profile is one continuous road, not a junction.** A
   connecting profile's dead end is continued (rounded joint, every corner rule), then split back off where the corner
   starts so each part keeps its profile; the wider one tapers on its straight and the centre line runs through.
+- 2026-10-02 (S5b): the radial menu's Smooth is **the largest radius that fits** (on a corner and on a joint), so
+  one action gives the gentlest curve and the knob can bring it back in. Box select takes nodes inside and edges
+  **wholly** inside, so a box round a junction can move it with its arms stretching. A group move snaps only when
+  held by a node.

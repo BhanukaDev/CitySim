@@ -66,6 +66,11 @@ public partial class StoryboardDemo : Node
             ["edit-knob"] = EditKnob,
             ["edit-join"] = EditJoin,
             ["edit-refused"] = EditRefused,
+            ["edit-radial"] = EditRadial,
+            ["edit-radial-node"] = EditRadialNode,
+            ["edit-smoothed"] = EditSmoothed,
+            ["edit-box"] = EditBox,
+            ["edit-move"] = EditMove,
         };
     }
 
@@ -497,6 +502,60 @@ public partial class StoryboardDemo : Node
         EditTool.DragForTest(P((160, 100)), P((150, 20)));
         EditTool.ReleaseForTest();
         EditTool.ForcedPlanCursor = P((240, 150));
+    }
+
+    /// <summary>Frame "Right-click a node": the radial menu on a street's corner point, Smooth hovered (tried live:
+    /// the largest radius that fits).</summary>
+    private void EditRadial()
+    {
+        BuildCurve("street", 20, (20, 170), (160, 100), (300, 170));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((60, 150)));
+        EditTool.MenuForTest(P((160, 100)), 0);
+    }
+
+    /// <summary>The radial menu on a kinked joint between two streets (a T's third arm deleted): Smooth rounds it into
+    /// one road; Hard is greyed, a joint already is.</summary>
+    private void EditRadialNode()
+    {
+        Build("street", (20, 60), (300, 60));
+        Build("street", (160, 60), (160, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((240, 60)));
+        EditTool.Network!.Apply(g => { g.RemoveEdge(EditTool.Selected.Single()); return 0; });
+        EditTool.MenuForTest(P((160, 60)), 0);
+    }
+
+    /// <summary>The same joint with Smooth chosen: built as one rounded street, one undo step.</summary>
+    private void EditSmoothed()
+    {
+        EditRadialNode();
+        EditTool!.MenuForTest(P((160, 60)), 0, choose: true);
+        GD.Print($"Storyboard: edges after Smooth {EditTool.Network!.Graph.EdgeCount} (want 1)");
+        EditTool.ForcedPlanCursor = P((240, 150));
+    }
+
+    /// <summary>A box dragged over an avenue with two streets off it: the streets and the avenue's middle piece are
+    /// wholly inside (accent outlines), the avenue's ends aren't.</summary>
+    private void EditBox()
+    {
+        Build("avenue", (20, 60), (300, 60));
+        Build("street", (100, 60), (100, 190));
+        Build("street", (220, 60), (220, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.BoxForTest(P((80, 30)), P((240, 195)), release: false);
+    }
+
+    /// <summary>One street and its junction box-selected and dragged: the street moves rigidly, the avenue stretches
+    /// to follow the junction.</summary>
+    private void EditMove()
+    {
+        Build("avenue", (20, 60), (300, 60));
+        Build("street", (100, 60), (100, 190));
+        Build("street", (220, 60), (220, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.BoxForTest(P((200, 40)), P((240, 195)), release: true);
+        EditTool.MoveSelectionForTest(P((220, 150)), P((250, 170)));
     }
 
     // --- Helpers ---
