@@ -290,10 +290,10 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   `--demo-draw` (wheel capped at the fit, squeezed corner refused then built with Anarchy), `--demo-junctions`,
   `--storyboard=rail-clamped` (now red: R 191 m, min 300 m).
 
-### ⬜ S5: Edit tool (S5a + S5b built, play-test pending)
+### ✅ S5: Edit tool (S5a + S5b, play-tested 2026-10-02)
 Two passes, with a play-test between them (from the user, 2026-10-02).
 
-**S5a (built 2026-10-02, waiting for the user's play-test):**
+**S5a (built 2026-10-02):**
 - `M` switches Draw ↔ Edit (`SplinesTestbed.Tool`, an `M Edit` button beside the mode strip); `1`–`4` pick a draw
   mode and switch back to Draw. Leaving Draw ends a chain in progress.
 - `SplineEditTool`: a click selects **one edge** (between two nodes), Shift+click adds or removes one, a click on
@@ -316,10 +316,10 @@ Two passes, with a play-test between them (from the user, 2026-10-02).
   shared mouse/ground/projection code moved from the Draw tool to `SplineToolView`.
 - Checked: `--demo-edit-splines`; `--storyboard=edit-drag | edit-knob` (storyboard frames 1 and 2),
   `edit-join` (a dead end dragged across an avenue: a 4-way) and `edit-refused` (across a canal: springs back).
-- For the play-test: the Draw tool still deletes the edge under the cursor with Delete. Keep it, or leave Delete to
-  Edit?
+- Answered (2026-10-02): no delete on hover. The Draw tool's hover-Delete is removed; deleting is select (Edit tool
+  click or box), then Delete.
 
-**S5b (built 2026-10-02, waiting for the user's play-test):**
+**S5b (built 2026-10-02):**
 - **Radial menu**: RMB on a corner point (or its knob) or any node opens it round the point: Smooth (top), Hard
   (right), Straight (bottom), Delete (left, red). Press-slide-release picks an action, or a plain right-click leaves
   it open for a click; Esc, RMB or a click off it closes it. The hovered action is **tried live** like a drag (the
@@ -348,8 +348,7 @@ Two passes, with a play-test between them (from the user, 2026-10-02).
   `edit-radial-node` (a kinked joint, Hard greyed), `edit-smoothed` (Smooth chosen: one rounded street),
   `edit-box` (box over an avenue and two streets), `edit-move` (a street and its junction moved: the street rigid,
   the avenue stretching).
-- For the play-test: is "largest that fits" right for Smooth, or should it be the profile's default radius? Should
-  a box take edges that are only partly inside?
+- Answered (2026-10-02): Smooth stays "largest that fits"; a box takes only edges wholly inside.
 
 ### ⬜ S6: Curve, Freehand and Grid modes
 - Curve: 3 clicks → one PI with the largest fitting radius.
@@ -478,4 +477,4 @@ version:
 - 2026-10-02 (S5b): the radial menu's Smooth is **the largest radius that fits** (on a corner and on a joint), so
   one action gives the gentlest curve and the knob can bring it back in. Box select takes nodes inside and edges
   **wholly** inside, so a box round a junction can move it with its arms stretching. A group move snaps only when
-  held by a node.
+  held by a node. Confirmed by the user, and **no delete on hover**: Delete only acts on a selection.

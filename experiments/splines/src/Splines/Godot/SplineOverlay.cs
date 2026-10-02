@@ -47,9 +47,6 @@ public sealed class OverlayFrame
     /// <summary>The legal alternative offered for a refused branch (a turnout), and its tag.</summary>
     public Alignment? Suggestion { get; init; }
     public string? SuggestionLabel { get; init; }
-    /// <summary>The built edge a Delete would remove (no draw in progress), outlined red.</summary>
-    public Curve? DeleteTarget { get; init; }
-    public float DeleteWidth { get; init; }
 }
 
 /// <summary>A tag left on screen for a moment after an action.</summary>
@@ -137,7 +134,6 @@ public partial class SplineOverlay : Control
         if (_frame is not { } f || Project is null) return;
 
         foreach (var end in f.BuiltEnds) GroundDisc(end, 4f, Line with { A = 0.75f });
-        if (f.DeleteTarget is { } del) DrawDeleteTarget(del, f.DeleteWidth);
         if (f.Suggestion is { } sug) DrawSuggestion(sug, f.SuggestionLabel);
 
         var snap = f.Snap;
@@ -382,15 +378,6 @@ public partial class SplineOverlay : Control
             _tags.Add(new PendingTag(at + new Vector2(14, 16), label, TagStyle.Snap, false, null));
     }
 
-    private void DrawDeleteTarget(Curve c, float width)
-    {
-        foreach (float side in new[] { -1f, 1f })
-        {
-            var edge = c.Offset(side * width / 2f);
-            if (edge.Length > 0) SolidPolyline(edge.SampleEvery(2f).Select(x => x.Sample.Position).ToList(), Bad, ThinWidth + 1f);
-        }
-    }
-
     // --- Guides and snaps ---
 
     private void DrawGuides(OverlayFrame f, SnapResult snap)
@@ -466,11 +453,7 @@ public partial class SplineOverlay : Control
     {
         var at = f.Mouse + new Vector2(26, -10);
         _tags.Add(new PendingTag(at, f.Suggestion is not null ? "Use turnout" : f.ClickFinishes ? "Place and finish" : "Place", TagStyle.Plain, false, "LMB"));
-        if (f.SessionPis.Count == 0)
-        {
-            if (f.DeleteTarget is not null) _tags.Add(new PendingTag(at, "Delete", TagStyle.Plain, false, "Del"));
-            return;
-        }
+        if (f.SessionPis.Count == 0) return;
         _tags.Add(new PendingTag(at, "Stop", TagStyle.Plain, false, "RMB"));
         if (f.SessionPis.Count >= 2)
         {

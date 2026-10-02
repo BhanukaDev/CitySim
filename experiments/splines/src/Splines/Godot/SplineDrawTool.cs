@@ -17,7 +17,7 @@ namespace CitySim.Splines.Godot;
 /// S4: every frame the draw is tried on a copy of the <see cref="SplineNetwork"/>'s graph, so the preview shows the
 /// junctions it would make and its issues (amber builds, red is refused unless Anarchy, Ctrl+A). A square branch off
 /// a turnout profile offers the legal turnout as a ghost, which a click takes. With no draw in progress, Ctrl+Z/Y
-/// undo and redo on the graph, and Delete removes the edge under the cursor. No-ops unless
+/// undo and redo on the graph (deleting is the Edit tool's: select, then Delete). No-ops unless
 /// the Draw tool is on (<see cref="SplinesTestbed.Tool"/>) in <see cref="DrawMode.Draw"/>; leaving it ends the chain.
 /// </summary>
 public partial class SplineDrawTool : Node
@@ -52,7 +52,6 @@ public partial class SplineDrawTool : Node
     private double _hardHintUntil;
     private Trial? _trial;
     private Alignment? _suggestion;
-    private int? _deleteTarget;
 
     /// <summary>The current ground hit, world space. Null off the terrain or over UI.</summary>
     public NumVector3? Cursor => _view.Cursor;
@@ -100,7 +99,6 @@ public partial class SplineDrawTool : Node
         }
         else if (key.Keycode == Key.Y && key.IsCommandOrControlPressed()) Redo(drawing);
         else if (key.Keycode == Key.A && key.IsCommandOrControlPressed()) Testbed?.SetAnarchy(!Testbed.Anarchy);
-        else if (key.Keycode is Key.Delete or Key.Backspace && !drawing && _deleteTarget is { } del) Delete(del);
         else if (key.Keycode == Key.Bracketleft) AdjustRadius(1f / RadiusKeyFactor);
         else if (key.Keycode == Key.Bracketright) AdjustRadius(RadiusKeyFactor);
         else if (key.Keycode is Key.Enter or Key.KpEnter) Finish();
@@ -160,7 +158,6 @@ public partial class SplineDrawTool : Node
             _snap = null;
             _trial = null;
             _suggestion = null;
-            _deleteTarget = null;
             return;
         }
 
@@ -175,7 +172,6 @@ public partial class SplineDrawTool : Node
         bool leadIn = false, leadOut = false;
         _trial = null;
         _suggestion = null;
-        _deleteTarget = null;
         if (!_session.IsEmpty)
         {
             var drawn = _session.BuildPreview(_snap.Position);
@@ -203,7 +199,6 @@ public partial class SplineDrawTool : Node
         {
             Network.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
-            _deleteTarget = EdgeUnder(_view.PlanOf(cursor));
         }
         _renderer.SetGhost(_suggestion, profile.Width);
         _issueList?.Show(_trial?.Issues ?? new List<Issue>(), Network.Issues, Testbed.Anarchy);
@@ -249,8 +244,6 @@ public partial class SplineDrawTool : Node
             Suggestion = _suggestion,
             SuggestionLabel = _suggestion is null ? null
                 : $"turnout {Junctions.TurnoutRatio(rules.TurnoutMaxAngle)} · R {rules.MinRadius:0} m",
-            DeleteTarget = _deleteTarget is { } d ? graph.Edge(d).Alignment.Curve : null,
-            DeleteWidth = _deleteTarget is { } dw ? graph.Edge(dw).Rules.Width : 0,
         });
     }
 
@@ -370,22 +363,6 @@ public partial class SplineDrawTool : Node
         if (Testbed?.Profile is not { } profile || !Build(turnout, profile)) return;
         _session.Place(turnout.Pis[^1].Position, hard: false);
         _session.StartIsCorner = Network!.Graph.DeadEndAt(turnout.Pis[^1].Position, profile.ToRules()) is not null;
-    }
-
-    /// <summary>The built edge whose corridor is under the cursor (for Delete).</summary>
-    private int? EdgeUnder(NumVector2 p)
-    {
-        if (Network is null) return null;
-        int? best = null;
-        float bestDist = float.PositiveInfinity;
-        foreach (var e in Network.Graph.Edges)
-        {
-            float d = NumVector2.Distance(e.Alignment.Curve.ClosestPoint(p).Position, p);
-            if (d > e.Rules.Width / 2 + 1f || d >= bestDist) continue;
-            bestDist = d;
-            best = e.Id;
-        }
-        return best;
     }
 
     /// <summary>Every currently-held-input flag and existing alignment <see cref="SnapEngine"/> needs, plus the
@@ -518,12 +495,6 @@ public partial class SplineDrawTool : Node
         if (!_session.CanRedo || Network is null || Testbed?.Profile is not { } profile || !Network.Redo()) return;
         _session.Redo();
         _session.StartIsCorner = Network.Graph.DeadEndAt(_session.Pis[0].Position, profile.ToRules()) is not null;
-    }
-
-    private void Delete(int edgeId)
-    {
-        if (Network is null || !Network.Graph.HasEdge(edgeId)) return;
-        Network.Apply(g => g.RemoveEdge(edgeId));
     }
 
     private void CancelSession()
