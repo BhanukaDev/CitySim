@@ -113,17 +113,25 @@ public static class SnapEngine
     }
 
     /// <summary>The foot of the perpendicular from the current leg's start onto a nearby edge: landing there gives a
-    /// T-junction at exactly 90.0°.</summary>
+    /// T-junction at exactly 90.0°. Every straight of an edge has its own foot, not only the edge's closest point to the
+    /// leg's start: a road that wraps round it (a P's end coming back up to its own first leg) is square to more than
+    /// one of its straights.</summary>
     private static SnapResult? TryFoot(SnapQuery q)
     {
         var anchor = q.SessionPis[^1].Position;
         SnapResult? best = null;
         float bestDist = float.PositiveInfinity;
         foreach (var c in q.Candidates)
+        foreach (var guide in Feet(c.Alignment.Curve, anchor, q))
         {
-            if (PerpendicularGuide(c.Alignment.Curve, anchor, q) is not { } guide) continue;
-            float d = Vector2.Distance(guide.Source, q.Cursor);
-            if (d > q.CatchDistance * FootCatchFactor || d >= bestDist) continue;
+            // Caught like the edge: anywhere across the road, and within the catch along it.
+            var off = q.Cursor - guide.Source;
+            float along = MathF.Abs(Vector2.Dot(off, guide.EdgeDirection));
+            float across = MathF.Abs(SplineMath.Cross(guide.EdgeDirection, off));
+            float catchAt = q.CatchDistance * FootCatchFactor;
+            if (along > catchAt || across > MathF.Max(catchAt, c.Width / 2f)) continue;
+            float d = off.Length();
+            if (d >= bestDist) continue;
             bestDist = d;
             best = new SnapResult
             {
@@ -313,6 +321,33 @@ public static class SnapEngine
         found.Add((guide, DistanceToPolyline(guide.Points, q.Cursor)));
     }
 
+    /// <summary>The perpendicular from <paramref name="anchor"/> to the curve's closest point, and to each of its
+    /// straights whose foot lies inside it.</summary>
+    private static IEnumerable<GuideLine> Feet(Curve curve, Vector2 anchor, SnapQuery q)
+    {
+        if (PerpendicularGuide(curve, anchor, q) is { } closest) yield return closest;
+        foreach (var seg in curve.Segments)
+        {
+            if (seg is not LineSegment line || line.Length <= SplineMath.Epsilon) continue;
+            float t = Vector2.Dot(anchor - line.A, line.Direction);
+            if (t <= 1e-3f || t >= line.Length - 1e-3f) continue;
+            var foot = line.A + line.Direction * t;
+            float off = Vector2.Distance(anchor, foot);
+            if (off < 0.5f || off > q.GuideSearchRadius) continue;
+            yield return Square(foot, line.Direction, anchor, q);
+        }
+    }
+
+    private static GuideLine Square(Vector2 foot, Vector2 tangent, Vector2 anchor, SnapQuery q)
+    {
+        var up = Vector2.Normalize(anchor - foot);
+        return new GuideLine(new[] { foot - up * q.GuideSearchRadius, foot + up * q.GuideSearchRadius },
+            GuideKind.Perpendicular, "90° to edge")
+        {
+            Source = foot, EdgeDirection = tangent,
+        };
+    }
+
     /// <summary>The line square to <paramref name="curve"/> through <paramref name="anchor"/> (the leg's start), with
     /// its foot on the curve as <see cref="GuideLine.Source"/>. Anchored at the leg's start, not re-derived from the
     /// cursor, or it would always pass exactly through the cursor and crowd out every other guide. Null when the
@@ -323,13 +358,7 @@ public static class SnapEngine
         var cp = curve.ClosestPoint(anchor);
         if (MathF.Abs(cp.Offset) < 0.5f || MathF.Abs(cp.Offset) > q.GuideSearchRadius) return null;
         if (cp.S <= 1e-3f || cp.S >= curve.Length - 1e-3f) return null;
-        var tangent = curve.Sample(cp.S).Tangent;
-        var up = Vector2.Normalize(anchor - cp.Position);
-        return new GuideLine(new[] { cp.Position - up * q.GuideSearchRadius, cp.Position + up * q.GuideSearchRadius },
-            GuideKind.Perpendicular, "90° to edge")
-        {
-            Source = cp.Position, EdgeDirection = tangent,
-        };
+        return Square(cp.Position, curve.Sample(cp.S).Tangent, anchor, q);
     }
 
     /// <summary>Alongside an edge at a gap of whole <see cref="ProfileRules.SnapLength"/> steps (up to

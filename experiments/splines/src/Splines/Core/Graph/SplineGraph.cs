@@ -222,7 +222,10 @@ public sealed partial class SplineGraph
         var nodes = new List<int>();
         var edges = new List<int>();
         int startNode = cuts.Count > 0 && cuts[0].S < NodeTolerance ? nodeOfCut[0] : NewNode(curve.Sample(0).Position);
-        int endNode = cuts.Count > 0 && cuts[^1].S > length - NodeTolerance ? nodeOfCut[cuts.Count - 1] : NewNode(curve.Sample(length).Position);
+        var endAt = curve.Sample(length).Position;
+        // A closed spline (a loop re-added by an edit) ends on its own start node, not a second node at the same spot.
+        int endNode = cuts.Count > 0 && cuts[^1].S > length - NodeTolerance ? nodeOfCut[cuts.Count - 1]
+            : Vector2.Distance(endAt, _nodes[startNode].Position) < NodeTolerance ? startNode : NewNode(endAt);
         nodes.Add(startNode);
         var rest = alignment;
         float offset = 0;
@@ -241,11 +244,33 @@ public sealed partial class SplineGraph
         nodes.Add(endNode);
         foreach (int n in emptied)
             if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
+        if (continued.Count > 0)
+            foreach (int id in edges) RoundLoopJoint(id);
         float solidUntil = startJoint > 0 ? alignment.CornerStations(startJoint).Start : 0;
         float solidFrom = endJoint > 0 ? alignment.CornerStations(endJoint).End : float.PositiveInfinity;
         return new AddResult(edges, nodes.Distinct().ToList(), alignment, continued, solidUntil, solidFrom) { Kept = kept };
 
         static Cut OnEdge(float s, Vector2 p, GraphEdge e, float edgeS) => new(s, p, null, e.Id, edgeS);
+    }
+
+    /// <summary>
+    /// A draw that continues its road back onto that road's own start closes a loop on one node, and that joint is a
+    /// corner like any other (DESIGN.md → Continuing a dead end): it takes the drawn end's radius, unless it's hard. The
+    /// node moves to the middle of the first leg, where the loop runs straight through it. Only for a loop alone on
+    /// its node; a straight-through joint (a Curve-mode circle) is left as it is.
+    /// </summary>
+    private void RoundLoopJoint(int edgeId)
+    {
+        var e = _edges[edgeId];
+        var pis = e.Alignment.Pis;
+        if (e.Start != e.End || _nodes[e.Start].Edges.Count != 2 || pis.Count < 3 || pis[^1].Hard) return;
+        var c = e.Alignment.Curve;
+        if (Vector2.Dot(c.Sample(0).Tangent, c.Sample(c.Length).Tangent) > MathF.Cos(MathF.PI / 180)) return;
+        var mid = (pis[0].Position + pis[1].Position) / 2;
+        var joint = pis[0] with { Radius = pis[^1].Radius > 0 ? pis[^1].Radius : e.Rules.DefaultRadius, Hard = false };
+        var loop = pis.Skip(1).Take(pis.Count - 2).Prepend(new Pi(mid)).Append(joint).Append(new Pi(mid));
+        _edges[edgeId] = e with { Alignment = new Alignment(loop) };
+        _nodes[e.Start].Position = mid;
     }
 
     /// <summary>

@@ -9,7 +9,7 @@ namespace CitySim.Splines.Godot;
 /// points (the dots), not the whole edge. A selected stretch is outlined with its corners' handles; Delete takes it
 /// out (the rest of the road stays, cut at its dots), a drag moves its leg (the road either side stretches to follow),
 /// and RMB on it opens the radial menu for its corners. A road with no corners is one stretch: a click selects the
-/// edge as before, and a box still takes whole edges.
+/// edge as before. A box takes whole edges wholly inside it, and on a road that isn't, the stretches that are.
 /// </summary>
 public partial class SplineEditTool
 {

@@ -107,6 +107,7 @@ public partial class SplineEditTool : Node
     // A box select in progress: where it started on screen, and what it would select now.
     private Vector2? _boxFrom;
     private List<int> _boxEdges = new(), _boxNodes = new();
+    private readonly List<Stretch> _boxStretches = new();
     private Menu? _menu;
     private int? _forcedMenuItem;
 
@@ -365,15 +366,30 @@ public partial class SplineEditTool : Node
 
     // --- Box select ---
 
-    /// <summary>What a box from <paramref name="from"/> to <paramref name="to"/> (screen) takes: the nodes inside it
-    /// and the edges wholly inside it.</summary>
+    /// <summary>What a box from <paramref name="from"/> to <paramref name="to"/> (screen) takes: the nodes inside it,
+    /// the edges wholly inside it, and on a road with corners that isn't, the stretches wholly inside it.</summary>
     private void UpdateBox(Vector2 from, Vector2 to)
     {
         var box = new Rect2(from, Vector2.Zero).Expand(to);
         var g = Network!.Graph;
         _boxNodes = g.Nodes.Where(n => Inside(n.Position)).Select(n => n.Id).ToList();
-        _boxEdges = g.Edges.Where(e => e.Alignment.Curve.SampleEvery(4f).All(x => Inside(x.Sample.Position))
-            && Inside(e.Alignment.Curve.Sample(e.Alignment.Length).Position)).Select(e => e.Id).ToList();
+        _boxEdges.Clear();
+        _boxStretches.Clear();
+        foreach (var e in g.Edges)
+        {
+            var a = e.Alignment;
+            if (AllInside(a, 0, a.Length)) { _boxEdges.Add(e.Id); continue; }
+            for (int k = 0; a.StretchCount > 1 && k < a.StretchCount; k++)
+                if (AllInside(a, a.RoadStation(k), a.RoadStation(k + 1))) _boxStretches.Add(new Stretch(e.Id, k));
+        }
+
+        bool AllInside(Alignment a, float s0, float s1)
+        {
+            int n = Math.Max(1, (int)MathF.Ceiling((s1 - s0) / 4f));
+            for (int i = 0; i <= n; i++)
+                if (!Inside(a.Curve.Sample(s0 + (s1 - s0) * i / n).Position)) return false;
+            return true;
+        }
 
         bool Inside(NumVector2 p) => _view.ProjectPlan(p) is { } s && box.HasPoint(s);
     }
@@ -384,9 +400,11 @@ public partial class SplineEditTool : Node
         if (!_pressShift) ClearSelection();
         _selected.UnionWith(_boxEdges);
         _selectedNodes.UnionWith(_boxNodes);
+        _stretches.UnionWith(_boxStretches);
         _boxFrom = null;
         _boxEdges.Clear();
         _boxNodes.Clear();
+        _boxStretches.Clear();
     }
 
     // --- Dragging ---
@@ -450,7 +468,8 @@ public partial class SplineEditTool : Node
             _snap = SnapEngine.Evaluate(new SnapQuery
             {
                 Cursor = raw,
-                Candidates = SplineToolView.Candidates(built, d.Edges.ToHashSet()),
+                Candidates = DragCandidates(built, d),
+                SessionPis = DragLeg(built, d),
                 Rules = d.Rules,
                 EnabledProviders = (Testbed?.EnabledSnaps ?? SnapProviders.All) & d.Rules.SnapProviders,
                 CatchDistance = _view.Cursor is { } c ? _view.PixelsToPlanUnits(CatchPixels, c) : 1f,
@@ -466,6 +485,42 @@ public partial class SplineEditTool : Node
         d.Result = result;
         d.Issues = NewIssues(g, result);
         Network.ShowTrial(g);
+    }
+
+    /// <summary>
+    /// Snap sources for a drag: every edge it doesn't change and, of each edge whose end a held node moves, the part
+    /// that stays put (up to where the corner next to that end starts), so a loose end can be snapped back onto its own
+    /// road (a P closed onto its stem).
+    /// </summary>
+    private static List<SnapCandidate> DragCandidates(SplineGraph g, Drag d)
+    {
+        var list = SplineToolView.Candidates(g, d.Edges.ToHashSet());
+        if (d.Handle.Kind != HandleKind.Node) return list;
+        foreach (int id in d.Edges)
+        {
+            var e = g.Edge(id);
+            var a = e.Alignment;
+            if (e.Start == e.End || a.Pis.Count < 3) continue;
+            bool atStart = e.Start == d.Handle.Id;
+            var (s0, s1) = a.CornerStations(atStart ? 1 : a.Pis.Count - 2);
+            if (atStart ? a.Length - s1 < 1f : s0 < 1f) continue;
+            var still = atStart ? AlignmentOps.Between(a, s1, a.Length) : AlignmentOps.Between(a, 0, s0);
+            int far = atStart ? e.End : e.Start;
+            bool open = g.Node(far).Edges.Count == 1;
+            list.Add(new SnapCandidate(still, e.Rules.Width, OpenStart: !atStart && open, OpenEnd: atStart && open));
+        }
+        return list;
+    }
+
+    /// <summary>A dead end held by its node is guided like the end of a draw: its road's points up to the one before it,
+    /// in order, so the leg gets the draw's square foot, angle locks against the previous leg and lengths.</summary>
+    private static IReadOnlyList<Pi> DragLeg(SplineGraph g, Drag d)
+    {
+        if (d.Handle.Kind != HandleKind.Node || g.Node(d.Handle.Id).Edges is not { Count: 1 } ids) return Array.Empty<Pi>();
+        var e = g.Edge(ids[0]);
+        if (e.Start == e.End) return Array.Empty<Pi>();
+        var pis = e.End == d.Handle.Id ? e.Alignment.Pis : AlignmentOps.Reversed(e.Alignment).Pis;
+        return pis.Take(pis.Count - 1).ToList();
     }
 
     /// <summary>The held edit on a graph: move, then reconnect.</summary>
@@ -559,6 +614,7 @@ public partial class SplineEditTool : Node
         _boxFrom = null;
         _boxEdges.Clear();
         _boxNodes.Clear();
+        _boxStretches.Clear();
         Network?.ShowTrial(null);
     }
 
@@ -864,7 +920,8 @@ public partial class SplineEditTool : Node
             HoverEdge = hoverEdge,
             Stretches = stretches,
             Corners = corners,
-            BoxEdges = _boxEdges.Where(built.HasEdge).Select(id => Edge(built, id)).ToList(),
+            BoxEdges = _boxEdges.Where(built.HasEdge).Select(id => Edge(built, id))
+                .Concat(_boxStretches.Where(st => Valid(built, st)).Select(st => StretchEdge(built, st))).ToList(),
             BoxNodes = _boxNodes.Where(built.HasNode).Select(id => built.Node(id).Position).ToList(),
             Box = _boxFrom is { } bf ? new Rect2(bf, Vector2.Zero).Expand(_view.MouseScreen()) : null,
             Menu = radial,
@@ -956,11 +1013,14 @@ public partial class SplineEditTool : Node
         if (Pick(from) is not { } h) return false;
         StartDrag(h, h.At);
         ForcedPlanCursor = to;
-        ForcedModifiers = alt ? DrawModifiers.Alt : DrawModifiers.None;
+        if (alt) ForcedModifiers |= DrawModifiers.Alt;
         _view.UpdateCursor();
         if (_drag is { } d) TryDrag(d, to);
         return _drag is not null;
     }
+
+    /// <summary>A plan point on screen (a scripted frame's mouse position).</summary>
+    public Vector2 ScreenForTest(NumVector2 at) => _view.ProjectPlan(at) ?? Vector2.Zero;
 
     /// <summary>Lets go of the held handle (builds it, or springs back when refused).</summary>
     public void ReleaseForTest() => Release();

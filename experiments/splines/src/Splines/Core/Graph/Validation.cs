@@ -58,6 +58,20 @@ public static class Validation
             if (!(hit.SA < SplineGraph.NodeTolerance && hit.SB > a.Length - SplineGraph.NodeTolerance))
                 issues.Add(new Issue(Severity.Invalid, "self-cross", "crosses itself", hit.Point, e.Id));
 
+        // A dead end left lying on its own road (dropped beside it, not joined to it) overlaps it. Only the road further
+        // along than twice its width counts, so a tight corner next to the end isn't an overlap.
+        foreach (var (s, node) in new[] { (0f, e.Start), (a.Length, e.End) })
+        {
+            if (g.Node(node).Edges.Count != 1) continue;
+            var end = a.Curve.Sample(s).Position;
+            float limit = rules.Width - OverlapSlack;
+            if (a.Curve.SampleEvery(SampleSpacing).Any(x => MathF.Abs(x.S - s) > 2 * rules.Width
+                && Vector2.Distance(x.Sample.Position, end) < limit))
+            {
+                issues.Add(new Issue(Severity.Invalid, "overlap", "overlaps itself", end, e.Id, node));
+            }
+        }
+
         var (cutStart, cutEnd) = Junctions.CutBacks(e, footprints);
         if (cutStart + cutEnd > 0 && a.Length < cutStart + cutEnd + 1f)
             issues.Add(new Issue(Severity.Warn, "short", "too short for its junctions", a.Curve.Sample(a.Length / 2).Position, e.Id));

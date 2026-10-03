@@ -40,6 +40,8 @@ public static class Junctions
     private const float MaxCutShare = 0.45f;
     /// <summary>The share for an edge whose other end has no footprint (a dead end, a bend): nearly all of it.</summary>
     private const float MaxCutShareFree = 0.9f;
+    /// <summary>How far a curb's circle may dip into a road it's fitted to (polyline and float slack).</summary>
+    private const float CurbClearance = 0.5f;
     /// <summary>A transition between two widths tapers over this many times the difference in width.</summary>
     private const float TaperPerWidth = 2.5f;
     /// <summary>How far past a short arm's end its side is followed to find where a squeezed pair of arms part.</summary>
@@ -213,8 +215,13 @@ public static class Junctions
             if (r > 0.1f)
                 curbs[i] = new Curb(hit.Value.Point, r, paths[i].SidePoint(hit.Value.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.Value.SB, -1, b.Rules.Width / 2));
 
+            // A side pushed out further than the radius of a corner on it folds back on itself, and crosses the other
+            // side somewhere bogus (a short arm into a tight corner cut back past the corner). A curb only counts where
+            // its circle clears both roads, so then it shrinks until it does.
             CurveHit? CurbCentre(float radius) =>
-                FirstCross(paths[i].Side(+1, a.Rules.Width / 2 + radius), paths[j].Side(-1, b.Rules.Width / 2 + radius));
+                FirstCross(paths[i].Side(+1, a.Rules.Width / 2 + radius, paths[i].CurbLimit), paths[j].Side(-1, b.Rules.Width / 2 + radius, paths[j].CurbLimit),
+                    accept: p => paths[i].Distance(p) >= a.Rules.Width / 2 + radius - CurbClearance
+                        && paths[j].Distance(p) >= b.Rules.Width / 2 + radius - CurbClearance);
         }
 
         // Keep both ends of a short edge room: cap each cut-back at a share of its edge.
@@ -258,13 +265,37 @@ public static class Junctions
             var farArms = g.Arms(far);
             bool shared = e.Start == e.End || HasFootprint(farArms);
             Cap = _curve.Length * (shared ? MaxCutShare : MaxCutShareFree);
+            CurbLimit = Cap;
+            // Up to the end of the first corner that turns ahead of the node (not one the node sits inside: a junction
+            // on a curve fits its curbs along it).
+            var al = e.Alignment;
+            int count = al.Pis.Count;
+            for (int k = 1; k < count - 1; k++)
+            {
+                int i = arm.AtStart ? k : count - 1 - k;
+                var legIn = al.Pis[i].Position - al.Pis[i - 1].Position;
+                var legOut = al.Pis[i + 1].Position - al.Pis[i].Position;
+                if (legIn.Length() < SplineMath.Epsilon || legOut.Length() < SplineMath.Epsilon
+                    || MathF.Abs(SplineMath.Turn(Vector2.Normalize(legIn), Vector2.Normalize(legOut))) < MathF.PI / 180) continue;
+                var (s0, s1) = al.CornerStations(i);
+                if ((arm.AtStart ? s0 : al.Length - s1) < 1f) continue;
+                CurbLimit = MathF.Min(Cap, arm.AtStart ? s1 : al.Length - s0);
+                break;
+            }
         }
 
         public float Length => _curve.Length;
 
+        /// <summary>How far a point is from the arm's whole edge (its centre line).</summary>
+        public float Distance(Vector2 p) => Vector2.Distance(_curve.ClosestPoint(p).Position, p);
+
         /// <summary>The furthest this arm can be cut back: a share of its edge, leaving room for a footprint at the
         /// other end if there is one.</summary>
         public float Cap { get; }
+
+        /// <summary>How far along the arm a curb may touch: not past the end of its first corner, so a curb never takes a
+        /// short arm round the corner onto the road beyond and cuts the corner away (it shrinks to fit instead).</summary>
+        public float CurbLimit { get; }
 
         /// <summary>The centre point and the direction away from the node at station <paramref name="s"/>; past the far
         /// end (or behind the node, at a negative station), straight on along the direction there.</summary>
@@ -347,7 +378,8 @@ public static class Junctions
 
     /// <summary>The crossing of two side polylines nearest the node (smallest station sum, or with
     /// <paramref name="nearest"/> the smallest distance either way along them), with its stations.</summary>
-    private static CurveHit? FirstCross(List<(float S, Vector2 P)> a, List<(float S, Vector2 P)> b, bool nearest = false)
+    private static CurveHit? FirstCross(List<(float S, Vector2 P)> a, List<(float S, Vector2 P)> b, bool nearest = false,
+        Func<Vector2, bool>? accept = null)
     {
         Func<float, float, float> key = nearest ? (x, y) => MathF.Abs(x) + MathF.Abs(y) : (x, y) => x + y;
         CurveHit? best = null;
@@ -368,8 +400,9 @@ public static class Junctions
                 float u = SplineMath.Cross(b0 - a0, da) / den;
                 if (t < 0 || t > 1 || u < 0 || u > 1) continue;
                 float sa = sa0 + (sa1 - sa0) * t, sb = sb0 + (sb1 - sb0) * u;
-                if (best is null || key(sa, sb) < key(best.Value.SA, best.Value.SB))
-                    best = new CurveHit(sa, sb, a0 + da * t);
+                if (best is not null && key(sa, sb) >= key(best.Value.SA, best.Value.SB)) continue;
+                if (accept?.Invoke(a0 + da * t) == false) continue;
+                best = new CurveHit(sa, sb, a0 + da * t);
             }
         }
         return best;

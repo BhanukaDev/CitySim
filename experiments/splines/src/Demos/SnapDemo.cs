@@ -328,6 +328,18 @@ public partial class SnapDemo : Node
         Check("perpendicular foot position", foot.Position, V(50, 0));
         Check("perpendicular foot tag", foot.Tag == "90° to edge");
 
+        // A road wrapping round the leg's start (a P's end coming back up to its own first leg): the first leg has its
+        // own foot, though the road's closest point to the start is elsewhere; a cursor over the road, off the centre
+        // line, still catches it.
+        var wrap = new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(200, 0), 16), new Pi(V(200, 140), 16), new Pi(V(84, 140)) });
+        var wrapFoot = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = V(101.5f, 4), SessionPis = new List<Pi> { new(V(100, 140)) }, Rules = Rules(), CatchDistance = 2f,
+            Candidates = new[] { Candidate(wrap) },
+        });
+        Check("foot on a wrapping road", wrapFoot.Kind == SnapKind.PerpendicularFoot);
+        Check("foot on a wrapping road: position", wrapFoot.Position, V(100, 0));
+
         // Parallel at any number of lots: a 24 m wide road, a 12 m new one, cursor 41 m clear → 40 m = 5 lots.
         var parallel = SnapEngine.Evaluate(new SnapQuery
         {

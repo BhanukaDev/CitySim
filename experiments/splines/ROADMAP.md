@@ -541,3 +541,45 @@ version:
   Draw mode isn't expected to make circles. Road points (each corner's point on the road) show as dots in every mode
   and snap as nodes; in Edit a click selects the stretch between two of them (delete, move, radial menu), a box
   still whole edges.
+- **Fix after play-test (2026-10-03): moved loops and box select** (from the user: a loop moved in Edit came apart at
+  its closing corner; box select "not working").
+  - `AddSpline` gave a closed spline's two ends a new node each, so re-adding a loop (any Edit move) left two dead ends
+    on one spot: a notch, not connected. A closed spline's end now takes its start node.
+  - A draw closed back onto its own start (Draw chain) left that joint a square kink, unlike its other corners. It's
+    now rounded with the drawn end's radius (kept a kink when hard) and the node moves to the middle of the first leg
+    (`SplineGraph.RoundLoopJoint`; Curve-mode circles are already straight through and are left alone). Known limit:
+    the preview just before the closing click still draws that corner square.
+  - Box select took only edges wholly inside, so a box over part of a road with corners (a Draw chain is one edge)
+    took nothing. It now also takes the **stretches** wholly inside on a road that isn't (accent outlines while
+    dragging), matching a click.
+  - Checked: `--demo-junctions` (loop joint rounded, node mid-leg, moved loop still one edge on one node); all demos
+    pass. `--storyboard=loop-closing | loop-built | loop-moved | box-input` (`box-input` drives real mouse events and
+    prints what it took; pair it with `--cam=560,500,340,89,0`).
+- **Fix after play-test (2026-10-03): a P's loose end dragged onto its own stem** (from the user: "a really ugly
+  junction that is broken").
+  - Dropped just below the P's top corner, the junction cut the short arm up to that corner back 64 m, right round
+    the corner onto the top road, and joined the cut ends straight: a big slab with the corner gone. A curb pushed
+    out 22 m from a street side runs into a R 16 corner and folds back on itself, so the only crossing it found was
+    beyond the corner. Now (`Junctions.Footprint`) a curb is fitted only up to the end of the arm's first corner ahead
+    of the node (`ArmPath.CurbLimit`; a corner the node sits inside doesn't count, so junctions on curves are as
+    before), and only where its circle clears both roads; otherwise it shrinks to fit. Of the existing frames only
+    `junction-curved` changed: one street curb that touched past its own corner is a little smaller.
+  - Dropped beside the stem with snapping off, the end lay on its own road without joining and nothing said so.
+    `Validation` now flags a dead end lying on its own road (further along than twice the width) as Invalid
+    `overlaps itself`, so the drop springs back (or draws red with Anarchy).
+  - Checked: `--demo-junctions` (P: T on its own road, up arm cut short of its corner, 2 curbs; beside the stem:
+    overlaps itself); all demos pass. `--storyboard=p-loose | p-joined | p-corner | p-beside`.
+- **Fix after play-test (2026-10-03): no snapping onto a road's own body in Edit** (from the user: "when I try to
+  connect same continuous road to itself, it doesn't show me those guides and snappings").
+  - A node drag left every edge it changes out of the snap sources, so the whole road the dragged end belongs to
+    gave no edge snap, guides or square T, and the end landed loose (then the junction or overlap above). Now
+    (`SplineEditTool.DragCandidates`) the part of that road that stays put (up to where the corner next to the
+    dragged end starts) is a snap source, and a dead end held by its node passes its road's points as the draw so
+    far (`DragLeg`), so the drag gets the draw's square foot, angle locks against the previous leg and lengths.
+  - `SnapEngine`: the perpendicular foot came only from the road's closest point to the leg's start, which on a road
+    wrapping round it is the wrong leg. Every straight now offers its own foot, and the foot is caught like the edge
+    (anywhere across the road, within the catch along it), so it beats the plain edge snap when the cursor is on the
+    road a few metres off the centre line.
+  - Checked: `--demo-snap` (foot on a wrapping road, cursor off the centre line); all demos pass.
+    `--storyboard=self-snap | self-snap-joined` (the user's screenshot: `90° to edge` while dragging, a T · 90° on
+    release).

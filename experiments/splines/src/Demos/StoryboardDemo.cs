@@ -71,6 +71,16 @@ public partial class StoryboardDemo : Node
             ["edit-smoothed"] = EditSmoothed,
             ["edit-box"] = EditBox,
             ["edit-move"] = EditMove,
+            ["loop-closing"] = LoopClosing,
+            ["loop-built"] = () => LoopMove(false),
+            ["loop-moved"] = () => LoopMove(true),
+            ["box-input"] = BoxInput,
+            ["p-loose"] = () => PShape(0, (80, 120)),
+            ["p-joined"] = () => PShape(2, (80, 120)),
+            ["p-corner"] = () => PShape(2, (80, 60)),
+            ["p-beside"] = () => PShape(1, (84, 126), space: true),
+            ["self-snap"] = () => SelfSnap(release: false),
+            ["self-snap-joined"] = () => SelfSnap(release: true),
             ["edit-stretch"] = () => EditStretch(0),
             ["edit-stretch-deleted"] = () => EditStretch(1),
             ["edit-stretch-move"] = () => EditStretch(2),
@@ -578,6 +588,121 @@ public partial class StoryboardDemo : Node
         Testbed!.SetTool(SplineTool.Edit);
         EditTool!.BoxForTest(P((200, 40)), P((240, 195)), release: true);
         EditTool.MoveSelectionForTest(P((220, 150)), P((250, 170)));
+    }
+
+    /// <summary>A loop drawn by clicks, the last leg's end on the start: the preview's closing corner.</summary>
+    private void LoopClosing()
+    {
+        Use("street");
+        Click((60, 40));
+        Click((260, 40));
+        Click((260, 170));
+        Click((60, 170));
+        Hover((60, 40));
+    }
+
+    /// <summary>A loop drawn by clicks (back onto its start), then box-selected and moved: its closing node must stay
+    /// a rounded corner like the others.</summary>
+    private void LoopMove(bool move)
+    {
+        Use("street");
+        Click((60, 40));
+        Click((260, 40));
+        Click((260, 170));
+        Click((60, 170));
+        Click((60, 40));
+        DrawTool!.FinishForTest();
+        Testbed!.SetTool(SplineTool.Edit);
+        var g = EditTool!.Network!.Graph;
+        GD.Print($"Storyboard: loop edges {g.EdgeCount} nodes {g.NodeCount} " + string.Join(" | ", g.Edges.Select(e =>
+            $"#{e.Id} {e.Start}->{e.End} " + string.Join(" ", e.Alignment.Pis.Select(pi => $"({pi.Position.X - Origin.X:0},{pi.Position.Y - Origin.Y:0} R{pi.Radius:0}{(pi.Hard ? " H" : "")})")))));
+        if (!move) { EditTool.ForcedPlanCursor = P((300, 190)); return; }
+        EditTool.BoxForTest(P((30, 10)), P((300, 195)), release: true);
+        GD.Print($"Storyboard: box took {EditTool.Selected.Count} edges, {EditTool.SelectedNodes.Count} nodes");
+        EditTool.MoveSelectionForTest(P((160, 40)), P((180, 60)));
+        EditTool.ReleaseForTest();
+        g = EditTool.Network.Graph;
+        GD.Print($"Storyboard: moved edges {g.EdgeCount} nodes {g.NodeCount} " + string.Join(" | ", g.Edges.Select(e =>
+            $"#{e.Id} {e.Start}->{e.End} " + string.Join(" ", e.Alignment.Pis.Select(pi => $"({pi.Position.X - Origin.X:0},{pi.Position.Y - Origin.Y:0} R{pi.Radius:0}{(pi.Hard ? " H" : "")})")))));
+        EditTool.ForcedPlanCursor = P((300, 190));
+    }
+
+    /// <summary>A P drawn by clicks, its end left loose beside the stem, then (1) its end node dragged to
+    /// <paramref name="drop"/> in Edit (Space: no snapping) and (2) let go there. On the stem: a T on its own road
+    /// (<c>p-corner</c>: just below the corner, which must stay round); beside it, unsnapped: refused, overlaps itself.</summary>
+    private void PShape(int step, (float, float) drop, bool space = false)
+    {
+        Use("street");
+        Click((80, 190));
+        Click((80, 30));
+        Click((240, 30));
+        Click((240, 120));
+        Click((120, 120));
+        DrawTool!.FinishForTest();
+        Testbed!.SetTool(SplineTool.Edit);
+        if (step > 0)
+        {
+            if (space) EditTool!.ForcedModifiers = DrawModifiers.Space;
+            EditTool!.DragForTest(P((120, 120)), P(drop));
+            if (step == 2) EditTool.ReleaseForTest();
+        }
+        var g = EditTool!.Network!.Graph;
+        GD.Print($"Storyboard: P edges {g.EdgeCount} nodes {g.NodeCount} " + string.Join(" | ", g.Edges.Select(e =>
+            $"#{e.Id} {e.Start}->{e.End} " + string.Join(" ", e.Alignment.Pis.Select(pi => $"({pi.Position.X - Origin.X:0},{pi.Position.Y - Origin.Y:0} R{pi.Radius:0}{(pi.Hard ? " H" : "")})")))));
+        GD.Print("Storyboard: P issues " + string.Join("; ", EditTool.Network.Issues.Select(i => i.Message)));
+        foreach (var n in g.Nodes)
+            if (Junctions.Footprint(g, n.Id) is { } fp)
+                GD.Print($"Storyboard: P footprint {n.Id} cuts " + string.Join(", ", fp.Cuts.Select(c => $"e{c.EdgeId}{(c.AtStart ? "s" : "e")} {c.CutBack:0.0}")) + $" curbs {fp.Curbs.Count}");
+        if (step != 1) EditTool.ForcedPlanCursor = P((300, 190));
+    }
+
+    /// <summary>The user's screenshot: a road drawn round three corners, its loose end under the first leg. The end
+    /// node dragged near that leg (not on its centre line) snaps onto its own road; let go, it makes a T there.</summary>
+    private void SelfSnap(bool release)
+    {
+        Use("street");
+        Click((20, 40));
+        Click((290, 40));
+        Click((290, 180));
+        Click((120, 180));
+        Click((120, 70));
+        DrawTool!.FinishForTest();
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.DragForTest(P((120, 70)), P((121.5f, 45)));
+        if (release)
+        {
+            EditTool.ReleaseForTest();
+            EditTool.ForcedPlanCursor = P((300, 190));
+        }
+        var g = EditTool.Network!.Graph;
+        GD.Print($"Storyboard: self-snap edges {g.EdgeCount} nodes {g.NodeCount} junction " +
+            string.Join(",", g.Nodes.Where(n => g.Arms(n.Id).Count > 2).Select(n => $"{Junctions.Label(g, n.Id)} at {n.Position.X - Origin.X:0.0},{n.Position.Y - Origin.Y:0.0}")) +
+            " issues " + string.Join("; ", EditTool.Network.Issues.Select(i => i.Message)));
+    }
+
+    /// <summary>A box select driven by real mouse events (press, moves, release), not the test hook: it takes the short
+    /// street wholly inside, and the two stretches of the road with corners that are inside.</summary>
+    private async void BoxInput()
+    {
+        BuildCurve("street", 16, (60, 40), (160, 40), (160, 170), (300, 170));
+        Build("street", (60, 120), (130, 120));
+        Testbed!.SetTool(SplineTool.Edit);
+        var tree = GetTree();
+        async System.Threading.Tasks.Task Frames(int n) { for (int i = 0; i < n; i++) await ToSignal(tree, SceneTree.SignalName.ProcessFrame); }
+        Vector2 Screen((float, float) at) => EditTool!.ScreenForTest(P(at));
+        EditTool!.ForcedPlanCursor = P((30, 10));
+        await Frames(3);
+        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = true, Position = Screen((30, 10)) });
+        await Frames(2);
+        foreach (var at in new[] { (60f, 60f), (150f, 120f), (200f, 195f) })
+        {
+            EditTool.ForcedPlanCursor = P(at);
+            Input.ParseInputEvent(new InputEventMouseMotion { Position = Screen(at), ButtonMask = MouseButtonMask.Left });
+            await Frames(3);
+        }
+        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = false, Position = Screen((200, 195)) });
+        await Frames(3);
+        GD.Print($"Storyboard: box-input took {EditTool.Selected.Count} edges, {EditTool.SelectedStretches.Count} stretches, {EditTool.SelectedNodes.Count} nodes (want 1, 2, 3)");
     }
 
     // --- Helpers ---

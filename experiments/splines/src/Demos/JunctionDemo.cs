@@ -296,6 +296,31 @@ public partial class JunctionDemo : Node
         loop.AddSpline(new Alignment(new[] { new Pi(V(100, 0), 16), new Pi(V(50, 80), 16), new Pi(V(0, 0), 16) }), Street);
         Check("continue loop: one edge", loop.EdgeCount, 1);
         Check("continue loop: one node", loop.NodeCount, 1);
+        // Its closing joint is a rounded corner like the others; the node moves to the first leg's middle.
+        var ring = loop.Edges.Single();
+        Check("continue loop: node mid-leg", loop.Node(ring.Start).Position, V(50, 0));
+        Check("continue loop: joint rounded", ring.Alignment.EffectiveRadius(ring.Alignment.Pis.Count - 2), 16f);
+        // Moved and joined again (the Edit tool): still one loop on one node.
+        loop.Reconnect(loop.MoveGroup(Array.Empty<int>(), new[] { ring.Id }, V(30, 20)));
+        Check("loop moved: one edge", loop.EdgeCount, 1);
+        Check("loop moved: one node", loop.NodeCount, 1);
+        Check("loop moved: closed", loop.Edges.Single() is { } moved && moved.Start == moved.End);
+
+        // A P's loose end joined just below its own corner (an Edit drop): the corner stays round, the up arm is cut
+        // back short of it, not round it onto the top road.
+        var pg = new SplineGraph();
+        pg.AddSpline(new Alignment(new[] { new Pi(V(0, 160)), new Pi(V(0, 0), 16), new Pi(V(160, 0), 16), new Pi(V(160, 90), 16), new Pi(V(0, 30)) }), Street);
+        Check("P: T on its own road", pg.NodeAt(V(0, 30)) is { } pn && Junctions.Label(pg, pn) is not null);
+        var pfp = Junctions.Footprint(pg, pg.NodeAt(V(0, 30))!.Value)!;
+        // The up arm is the loop's start (it runs from the node up to the corner, 30 m off, whose arc starts at 14 m).
+        var up = pfp.Cuts.Single(c => c.AtStart && pg.Edge(c.EdgeId).Start == pg.Edge(c.EdgeId).End);
+        Check("P: up arm cut short of its corner", up.CutBack < 14f);
+        Check("P: curbs", pfp.Curbs.Count, 2);
+        // Left lying beside its own stem, not joined: overlaps itself.
+        var pb = new SplineGraph();
+        pb.AddSpline(new Alignment(new[] { new Pi(V(0, 160)), new Pi(V(0, 0), 16), new Pi(V(160, 0), 16), new Pi(V(160, 90), 16), new Pi(V(4, 96)) }), Street);
+        Check("P beside its stem: overlaps itself", Validation.Check(pb).Any(i => i.Message == "overlaps itself"));
+        Check("P joined: no issues", Validation.Check(pg).Count, 0);
 
         // Continuing a T's stem from its dead end: the stem grows, the T stays.
         var t = new SplineGraph();
