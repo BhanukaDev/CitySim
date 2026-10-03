@@ -35,6 +35,7 @@ public static class SnapEngine
     {
         if (q.Disabled) return SnapResult.None(q.Cursor);
         var providers = q.Rules.SnapProviders & q.EnabledProviders;
+        if (q.TangentLock is { } t && q.SessionPis.Count > 0 && t.LengthSquared() > SplineMath.Epsilon) return Tangent(q, providers, Vector2.Normalize(t));
 
         if (providers.HasFlag(SnapProviders.Node) && TryNode(q) is { } node) return node;
         if (providers.HasFlag(SnapProviders.Perpendicular) && q.SessionPis.Count > 0 && TryFoot(q) is { } foot) return foot;
@@ -92,6 +93,19 @@ public static class SnapEngine
                 {
                     Position = end.Position, Kind = SnapKind.Node, Tag = "snap: node", TagAt = end.Position,
                     EdgeTangent = end.Tangent,
+                };
+            }
+            // Each corner's point on the road (a joint between chained curves, an arc's middle) is a node to connect to.
+            for (int i = 1; i < c.Alignment.Pis.Count - 1; i++)
+            {
+                var p = c.Alignment.RoadPoint(i);
+                float d = Vector2.Distance(q.Cursor, p);
+                if (d > radius || d >= bestDist) continue;
+                bestDist = d;
+                best = new SnapResult
+                {
+                    Position = p, Kind = SnapKind.Node, Tag = "snap: node", TagAt = p,
+                    EdgeTangent = curve.Sample(curve.ClosestPoint(p).S).Tangent,
                 };
             }
         }
@@ -240,6 +254,16 @@ public static class SnapEngine
         };
     }
 
+    /// <summary>The leg held on the tangent ray: nodes and edges are skipped (they mean nothing there), a guide
+    /// crossing the ray or a length along it still snaps, and the ray is shown as a lit guide.</summary>
+    private static SnapResult Tangent(SnapQuery q, SnapProviders providers, Vector2 dir)
+    {
+        var last = q.SessionPis[^1].Position;
+        var r = Locked(q, providers, new AngleLock(last, -dir, dir, 180f, AngleReference.Leg, "tangent"), GatherGuides(q, providers));
+        var ray = new GuideLine(new[] { last, last + dir * q.GuideSearchRadius }, GuideKind.Extension, "tangent") { Source = last };
+        return r with { Guides = r.Guides.Prepend(Trim(ray, r.Position, q)).ToList() };
+    }
+
     public static string AngleText(AngleLock a) =>
         a.Against == AngleReference.Absolute ? $"{a.Degrees:0.0}°" : $"∡ {a.Degrees:0}°";
 
@@ -247,6 +271,7 @@ public static class SnapEngine
     {
         AngleReference.Absolute => $"{a.Degrees:0.0}° · Ctrl",
         _ when a.Meaning == "straight on" => $"∡ {a.Degrees:0}° · straight on",
+        _ when a.Meaning == "tangent" => "tangent",
         AngleReference.StartEdge => $"∡ {a.Degrees:0}° · {a.Meaning} to edge",
         _ => $"∡ {a.Degrees:0}° · {a.Meaning} to leg",
     };

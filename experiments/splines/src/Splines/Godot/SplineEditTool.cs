@@ -10,7 +10,7 @@ namespace CitySim.Splines.Godot;
 
 /// <summary>
 /// The Edit tool (<c>M</c>; DESIGN.md → Edit tool, ROADMAP.md S5): click a built edge to select it (Shift+click adds
-/// or removes one), then drag its corner points or the radius knob in the middle of each arc; any node can be dragged.
+/// or removes one; on a road with corners, just the stretch between two of its dots: see <c>.Stretch.cs</c>), then drag its corner points or the radius knob in the middle of each arc; any node can be dragged.
 /// Connected edges follow and keep their radii, Alt-drag slides a corner point onto its neighbours' line
 /// (straighten), and the knob takes the same radius limits as drawing. Every frame of a drag is tried on a copy of the
 /// graph and drawn in place of the built one, the old shape left as a faint outline. On release it's joined to the
@@ -35,7 +35,7 @@ public partial class SplineEditTool : Node
     private const float MenuInnerPixels = 16f;
     private const float MenuOuterPixels = 60f;
 
-    private enum HandleKind { Node, Pi, Knob, Group }
+    private enum HandleKind { Node, Pi, Knob, Group, Stretch }
 
     /// <summary>The radial menu's actions, in the storyboard's order round the circle (top, right, bottom, left).</summary>
     private enum MenuAction { Smooth, Hard, Straighten, Delete }
@@ -61,7 +61,8 @@ public partial class SplineEditTool : Node
     }
 
     /// <summary>Something to drag: a node (<see cref="Id"/> is the node), or interior PI <see cref="Index"/> of edge
-    /// <see cref="Id"/> by its point or its radius knob.</summary>
+    /// <see cref="Id"/> by its point or its radius knob. A <see cref="HandleKind.Stretch"/> (a radial menu's target) is
+    /// stretch <see cref="Index"/> of edge <see cref="Id"/>.</summary>
     private readonly record struct Handle(HandleKind Kind, int Id, int Index, NumVector2 At);
 
     /// <summary>A drag in progress: what's held, where it's going, and the tried result.</summary>
@@ -84,6 +85,7 @@ public partial class SplineEditTool : Node
         /// <summary>A group move: the selected nodes and edges it moves (the held node, if any, is <see cref="Handle"/>'s id).</summary>
         public IReadOnlyList<int> GroupNodes { get; init; } = Array.Empty<int>();
         public IReadOnlyList<int> GroupEdges { get; init; } = Array.Empty<int>();
+        public IReadOnlyList<Stretch> GroupStretches { get; init; } = Array.Empty<Stretch>();
         public NumVector2 Delta => Target - Handle.At;
     }
 
@@ -136,6 +138,7 @@ public partial class SplineEditTool : Node
             {
                 _selected.RemoveWhere(id => !Network.Graph.HasEdge(id));
                 _selectedNodes.RemoveWhere(id => !Network.Graph.HasNode(id));
+                _stretches.RemoveWhere(st => !Valid(Network.Graph, st));
             };
     }
 
@@ -193,6 +196,11 @@ public partial class SplineEditTool : Node
         {
             if (_drag is not null || _boxFrom is not null) CancelDrag();
             else if (_hover is { Kind: not HandleKind.Group } h) OpenMenu(h);
+            else if (_hoverEdge is { } he && Network is not null)
+            {
+                var st = _hoverStretch ?? new Stretch(he, 0);
+                OpenMenu(new Handle(HandleKind.Stretch, st.EdgeId, st.Index, MidOf(Network.Graph, st)));
+            }
             else return;
             GetViewport().SetInputAsHandled();
             return;
@@ -204,6 +212,7 @@ public partial class SplineEditTool : Node
             _pressAt = mb.Position;
             _pressHandle = _hover;
             _pressEdge = _hoverEdge;
+            _pressStretch = _hoverStretch;
             _pressShift = mb.ShiftPressed;
             return;
         }
@@ -214,6 +223,7 @@ public partial class SplineEditTool : Node
         _pressAt = null;
         _pressHandle = null;
         _pressEdge = null;
+        _pressStretch = null;
     }
 
     public override void _Process(double delta)
@@ -223,12 +233,12 @@ public partial class SplineEditTool : Node
         if (!Active)
         {
             if (_drag is not null || _boxFrom is not null) CancelDrag();
-            CloseMenu();
-            Network.ShowTrial(null);
+            CloseMenu(); // a drag or menu clears its own trial; the Draw tool's Grid shows one too
             _overlay.ShowEdit(null);
             _issueList?.Show(Array.Empty<Issue>(), Array.Empty<Issue>(), false);
             _hover = null;
             _hoverEdge = null;
+            _hoverStretch = null;
             return;
         }
 
@@ -239,6 +249,15 @@ public partial class SplineEditTool : Node
         {
             if (_pressHandle is { Kind: HandleKind.Node } n && _selectedNodes.Contains(n.Id)) StartGroupDrag(n.At, n.Id);
             else if (_pressHandle is { } held) StartDrag(held, at);
+            else if (_pressStretch is { } ps)
+            {
+                if (!_stretches.Contains(ps))
+                {
+                    if (!_pressShift) ClearSelection();
+                    _stretches.Add(ps);
+                }
+                StartGroupDrag(at, null);
+            }
             else if (_pressEdge is { } pe)
             {
                 if (!_selected.Contains(pe))
@@ -260,6 +279,7 @@ public partial class SplineEditTool : Node
             Network.ShowTrial(null);
             _hover = cursor is { } hp ? Pick(hp) : null;
             _hoverEdge = _hover is null && cursor is { } ep ? EdgeUnder(ep) : null;
+            _hoverStretch = _hoverEdge is { } he && cursor is { } sp ? StretchOf(Network.Graph, he, sp) : null;
         }
 
         double now = Time.GetTicksMsec() / 1000.0;
@@ -270,30 +290,24 @@ public partial class SplineEditTool : Node
 
     // --- Picking ---
 
-    /// <summary>The handle at a plan point: a selected edge's radius knob first, then its corner points, then any
-    /// node; the nearest of each within the pick distance.</summary>
+    /// <summary>The handle at a plan point: a selected edge's or stretch's radius knob first, then its corner points,
+    /// then any node; the nearest of each within the pick distance.</summary>
     private Handle? Pick(NumVector2 p)
     {
         var g = Network!.Graph;
         float within = _view.Cursor is { } c ? _view.PixelsToPlanUnits(PickPixels, c) : 2f;
         Handle? best = null;
         float bestDist = within;
-        foreach (int id in _selected)
+        var corners = SelectedCorners(g).ToList();
+        foreach (var (id, i) in corners)
         {
             var a = g.Edge(id).Alignment;
-            for (int i = 1; i < a.Pis.Count - 1; i++)
-            {
-                var corner = a.Corner(i);
-                if (a.Pis[i].Hard || corner.Radius <= 0) continue;
-                Consider(new Handle(HandleKind.Knob, id, i, corner.Mid));
-            }
+            var corner = a.Corner(i);
+            if (a.Pis[i].Hard || corner.Radius <= 0) continue;
+            Consider(new Handle(HandleKind.Knob, id, i, corner.Mid));
         }
         if (best is not null) return best;
-        foreach (int id in _selected)
-        {
-            var a = g.Edge(id).Alignment;
-            for (int i = 1; i < a.Pis.Count - 1; i++) Consider(new Handle(HandleKind.Pi, id, i, a.Pis[i].Position));
-        }
+        foreach (var (id, i) in corners) Consider(new Handle(HandleKind.Pi, id, i, g.Edge(id).Alignment.Pis[i].Position));
         if (best is not null) return best;
         foreach (var n in g.Nodes) Consider(new Handle(HandleKind.Node, n.Id, 0, n.Position));
         return best;
@@ -322,16 +336,17 @@ public partial class SplineEditTool : Node
         return best;
     }
 
-    /// <summary>A click: on an edge or a node selects it (Shift adds or removes it), on empty ground clears the
-    /// selection. A corner point or knob clicked without moving it does nothing.</summary>
+    /// <summary>A click: on a node, a stretch of a road with corners, or a road with none selects it (Shift adds or
+    /// removes it), on empty ground clears the selection. A corner point or knob clicked without moving it does nothing.</summary>
     private void Click(bool shift)
     {
         if (_pressHandle is { Kind: HandleKind.Node } n) Toggle(_selectedNodes, n.Id);
         else if (_pressHandle is not null) return;
+        else if (_hoverStretch is { } st) Toggle(_stretches, st);
         else if (_hoverEdge is { } id) Toggle(_selected, id);
         else if (!shift) ClearSelection();
 
-        void Toggle(HashSet<int> set, int id)
+        void Toggle<T>(HashSet<T> set, T id)
         {
             if (shift) { if (!set.Remove(id)) set.Add(id); return; }
             ClearSelection();
@@ -339,12 +354,13 @@ public partial class SplineEditTool : Node
         }
     }
 
-    private bool HasSelection => _selected.Count > 0 || _selectedNodes.Count > 0;
+    private bool HasSelection => _selected.Count > 0 || _selectedNodes.Count > 0 || _stretches.Count > 0;
 
     private void ClearSelection()
     {
         _selected.Clear();
         _selectedNodes.Clear();
+        _stretches.Clear();
     }
 
     // --- Box select ---
@@ -396,14 +412,17 @@ public partial class SplineEditTool : Node
         var g = Network!.Graph;
         var nodes = _selectedNodes.Where(g.HasNode).ToList();
         var edges = _selected.Where(g.HasEdge).ToList();
-        var moved = nodes.Concat(edges.SelectMany(id => new[] { g.Edge(id).Start, g.Edge(id).End })).Distinct();
-        var changed = moved.SelectMany(n => g.Node(n).Edges).Distinct().ToList();
+        var stretches = _stretches.Where(st => Valid(g, st)).ToList();
+        var moved = nodes.Concat(edges.SelectMany(id => new[] { g.Edge(id).Start, g.Edge(id).End }))
+            .Concat(stretches.SelectMany(st => EndNodes(g, st))).Distinct();
+        var changed = moved.SelectMany(n => g.Node(n).Edges).Concat(stretches.Select(st => st.EdgeId)).Distinct().ToList();
         if (changed.Count == 0) return;
         var cursor = _view.Cursor is { } c ? _view.PlanOf(c) : at;
         _drag = new Drag
         {
             Handle = new Handle(HandleKind.Group, node ?? 0, node is null ? 0 : 1, at), Grab = at - cursor, Edges = changed,
             Rules = g.Edge(changed[0]).Rules, Pi = at, Target = at, GroupNodes = nodes, GroupEdges = edges,
+            GroupStretches = stretches,
         };
     }
 
@@ -461,7 +480,7 @@ public partial class SplineEditTool : Node
                 g.MovePi(h.Id, h.Index, d.Target);
                 return g.Reconnect(new[] { h.Id });
             case HandleKind.Group:
-                return g.Reconnect(g.MoveGroup(d.GroupNodes, d.GroupEdges, d.Delta), h.Index == 1 ? h.Id : null);
+                return g.Reconnect(g.MoveGroup(d.GroupNodes, d.GroupEdges, d.Delta, d.GroupStretches), h.Index == 1 ? h.Id : null);
             default:
                 g.SetRadius(h.Id, h.Index, d.Radius);
                 return g.Reconnect(new[] { h.Id });
@@ -486,10 +505,14 @@ public partial class SplineEditTool : Node
         // A group's selection is found again where it moved to (a reconnect renumbers what it touches).
         var movedEdges = d.Handle.Kind == HandleKind.Group ? _selected.Select(id => Moved(prior.Edge(id).Alignment, d.Delta)).ToList() : null;
         var movedNodes = d.Handle.Kind == HandleKind.Group ? _selectedNodes.Select(id => prior.Node(id).Position + d.Delta).ToList() : null;
+        // A stretch is found again by its middle (moved with a group; a corner drag may shift it a little).
+        var stretchMids = _stretches.Where(st => Valid(prior, st))
+            .Select(st => MidOf(prior, st) + (d.Handle.Kind == HandleKind.Group ? d.Delta : NumVector2.Zero)).ToList();
         var result = Network.Apply(g => Perform(g, d));
         var graph = Network.Graph;
         _selected.RemoveWhere(id => !graph.HasEdge(id));
         _selectedNodes.RemoveWhere(id => !graph.HasNode(id));
+        _stretches.Clear();
         if (movedEdges is not null && movedNodes is not null)
         {
             ClearSelection();
@@ -498,6 +521,7 @@ public partial class SplineEditTool : Node
                 if (graph.NodeAt(p) is { } n) _selectedNodes.Add(n);
         }
         else if (hadSelected) _selected.UnionWith(result.Edges.Where(graph.HasEdge));
+        Reselect(graph, stretchMids);
         FlashNewJunctions(prior, result, until);
         _drag = null;
     }
@@ -530,6 +554,7 @@ public partial class SplineEditTool : Node
         _drag = null;
         _pressHandle = null;
         _pressEdge = null;
+        _pressStretch = null;
         _pressAt = null;
         _boxFrom = null;
         _boxEdges.Clear();
@@ -537,16 +562,21 @@ public partial class SplineEditTool : Node
         Network?.ShowTrial(null);
     }
 
-    /// <summary>Deletes the selected edges, and every edge at a selected node.</summary>
+    /// <summary>Deletes the selected stretches (the rest of their roads stays), the selected edges, and every edge at
+    /// a selected node.</summary>
     private void DeleteSelection()
     {
         if (Network is null) return;
         var g0 = Network.Graph;
-        // By position, since removing an edge may merge others and renumber them.
+        // By alignment and position, since removing an edge may merge others and renumber them.
+        var cuts = _stretches.Where(st => Valid(g0, st)).GroupBy(st => st.EdgeId)
+            .Select(gr => (g0.Edge(gr.Key).Alignment, gr.Select(st => st.Index).ToList())).ToList();
         var edges = _selected.Where(g0.HasEdge).Select(id => g0.Edge(id).Alignment).ToList();
         var nodes = _selectedNodes.Where(g0.HasNode).Select(id => g0.Node(id).Position).ToList();
         Network.Apply(g =>
         {
+            foreach (var (a, ks) in cuts)
+                if (g.Edges.FirstOrDefault(e => e.Alignment == a) is { } e) g.RemoveStretches(e.Id, ks);
             foreach (var a in edges)
                 if (g.Edges.FirstOrDefault(e => e.Alignment == a) is { } e) g.RemoveEdge(e.Id);
             foreach (var p in nodes)
@@ -558,7 +588,7 @@ public partial class SplineEditTool : Node
 
     // --- Radial menu ---
 
-    /// <summary>Opens the radial menu on a corner point (a knob opens its corner's) or a node.</summary>
+    /// <summary>Opens the radial menu on a corner point (a knob opens its corner's), a node, or a stretch of road.</summary>
     private void OpenMenu(Handle h)
     {
         CancelDrag();
@@ -574,24 +604,32 @@ public partial class SplineEditTool : Node
     }
 
     /// <summary>Whether an action does anything at the target: a straight corner has nothing to smooth, harden or
-    /// straighten; a node only smooths or straightens a joint of two edges, and never goes hard (it already is).</summary>
+    /// straighten; a node only smooths or straightens a joint of two edges, and never goes hard (it already is). A
+    /// stretch takes an action when one of its corners does.</summary>
     private static bool Applies(SplineGraph g, Handle h, MenuAction action)
     {
         if (action == MenuAction.Delete) return true;
         if (h.Kind == HandleKind.Node) return action != MenuAction.Hard && g.JointTurn(h.Id) > 0.1f;
-        var e = g.Edge(h.Id);
+        if (h.Kind == HandleKind.Stretch) return CornersOf(g.Edge(h.Id).Alignment, h.Index).Any(i => AppliesAt(g, h.Id, i, action));
+        return AppliesAt(g, h.Id, h.Index, action);
+    }
+
+    private static bool AppliesAt(SplineGraph g, int edgeId, int i, MenuAction action)
+    {
+        var e = g.Edge(edgeId);
         var a = e.Alignment;
-        var pi = a.Pis[h.Index];
-        if (MathF.Abs(a.Corner(h.Index).TurnDegrees) < 0.1f) return false;
+        var pi = a.Pis[i];
+        if (MathF.Abs(a.Corner(i).TurnDegrees) < 0.1f) return false;
         return action switch
         {
-            MenuAction.Smooth => pi.Hard || a.EffectiveRadius(h.Index) < a.MaxRadius(h.Index) * 0.999f,
+            MenuAction.Smooth => pi.Hard || a.EffectiveRadius(i) < a.MaxRadius(i) * 0.999f,
             MenuAction.Hard => e.Rules.AllowHardCorners && !pi.Hard,
             _ => true,
         };
     }
 
-    /// <summary>An action on a graph: change, then reconnect like a draw.</summary>
+    /// <summary>An action on a graph: change, then reconnect like a draw. On a stretch, Delete takes it out of its road
+    /// and the others act on each of its corners they apply to.</summary>
     private static EditResult Perform(SplineGraph g, Handle h, MenuAction action)
     {
         if (h.Kind == HandleKind.Node)
@@ -608,15 +646,28 @@ public partial class SplineEditTool : Node
             }
             return new EditResult(Array.Empty<int>(), Array.Empty<int>());
         }
-        var a = g.Edge(h.Id).Alignment;
+        if (h.Kind == HandleKind.Stretch)
+        {
+            if (action == MenuAction.Delete) return new EditResult(g.RemoveStretches(h.Id, new[] { h.Index }), Array.Empty<int>());
+            foreach (int i in CornersOf(g.Edge(h.Id).Alignment, h.Index).Where(i => AppliesAt(g, h.Id, i, action)).ToList())
+                ApplyAt(g, h.Id, i, action);
+            return g.Reconnect(new[] { h.Id });
+        }
+        ApplyAt(g, h.Id, h.Index, action);
+        return g.Reconnect(new[] { h.Id });
+    }
+
+    /// <summary>An action on interior corner <paramref name="i"/> of an edge (its id and PI count stay, but Delete).</summary>
+    private static void ApplyAt(SplineGraph g, int edgeId, int i, MenuAction action)
+    {
+        var a = g.Edge(edgeId).Alignment;
         switch (action)
         {
-            case MenuAction.Smooth: g.SetRadius(h.Id, h.Index, a.MaxRadius(h.Index)); break;
-            case MenuAction.Hard: g.SetHard(h.Id, h.Index); break;
-            case MenuAction.Straighten: g.MovePi(h.Id, h.Index, SplineGraph.OntoLine(a.Pis[h.Index - 1].Position, a.Pis[h.Index + 1].Position, a.Pis[h.Index].Position)); break;
-            default: g.RemovePi(h.Id, h.Index); break;
+            case MenuAction.Smooth: g.SetRadius(edgeId, i, a.MaxRadius(i)); break;
+            case MenuAction.Hard: g.SetHard(edgeId, i); break;
+            case MenuAction.Straighten: g.MovePi(edgeId, i, SplineGraph.OntoLine(a.Pis[i - 1].Position, a.Pis[i + 1].Position, a.Pis[i].Position)); break;
+            default: g.RemovePi(edgeId, i); break;
         }
-        return g.Reconnect(new[] { h.Id });
     }
 
     /// <summary>The action under the mouse (by its direction from the menu's centre), tried live as a drag is.</summary>
@@ -669,9 +720,14 @@ public partial class SplineEditTool : Node
         }
         var prior = Network.Graph.Clone();
         bool hadSelected = target.Kind == HandleKind.Pi && _selected.Contains(target.Id);
+        var stretchMids = _stretches.Where(st => Valid(prior, st))
+            .Where(st => !(action == MenuAction.Delete && target.Kind == HandleKind.Stretch && st == new Stretch(target.Id, target.Index)))
+            .Select(st => MidOf(prior, st)).ToList();
         var result = Network.Apply(g => Perform(g, target, action));
         _selected.RemoveWhere(id => !Network.Graph.HasEdge(id));
         _selectedNodes.RemoveWhere(id => !Network.Graph.HasNode(id));
+        _stretches.Clear();
+        Reselect(Network.Graph, stretchMids);
         if (hadSelected) _selected.UnionWith(result.Edges.Where(Network.Graph.HasEdge));
         FlashNewJunctions(prior, result, until);
     }
@@ -768,6 +824,30 @@ public partial class SplineEditTool : Node
         }
         else selected.AddRange(_selected.Where(built.HasEdge).Select(id => Edge(built, id)));
 
+        // Selected stretches: outlined, with their corners' handles (as tried while a group moves them).
+        var stretches = new List<EditEdge>();
+        var corners = new List<(Alignment, int)>();
+        if (d is { Handle.Kind: HandleKind.Group, Graph: { } sg })
+            foreach (var st in _stretches.Where(st => Valid(built, st)))
+            {
+                var p = MidOf(built, st) + d.Delta;
+                var near = sg.Edges.OrderBy(e => NumVector2.Distance(e.Alignment.Curve.ClosestPoint(p).Position, p)).FirstOrDefault();
+                if (near is not null && StretchOf(sg, near.Id, p) is { } moved) stretches.Add(StretchEdge(sg, moved));
+            }
+        else
+        {
+            stretches.AddRange(_stretches.Where(st => Valid(built, st)).Select(st => StretchEdge(built, st)));
+            if (d is null && _menu is null)
+                foreach (var st in _stretches.Where(st => Valid(built, st)))
+                    corners.AddRange(CornersOf(built.Edge(st.EdgeId).Alignment, st.Index).Select(i => (built.Edge(st.EdgeId).Alignment, i)));
+        }
+        EditEdge? hoverEdge = null;
+        if (d is null && _menu is null && _boxFrom is null)
+        {
+            if (_hoverStretch is { } hs && Valid(built, hs)) hoverEdge = _stretches.Contains(hs) ? null : StretchEdge(built, hs);
+            else if (_hoverEdge is { } he && !_selected.Contains(he)) hoverEdge = Edge(built, he);
+        }
+
         var shift = d is { Handle.Kind: HandleKind.Group } gd ? gd.Delta : NumVector2.Zero;
         RadialMenu? radial = null;
         if (_menu is { } m && _view.ProjectPlan(m.Target.At) is { } centre)
@@ -781,12 +861,15 @@ public partial class SplineEditTool : Node
         {
             Selected = selected,
             SelectedNodes = _selectedNodes.Where(built.HasNode).Select(id => built.Node(id).Position + shift).ToList(),
-            HoverEdge = d is null && _menu is null && _boxFrom is null && _hoverEdge is { } he && !_selected.Contains(he) ? Edge(built, he) : null,
+            HoverEdge = hoverEdge,
+            Stretches = stretches,
+            Corners = corners,
             BoxEdges = _boxEdges.Where(built.HasEdge).Select(id => Edge(built, id)).ToList(),
             BoxNodes = _boxNodes.Where(built.HasNode).Select(id => built.Node(id).Position).ToList(),
             Box = _boxFrom is { } bf ? new Rect2(bf, Vector2.Zero).Expand(_view.MouseScreen()) : null,
             Menu = radial,
             Nodes = g.Nodes.Select(n => n.Position).ToList(),
+            Points = SplineToolView.RoadPoints(g).ToList(),
             HotPoint = hot,
             HotIsKnob = hotKnob,
             Ghosts = ghosts,
@@ -840,9 +923,11 @@ public partial class SplineEditTool : Node
             default:
                 if (_hoverEdge is { } he)
                 {
+                    bool chosen = _hoverStretch is { } hs ? _stretches.Contains(hs) : _selected.Contains(he);
                     hints.Add(("LMB", "Select"));
-                    hints.Add(("Drag", _selected.Contains(he) ? "Move selection" : "Move"));
+                    hints.Add(("Drag", chosen ? "Move selection" : "Move"));
                     hints.Add(("Shift+click", "Add / remove"));
+                    hints.Add(("RMB", "Menu"));
                 }
                 else hints.Add(("Drag", "Box select"));
                 break;

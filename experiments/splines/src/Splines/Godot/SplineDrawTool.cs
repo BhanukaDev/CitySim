@@ -17,8 +17,10 @@ namespace CitySim.Splines.Godot;
 /// S4: every frame the draw is tried on a copy of the <see cref="SplineNetwork"/>'s graph, so the preview shows the
 /// junctions it would make and its issues (amber builds, red is refused unless Anarchy, Ctrl+A). A square branch off
 /// a turnout profile offers the legal turnout as a ghost, which a click takes. With no draw in progress, Ctrl+Z/Y
-/// undo and redo on the graph (deleting is the Edit tool's: select, then Delete). No-ops unless
-/// the Draw tool is on (<see cref="SplinesTestbed.Tool"/>) in <see cref="DrawMode.Draw"/>; leaving it ends the chain.
+/// undo and redo on the graph (deleting is the Edit tool's: select, then Delete).
+/// S6 adds the other modes, each in its own file: Curve (start, bend, end; <c>SplineDrawTool.Curve.cs</c>), Freehand
+/// (a dragged stroke; <c>.Freehand.cs</c>) and Grid (corner, width, depth; <c>.Grid.cs</c>). No-ops unless the Draw
+/// tool is on (<see cref="SplinesTestbed.Tool"/>); leaving it or changing mode ends the chain.
 /// </summary>
 public partial class SplineDrawTool : Node
 {
@@ -61,8 +63,9 @@ public partial class SplineDrawTool : Node
     public DrawModifiers ForcedModifiers { get => _view.ForcedModifiers; set => _view.ForcedModifiers = value; }
     public int BuiltCount => Network?.Graph.EdgeCount ?? 0;
     /// <summary>A draw is in progress (at least one point placed).</summary>
-    public bool IsDrawing => !_session.IsEmpty;
-    private bool Active => Testbed is { Tool: SplineTool.Draw, Mode: DrawMode.Draw };
+    public bool IsDrawing => !_session.IsEmpty || _stroke is not null;
+    private bool Active => Testbed is { Tool: SplineTool.Draw };
+    private DrawMode Mode => Testbed?.Mode ?? DrawMode.Draw;
 
     public SplineDrawTool() => _view = new SplineToolView(this);
 
@@ -80,6 +83,7 @@ public partial class SplineDrawTool : Node
         layer.AddChild(_overlay);
         _issueList = new SplineIssueList();
         layer.AddChild(_issueList);
+        if (Testbed is not null) Testbed.ModeChanged += _ => EndChain();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -99,6 +103,8 @@ public partial class SplineDrawTool : Node
         }
         else if (key.Keycode == Key.Y && key.IsCommandOrControlPressed()) Redo(drawing);
         else if (key.Keycode == Key.A && key.IsCommandOrControlPressed()) Testbed?.SetAnarchy(!Testbed.Anarchy);
+        else if (key.Keycode is Key.Bracketleft or Key.Bracketright && Mode == DrawMode.Grid)
+            AdjustGridLots(key.Keycode == Key.Bracketright ? 1 : -1, across: key.ShiftPressed);
         else if (key.Keycode == Key.Bracketleft) AdjustRadius(1f / RadiusKeyFactor);
         else if (key.Keycode == Key.Bracketright) AdjustRadius(RadiusKeyFactor);
         else if (key.Keycode is Key.Enter or Key.KpEnter) Finish();
@@ -111,10 +117,13 @@ public partial class SplineDrawTool : Node
     {
         if (mb.Pressed && mb.ShiftPressed && mb.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
         {
-            AdjustRadius(MathF.Pow(RadiusWheelFactor, mb.ButtonIndex == MouseButton.WheelUp ? 1f : -1f));
+            int dir = mb.ButtonIndex == MouseButton.WheelUp ? 1 : -1;
+            if (Mode == DrawMode.Grid) AdjustGridLots(dir, across: mb.CtrlPressed);
+            else AdjustRadius(MathF.Pow(RadiusWheelFactor, dir));
             GetViewport().SetInputAsHandled();
             return;
         }
+        if (Mode == DrawMode.Freehand) { HandleFreehandButton(mb); return; }
         if (mb.ButtonIndex is not (MouseButton.Left or MouseButton.Right) || !mb.Pressed) return;
 
         if (mb.ButtonIndex == MouseButton.Right)
@@ -132,8 +141,10 @@ public partial class SplineDrawTool : Node
         if (Cursor is { } hit)
         {
             GetViewport().SetInputAsHandled();
-            if (_suggestion is { } turnout) TakeSuggestion(turnout);
-            else Place(_snap?.Position ?? _view.PlanOf(hit), hard: mb.AltPressed);
+            var at = _snap?.Position ?? _view.PlanOf(hit);
+            if (Mode == DrawMode.Grid) GridClick(at);
+            else if (_suggestion is { } turnout) TakeSuggestion(turnout);
+            else Click(at, hard: mb.AltPressed);
         }
     }
 
@@ -148,9 +159,10 @@ public partial class SplineDrawTool : Node
 
         _view.UpdateCursor();
 
-        if (!Active && !_session.IsEmpty) EndChain();
+        if (!Active && IsDrawing) EndChain();
         if (!Active || Testbed.Profile is not { } profile || Cursor is not { } cursor || Network is null)
         {
+            ClearGridTrial();
             Network?.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
             _renderer.SetGhost(null, 0);
@@ -164,36 +176,28 @@ public partial class SplineDrawTool : Node
         var rules = profile.ToRules();
         var mods = _view.Modifiers();
         _snap = SnapEngine.Evaluate(BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods));
+        if (Mode == DrawMode.Freehand) { ProcessFreehand(profile, rules, _view.PlanOf(cursor)); return; }
+        if (Mode == DrawMode.Grid && _gridAlongEnd is not null) { ProcessGrid(profile, rules, _view.PlanOf(cursor)); return; }
+        ClearGridTrial();
+        TagLoopClose(rules);
         bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
         if (continues) _snap = _snap with { Tag = ContinueTag(_snap.Position, rules) };
-        bool clickFinishes = !_session.IsEmpty && _snap.Kind == SnapKind.Node && Network.Graph.DeadEndAt(_snap.Position, rules) is not null;
+        bool clickFinishes = !_session.IsEmpty && Mode != DrawMode.Grid && (Mode != DrawMode.Curve || _session.Bend is not null) && _snap.Kind == SnapKind.Node && Network.Graph.DeadEndAt(_snap.Position, rules) is not null;
 
-        Alignment? preview = null, shown = null;
+        Alignment? preview = null;
         bool leadIn = false, leadOut = false;
         _trial = null;
         _suggestion = null;
         if (!_session.IsEmpty)
         {
-            var drawn = _session.BuildPreview(_snap.Position);
-            _trial = Try(drawn, rules);
-            _suggestion = TurnoutSuggestion(_trial, rules);
-            // Continuing a dead end: the old edge is hidden and the whole road it becomes is drawn instead, the
-            // unchanged old part solid; the overlay gets the old road's last leg as the previous leg (so the joint has
-            // its angle and radius pills).
-            var continued = _trial?.Result.Continued ?? (IReadOnlyList<int>)Array.Empty<int>();
-            Network.Hide(continued);
-            shown = continued.Count > 0 ? _trial!.Result.Alignment : drawn;
-            (preview, leadIn, leadOut) = continued.Count > 0 ? WithLeads(drawn, rules) : (drawn, false, false);
-            // The old road it continues stays drawn as built; only the new part (from the joint's corner) is the ghost.
-            // Another profile's road keeps its own edge up to the joint's corner, drawn as built in its colour.
-            if (continued.Count > 0)
+            var drawn = Mode switch
             {
-                var kept = _trial!.Result.Kept.Select(id => _trial.Graph.Edge(id))
-                    .Select(e => (e.Alignment, e.Rules.Width, Network.ColorOf(e.Rules.Id))).ToList();
-                _renderer.SetPreview(shown, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id), kept);
-            }
-            else
-                _renderer.SetPreview(shown, profile.Width, _trial?.Worst);
+                DrawMode.Grid => GridWidthPreview(rules),
+                _ => _session.BuildPreview(_snap.Position, BendRadius(rules, continues)),
+            };
+            _trial = Try(drawn, rules, Mode == DrawMode.Grid ? Ends.None : Ends.Both);
+            if (Mode == DrawMode.Draw) _suggestion = TurnoutSuggestion(_trial, rules);
+            (preview, leadIn, leadOut) = ShowTrialPreview(drawn, rules, profile);
         }
         else
         {
@@ -232,7 +236,7 @@ public partial class SplineDrawTool : Node
             EndArm = endArm,
             EndHeading = endHeading,
             Rules = rules,
-            BuiltEnds = graph.Nodes.Select(n => n.Position).ToList(),
+            BuiltEnds = SplineToolView.Points(graph),
             Mouse = _view.MouseScreen(),
             CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
             HardRefused = now < _hardHintUntil,
@@ -244,7 +248,41 @@ public partial class SplineDrawTool : Node
             Suggestion = _suggestion,
             SuggestionLabel = _suggestion is null ? null
                 : $"turnout {Junctions.TurnoutRatio(rules.TurnoutMaxAngle)} · R {rules.MinRadius:0} m",
+            PlaceLabel = PlaceLabel(),
+            LiveRadiusNote = BendAtFit ? "fit" : null,
+            GridLabel = Mode == DrawMode.Grid ? GridWidthLabel(rules) : null,
         });
+    }
+
+    /// <summary>What LMB does next, for the hint stack (null: Draw's own wording).</summary>
+    private string? PlaceLabel() => Mode switch
+    {
+        DrawMode.Curve => _session.IsEmpty ? "Place start" : _session.Bend is null ? "Place bend" : "Place end",
+        DrawMode.Grid => _session.IsEmpty ? "Place corner" : "Place width",
+        _ => null,
+    };
+
+    /// <summary>
+    /// Shows <see cref="_trial"/> (the drawn alignment tried on the graph) as the preview ribbon, and returns what the
+    /// overlay draws its legs and pills along. Continuing a dead end: the old edge is hidden and the whole road it
+    /// becomes is drawn instead, the unchanged old part solid; the overlay gets the old road's last leg as the previous
+    /// leg (so the joint has its angle and radius pills).
+    /// </summary>
+    private (Alignment Preview, bool LeadIn, bool LeadOut) ShowTrialPreview(Alignment drawn, ProfileRules rules, SplineProfile profile)
+    {
+        var continued = _trial?.Result.Continued ?? (IReadOnlyList<int>)Array.Empty<int>();
+        Network!.Hide(continued);
+        // The old road it continues stays drawn as built; only the new part (from the joint's corner) is the ghost.
+        // Another profile's road keeps its own edge up to the joint's corner, drawn as built in its colour.
+        if (continued.Count > 0)
+        {
+            var kept = _trial!.Result.Kept.Select(id => _trial.Graph.Edge(id))
+                .Select(e => (e.Alignment, e.Rules.Width, Network.ColorOf(e.Rules.Id))).ToList();
+            _renderer!.SetPreview(_trial.Result.Alignment, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id), kept);
+            return WithLeads(drawn, rules);
+        }
+        _renderer!.SetPreview(drawn, profile.Width, _trial?.Worst);
+        return (drawn, false, false);
     }
 
     // --- Continuing a dead end ---
@@ -303,11 +341,11 @@ public partial class SplineDrawTool : Node
 
     /// <summary>Adds the alignment to a copy of the graph and validates what it touches. Issues the graph already had
     /// (say an edge built red with Anarchy) are left out, so they neither show again nor block this draw.</summary>
-    private Trial? Try(Alignment alignment, ProfileRules rules)
+    private Trial? Try(Alignment alignment, ProfileRules rules, Ends continueAt = Ends.Both)
     {
         if (Network is null || alignment.Curve.Length < SplineGraph.NodeTolerance) return null;
         var g = Network.Graph.Clone();
-        var result = g.AddSpline(alignment, rules);
+        var result = g.AddSpline(alignment, rules, continueAt);
         var edges = result.Edges.Concat(result.Nodes.SelectMany(n => g.Node(n).Edges)).Distinct();
         var issues = Validation.Check(g, edges, result.Nodes)
             .Where(i => !Network.Issues.Any(old => old.Code == i.Code && old.Message == i.Message && NumVector2.Distance(old.Where, i.Where) < 1f))
@@ -375,6 +413,7 @@ public partial class SplineDrawTool : Node
             Cursor = rawPlan,
             SessionPis = _session.Placed,
             StartHeading = _session.IsEmpty ? null : _startHeading,
+            TangentLock = BendTangent(),
             Candidates = SplineToolView.Candidates(Network!.Graph),
             Rules = rules,
             EnabledProviders = Testbed?.EnabledSnaps ?? SnapProviders.All,
@@ -410,8 +449,10 @@ public partial class SplineDrawTool : Node
         }
         if (NumVector2.Distance(position, _session.Pis[0].Position) < SplineGraph.NodeTolerance) return;
         bool finishes = Network.Graph.DeadEndAt(position, rules) is not null;
-        if (!Build(_session.LegTo(position, allowHard), profile)) return;
-        _session.Place(position, allowHard);
+        float bend = BendRadius(rules, ContinuesAt(position, rules), position);
+        if (!Build(_session.LegTo(position, allowHard, bend), profile)) return;
+        _session.Place(position, allowHard, bend);
+        _bendRadius = null;
         _session.StartIsCorner = Network.Graph.DeadEndAt(position, rules) is not null;
         if (finishes) EndChain();
     }
@@ -419,6 +460,7 @@ public partial class SplineDrawTool : Node
     private void AdjustRadius(float factor)
     {
         if (Testbed?.Profile is not { } profile) return;
+        if (_session.Bend is not null) { AdjustBendRadius(factor, profile); return; }
         // Stepping starts from what the corner builds now, so the first step down always shows; it can't grow past
         // what fits (there's nothing to gain). Anarchy lifts the profile's minimum (the corner then shows red but builds).
         float fit = LiveCornerFit();
@@ -483,6 +525,8 @@ public partial class SplineDrawTool : Node
     private void Undo(bool drawing)
     {
         if (!drawing) { Network?.Undo(); return; }
+        if (_session.Bend is not null) { _session.SetBend(null); _bendRadius = null; return; }
+        if (_gridAlongEnd is not null) { _gridAlongEnd = null; return; }
         if (_session.LegsBuilt == 0 || Network is null || Testbed?.Profile is not { } profile) { CancelSession(); return; }
         Network.Undo();
         _session.Undo();
@@ -502,6 +546,10 @@ public partial class SplineDrawTool : Node
         _session.Reset(Testbed?.Profile?.DefaultRadius ?? 0f);
         _sessionProfile = Testbed?.Profile;
         _startHeading = null;
+        _bendRadius = null;
+        _stroke = null;
+        _gridAlongEnd = null;
+        ClearGridTrial();
         _renderer?.SetPreview(null, 0);
     }
 
@@ -521,7 +569,18 @@ public partial class SplineDrawTool : Node
                 EnabledProviders = SnapProviders.Node | SnapProviders.Edge,
                 Candidates = SplineToolView.Candidates(Network!.Graph),
             }) with { Position = plan };
-        Place(plan, hard);
+        if (Mode == DrawMode.Grid) GridClick(plan);
+        else Click(plan, hard);
+    }
+
+    /// <summary>A click at <see cref="ForcedPlanCursor"/> snapped as the mouse's would be (one frame processed first).
+    /// Returns the snap's tag.</summary>
+    public string SnapClickForTest()
+    {
+        _Process(0);
+        if (_snap is not { } s) return "";
+        Click(s.Position, hard: false);
+        return s.Tag;
     }
 
     public void FinishForTest() => Finish();

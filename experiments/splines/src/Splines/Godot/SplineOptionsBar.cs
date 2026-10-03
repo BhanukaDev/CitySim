@@ -24,6 +24,9 @@ public partial class SplineOptionsBar : PanelContainer
         Text = "Anarchy", ToggleMode = true, FocusMode = FocusModeEnum.None,
         TooltipText = "Ctrl+A: build past radius, angle and grade limits (the result stays red)",
     };
+    private readonly HBoxContainer _gridRow = new() { Visible = false };
+    private readonly SpinBox _lotsAlong = GridSpin("[ ]: lots along the first edge");
+    private readonly SpinBox _lotsAcross = GridSpin("Shift+[ ]: lots across");
     private IReadOnlyList<SplineProfile> _profiles = Array.Empty<SplineProfile>();
 
     public event Action<SplineProfile>? ProfileChanged;
@@ -31,6 +34,8 @@ public partial class SplineOptionsBar : PanelContainer
     public event Action<SplineTool>? ToolChanged;
     public event Action<SnapProviders>? SnapProvidersChanged;
     public event Action<bool>? AnarchyChanged;
+    /// <summary>Grid mode's block size changed in the bar (lots along, lots across).</summary>
+    public event Action<int, int>? GridLotsChanged;
 
     public SplineProfile? Profile => _profilePicker.Selected >= 0 && _profilePicker.Selected < _profiles.Count
         ? _profiles[_profilePicker.Selected] : null;
@@ -77,6 +82,18 @@ public partial class SplineOptionsBar : PanelContainer
         row.AddChild(new VSeparator());
         _anarchy.Toggled += on => AnarchyChanged?.Invoke(on);
         row.AddChild(_anarchy);
+
+        // Grid mode's block size, shown only in Grid.
+        row.AddChild(_gridRow);
+        _gridRow.AddThemeConstantOverride("separation", 4);
+        _gridRow.AddChild(new VSeparator());
+        _gridRow.AddChild(new Label { Text = "Block" });
+        _gridRow.AddChild(_lotsAlong);
+        _gridRow.AddChild(new Label { Text = "×" });
+        _gridRow.AddChild(_lotsAcross);
+        _gridRow.AddChild(new Label { Text = "lots" });
+        _lotsAlong.ValueChanged += _ => GridLotsChanged?.Invoke((int)_lotsAlong.Value, (int)_lotsAcross.Value);
+        _lotsAcross.ValueChanged += _ => GridLotsChanged?.Invoke((int)_lotsAlong.Value, (int)_lotsAcross.Value);
 
         var snapRow = new HBoxContainer();
         snapRow.AddThemeConstantOverride("separation", 4);
@@ -139,6 +156,21 @@ public partial class SplineOptionsBar : PanelContainer
         ProfileChanged?.Invoke(_profiles[index]);
     }
 
+    /// <summary>Shows the grid block size without firing <see cref="GridLotsChanged"/>.</summary>
+    public void SetGridLots(int along, int across)
+    {
+        _lotsAlong.SetValueNoSignal(along);
+        _lotsAcross.SetValueNoSignal(across);
+    }
+
+    private static SpinBox GridSpin(string tip) => new()
+    {
+        MinValue = GridLayout.MinLots, MaxValue = GridLayout.MaxLots, Step = 1, Value = GridLayout.DefaultLots,
+        TooltipText = tip, FocusMode = FocusModeEnum.Click,
+    };
+
+    private void ShowGridRow() => _gridRow.Visible = Tool == SplineTool.Draw && Mode == DrawMode.Grid;
+
     /// <summary>Shows Anarchy on or off (Ctrl+A) without firing <see cref="AnarchyChanged"/>.</summary>
     public void SetAnarchy(bool on) => _anarchy.SetPressedNoSignal(on);
 
@@ -149,6 +181,7 @@ public partial class SplineOptionsBar : PanelContainer
         SetToolState(SplineTool.Draw);
         if (mode == Mode) return;
         Mode = mode;
+        ShowGridRow();
         ModeChanged?.Invoke(mode);
     }
 
@@ -163,6 +196,7 @@ public partial class SplineOptionsBar : PanelContainer
     {
         if (tool == Tool) return;
         Tool = tool;
+        ShowGridRow();
         ToolChanged?.Invoke(tool);
     }
 }

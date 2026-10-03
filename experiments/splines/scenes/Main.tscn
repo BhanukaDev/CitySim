@@ -13,6 +13,7 @@
 [ext_resource type="Script" path="res://src/Demos/StoryboardDemo.cs" id="16_storyboard"]
 [ext_resource type="Script" path="res://src/Demos/JunctionDemo.cs" id="17_junctiondemo"]
 [ext_resource type="Script" path="res://src/Demos/EditSplinesDemo.cs" id="20_editsplinesdemo"]
+[ext_resource type="Script" path="res://src/Demos/ModesDemo.cs" id="21_modesdemo"]
 [ext_resource type="Script" path="res://src/Splines/Godot/SplineEditTool.cs" id="21_edittool"]
 [ext_resource type="Script" path="res://src/Splines/Godot/SplineNetwork.cs" id="18_network"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
@@ -144,3 +145,9 @@ script = ExtResource("17_junctiondemo")
 
 [node name="EditSplinesDemo" type="Node" parent="."]
 script = ExtResource("20_editsplinesdemo")
+
+[node name="ModesDemo" type="Node" parent="." node_paths=PackedStringArray("DrawTool", "Testbed", "Network")]
+script = ExtResource("21_modesdemo")
+DrawTool = NodePath("../SplineDrawTool")
+Testbed = NodePath("../SplinesTestbed")
+Network = NodePath("../SplineNetwork")

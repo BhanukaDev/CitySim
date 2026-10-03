@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CitySim.Splines.Godot;
 using Godot;
@@ -19,8 +20,13 @@ public partial class SplinesTestbed : Node
     public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
     /// <summary>Ctrl+A: Invalid issues still build (and stay red), and radii may go below the profile's minimum.</summary>
     public bool Anarchy { get; private set; }
+    /// <summary>Grid mode's block, in lots of clear space between roads: along the first edge, and across it.</summary>
+    public (int Along, int Across) GridLots { get; private set; } = (GridLayout.DefaultLots, GridLayout.DefaultLots);
 
     private SplineOptionsBar? _bar;
+
+    /// <summary>A draw mode was picked (the Draw tool ends its chain).</summary>
+    public event System.Action<DrawMode>? ModeChanged;
 
     public override void _Ready()
     {
@@ -39,10 +45,17 @@ public partial class SplinesTestbed : Node
             _bar.SetOfferedSnaps(p.SnapProviders);
             GD.Print($"Splines: profile {p.Id}");
         };
-        _bar.ModeChanged += m => { Mode = m; GD.Print($"Splines: mode {m}"); };
+        _bar.ModeChanged += m =>
+        {
+            Mode = m;
+            GD.Print($"Splines: mode {m}");
+            ModeChanged?.Invoke(m);
+        };
         _bar.ToolChanged += t => { Tool = t; GD.Print($"Splines: tool {t}"); };
         _bar.SnapProvidersChanged += p => EnabledSnaps = p;
         _bar.AnarchyChanged += on => SetAnarchy(on);
+        _bar.GridLotsChanged += (a, c) => GridLots = (a, c);
+        _bar.SetGridLots(GridLots.Along, GridLots.Across);
         EnabledSnaps = _bar.EnabledSnaps;
     }
 
@@ -60,6 +73,20 @@ public partial class SplinesTestbed : Node
     {
         if (_bar is null) { Tool = tool; return; }
         _bar.SetTool(tool);
+    }
+
+    /// <summary>Picks a draw mode (keys 1–4, or a scripted frame); switches to the Draw tool.</summary>
+    public void SetMode(DrawMode mode)
+    {
+        if (_bar is null) { Mode = mode; return; }
+        _bar.SetMode(mode);
+    }
+
+    /// <summary>Sets Grid mode's block size (keys, or a scripted frame), kept within limits, and shows it in the bar.</summary>
+    public void SetGridLots(int along, int across)
+    {
+        GridLots = (Math.Clamp(along, GridLayout.MinLots, GridLayout.MaxLots), Math.Clamp(across, GridLayout.MinLots, GridLayout.MaxLots));
+        _bar?.SetGridLots(GridLots.Along, GridLots.Across);
     }
 
     public void SetAnarchy(bool on)

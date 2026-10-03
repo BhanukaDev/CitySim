@@ -21,7 +21,8 @@ public readonly record struct CornerGeometry(Vector2 In, Vector2 Out, Vector2 Mi
 /// <summary>
 /// An edge's plan geometry, stored as PIs (DESIGN.md → Alignment) and derived into straights and arcs. A corner's arc
 /// is clamped to the largest radius that fits: its tangent length may use at most half of each neighbouring leg, or the
-/// whole leg where the neighbour is an end. <see cref="Rebuild"/> after changing <see cref="Pis"/>.
+/// whole leg where the neighbour is an end or runs straight through (it needs no tangent length, so a curve chained
+/// on along its tangent gets the whole leg). <see cref="Rebuild"/> after changing <see cref="Pis"/>.
 /// </summary>
 public sealed class Alignment
 {
@@ -50,6 +51,28 @@ public sealed class Alignment
     /// <summary>The largest radius that fits at PI <paramref name="i"/> (∞ for ends and straight-through corners): the
     /// most Shift+wheel offers, so a radius never asks for more than it can build.</summary>
     public float MaxRadius(int i) => _fit[i];
+
+    /// <summary>Where interior PI <paramref name="i"/>'s corner is on the road, a point a road can connect to: the PI
+    /// itself where the road passes through it (a joint between chained curves, a sharp corner), else its arc's
+    /// middle (where the radius knob sits).</summary>
+    public Vector2 RoadPoint(int i) => _corners[i].Mid;
+
+    /// <summary>The station of road point <paramref name="j"/>: 0 for the start, the length for the end, else
+    /// <see cref="RoadPoint"/>'s (the middle of the corner's arc).</summary>
+    public float RoadStation(int j) => j <= 0 ? 0 : j >= Pis.Count - 1 ? Length : (_cornerStart[j] + _cornerEnd[j]) / 2;
+
+    /// <summary>The stretches between road points: stretch <c>k</c> runs from road point <c>k</c> to <c>k + 1</c>, one
+    /// per leg. A straight edge is one stretch.</summary>
+    public int StretchCount => Math.Max(1, Pis.Count - 1);
+
+    /// <summary>The stretch station <paramref name="s"/> is on.</summary>
+    public int StretchAt(float s)
+    {
+        int k = 0;
+        for (int j = 1; j < Pis.Count - 1; j++)
+            if (s >= RoadStation(j)) k = j;
+        return k;
+    }
 
     /// <summary>The built corner at interior PI <paramref name="i"/> (1 … Count − 2).</summary>
     public CornerGeometry Corner(int i) => _corners[i];
@@ -89,8 +112,8 @@ public sealed class Alignment
             float radius = Pis[i].Hard ? 0 : Pis[i].Radius;
             _corners[i] = _corners[i] with { TurnDegrees = turn * 180f / MathF.PI };
             float tanHalf = MathF.Tan(delta / 2);
-            float maxIn = i - 1 == 0 ? lenIn : lenIn / 2;
-            float maxOut = i + 1 == n - 1 ? lenOut : lenOut / 2;
+            float maxIn = i - 1 == 0 || StraightThrough(i - 1) ? lenIn : lenIn / 2;
+            float maxOut = i + 1 == n - 1 || StraightThrough(i + 1) ? lenOut : lenOut / 2;
             float tMax = MathF.Min(maxIn, maxOut);
             if (delta >= 1e-4f && delta <= MathF.PI - 1e-3f) _fit[i] = tMax / tanHalf;
             // Straight through, sharp, or doubling back: no arc.
@@ -137,5 +160,16 @@ public sealed class Alignment
         }
 
         void MarkSharp(int i) => _cornerStart[i] = _cornerEnd[i] = station;
+    }
+
+    /// <summary>Interior PI <paramref name="j"/> doesn't turn (its legs run on in one line), so it takes no tangent length.</summary>
+    private bool StraightThrough(int j)
+    {
+        if (j <= 0 || j >= Pis.Count - 1) return false;
+        var legIn = Pis[j].Position - Pis[j - 1].Position;
+        var legOut = Pis[j + 1].Position - Pis[j].Position;
+        float lenIn = legIn.Length(), lenOut = legOut.Length();
+        if (lenIn < SplineMath.Epsilon || lenOut < SplineMath.Epsilon) return false;
+        return MathF.Abs(SplineMath.Turn(legIn / lenIn, legOut / lenOut)) < 1e-4f;
     }
 }

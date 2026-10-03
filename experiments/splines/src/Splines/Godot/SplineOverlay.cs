@@ -47,6 +47,16 @@ public sealed class OverlayFrame
     /// <summary>The legal alternative offered for a refused branch (a turnout), and its tag.</summary>
     public Alignment? Suggestion { get; init; }
     public string? SuggestionLabel { get; init; }
+    /// <summary>What LMB does next in this mode (<c>Place bend</c>); null for Draw's own wording.</summary>
+    public string? PlaceLabel { get; init; }
+    /// <summary>Added to the live corner's radius pill (<c>R 140 m · fit</c>).</summary>
+    public string? LiveRadiusNote { get; init; }
+    /// <summary>Freehand: the raw stroke (drawn dotted) and its tag (<c>60 samples → 5 points</c>).</summary>
+    public IReadOnlyList<NumVector2>? Stroke { get; init; }
+    public string? StrokeLabel { get; init; }
+    /// <summary>Grid: the grid being placed (its roads are drawn by the network's trial) and its tag.</summary>
+    public GridLayout? Grid { get; init; }
+    public string? GridLabel { get; init; }
 }
 
 /// <summary>A tag left on screen for a moment after an action.</summary>
@@ -140,9 +150,13 @@ public partial class SplineOverlay : Control
         bool drawing = f.Preview is not null && f.SessionPis.Count > 0;
         if (drawing && f.CtrlStepDegrees > 0) CtrlFan(f.SessionPis[^1].Position, f.CtrlStepDegrees);
         if (drawing) DrawPreview(f, f.Preview!, snap);
+        if (f.Stroke is { } stroke) DrawStroke(f, stroke);
+        if (f.Grid is { } grid) DrawGrid(f, grid);
         if (snap is not null) DrawGuides(f, snap);
         if (snap is not null) DrawSnapMarker(snap);
-        if (drawing) DrawJunctionsAndIssues(f);
+        if (drawing || f.Stroke is not null || f.Grid is not null) DrawJunctionsAndIssues(f);
+        if (drawing && f.GridLabel is { } gl && ScreenOf(f.Preview!.Pis[^1].Position) is { } ge)
+            _tags.Add(new PendingTag(ge + new Vector2(16, 14), gl, TagStyle.Snap, false, null));
 
         if (snap is { Tag.Length: > 0, Kind: not (SnapKind.Angle or SnapKind.CtrlAngle) } s && ScreenOf(s.TagAt) is { } tagAt)
             _tags.Add(new PendingTag(tagAt + new Vector2(16, -30), s.Tag, TagStyle.Snap, false, null));
@@ -210,7 +224,8 @@ public partial class SplineOverlay : Control
             }
             var c = preview.Corner(i);
             // The live corner's pill also carries the radius it builds.
-            string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null : $"R {c.Radius:0} m";
+            string? radius = i != live || pis[i].Hard || c.Radius <= 0 ? null
+                : f.LiveRadiusNote is { } note ? $"R {c.Radius:0} m · {note}" : $"R {c.Radius:0} m";
             AngleWithPill(at, u, v, lk, radius, arms: joint);
 
             if (pis[i].Hard || c.Radius <= 0)
@@ -452,7 +467,14 @@ public partial class SplineOverlay : Control
     private void Hints(OverlayFrame f)
     {
         var at = f.Mouse + new Vector2(26, -10);
-        _tags.Add(new PendingTag(at, f.Suggestion is not null ? "Use turnout" : f.ClickFinishes ? "Place and finish" : "Place", TagStyle.Plain, false, "LMB"));
+        string place = f.Suggestion is not null ? "Use turnout" : f.ClickFinishes ? "Place and finish" : f.PlaceLabel ?? "Place";
+        _tags.Add(new PendingTag(at, place, TagStyle.Plain, false, "LMB"));
+        if (f.Stroke is not null) _tags.Add(new PendingTag(at, "Cancel", TagStyle.Plain, false, "RMB"));
+        if (f.Grid is not null)
+        {
+            _tags.Add(new PendingTag(at, "Stop", TagStyle.Plain, false, "RMB"));
+            _tags.Add(new PendingTag(at, "Block size", TagStyle.Plain, false, "[ ] · Shift+[ ]"));
+        }
         if (f.SessionPis.Count == 0) return;
         _tags.Add(new PendingTag(at, "Stop", TagStyle.Plain, false, "RMB"));
         if (f.SessionPis.Count >= 2)

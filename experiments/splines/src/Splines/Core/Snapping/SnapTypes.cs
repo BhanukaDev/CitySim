@@ -85,6 +85,10 @@ public sealed record SnapQuery
     /// two soft-angle references (the other is the previous leg), for every leg of the draw.</summary>
     public Vector2? StartHeading { get; init; }
 
+    /// <summary>The leg must leave the last PI along this direction (a curve's bend continuing a road on its tangent):
+    /// the cursor is held on that ray, and guides and lengths still snap along it.</summary>
+    public Vector2? TangentLock { get; init; }
+
     public IReadOnlyList<SnapCandidate> Candidates { get; init; } = Array.Empty<SnapCandidate>();
     public required ProfileRules Rules { get; init; }
 

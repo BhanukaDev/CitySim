@@ -70,6 +70,16 @@ public sealed class SplineToolView
         graph.Edges.Where(e => except?.Contains(e.Id) != true).Select(e => new SnapCandidate(e.Alignment, e.Rules.Width,
             OpenStart: graph.Node(e.Start).Edges.Count == 1, OpenEnd: graph.Node(e.End).Edges.Count == 1)).ToList();
 
+    /// <summary>Every point a road can connect to, shown as a dot in every mode as a guide: the nodes, and each
+    /// corner's point on the road (<see cref="Alignment.RoadPoint"/>: a joint between chained curves, an arc's
+    /// middle).</summary>
+    public static List<NumVector2> Points(SplineGraph graph) =>
+        graph.Nodes.Select(n => n.Position).Concat(RoadPoints(graph)).ToList();
+
+    /// <summary>Each corner's point on the road, inside the edges.</summary>
+    public static IEnumerable<NumVector2> RoadPoints(SplineGraph graph) =>
+        graph.Edges.SelectMany(e => Enumerable.Range(1, Math.Max(0, e.Alignment.Pis.Count - 2)).Select(e.Alignment.RoadPoint));
+
     /// <summary>Converts a screen-pixel distance to plan units at <paramref name="worldHit"/>'s depth, so the catch
     /// distance feels the same at every zoom (DESIGN.md → Snapping and guides).</summary>
     public float PixelsToPlanUnits(float pixels, NumVector3 worldHit)

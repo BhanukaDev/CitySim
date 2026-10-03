@@ -9,6 +9,10 @@ namespace CitySim.Splines;
 /// given, split wherever they joined something), and every node they touch.</summary>
 public sealed record EditResult(IReadOnlyList<int> Edges, IReadOnlyList<int> Nodes);
 
+/// <summary>A stretch of an edge, between two of its road points (<see cref="Alignment.StretchAt"/>): what a click on a
+/// road with corners selects in the Edit tool.</summary>
+public readonly record struct Stretch(int EdgeId, int Index);
+
 /// <summary>
 /// The Edit tool's operations (DESIGN.md → Edit tool). Moving a node, moving a corner point and setting a radius only
 /// change geometry: the edge keeps its id and nodes, and every other corner keeps its radius. <see cref="Reconnect"/>
@@ -59,25 +63,75 @@ public sealed partial class SplineGraph
     /// <summary>
     /// Moves a group (the Edit tool's selection): the given nodes and both ends of the given edges move by
     /// <paramref name="delta"/>. An edge with both ends moving moves rigidly, every PI with it; an edge with one end
-    /// moving stretches (only that end moves). Returns every edge that changed, for <see cref="Reconnect"/>.
+    /// moving stretches (only that end moves). A <see cref="Stretch"/> moves its two PIs (its leg), so the legs either
+    /// side stretch to follow; an end PI moves its node, but that alone doesn't make its own edge rigid. Returns every
+    /// edge that changed, for <see cref="Reconnect"/>.
     /// </summary>
-    public List<int> MoveGroup(IEnumerable<int> nodeIds, IEnumerable<int> edgeIds, Vector2 delta)
+    public List<int> MoveGroup(IEnumerable<int> nodeIds, IEnumerable<int> edgeIds, Vector2 delta, IEnumerable<Stretch>? stretches = null)
     {
         var edgeList = edgeIds.Where(_edges.ContainsKey).ToList();
-        var moved = nodeIds.Where(_nodes.ContainsKey).Concat(edgeList.SelectMany(id => new[] { _edges[id].Start, _edges[id].End })).ToHashSet();
-        var changed = moved.SelectMany(n => _nodes[n].Edges).Distinct().ToList();
+        var rigidBy = nodeIds.Where(_nodes.ContainsKey).Concat(edgeList.SelectMany(id => new[] { _edges[id].Start, _edges[id].End })).ToHashSet();
+        var legs = (stretches ?? Array.Empty<Stretch>()).Where(st => _edges.ContainsKey(st.EdgeId)).ToList();
+        var piMoves = legs.GroupBy(st => st.EdgeId)
+            .ToDictionary(gr => gr.Key, gr => gr.SelectMany(st => new[] { st.Index, st.Index + 1 }).ToHashSet());
+        var moved = rigidBy.ToHashSet();
+        foreach (var (id, ks) in piMoves)
+        {
+            var e = _edges[id];
+            if (ks.Contains(0)) moved.Add(e.Start);
+            if (ks.Contains(e.Alignment.Pis.Count - 1)) moved.Add(e.End);
+        }
+        var changed = moved.SelectMany(n => _nodes[n].Edges).Concat(piMoves.Keys).Distinct().ToList();
         foreach (int n in moved) _nodes[n].Position += delta;
         foreach (int id in changed)
         {
             var e = _edges[id];
+            bool rigid = edgeList.Contains(id) || (rigidBy.Contains(e.Start) && rigidBy.Contains(e.End));
             bool start = moved.Contains(e.Start), end = moved.Contains(e.End);
+            var own = piMoves.GetValueOrDefault(id);
             var pis = e.Alignment.Pis.ToList();
             for (int k = 0; k < pis.Count; k++)
-                if ((start && end) || (k == 0 && start) || (k == pis.Count - 1 && end))
+                if (rigid || (k == 0 && start) || (k == pis.Count - 1 && end) || (own?.Contains(k) == true && k > 0 && k < pis.Count - 1))
                     pis[k] = pis[k] with { Position = pis[k].Position + delta };
             _edges[id] = e with { Alignment = new Alignment(pis) };
         }
         return changed;
+    }
+
+    /// <summary>
+    /// Takes stretches out of an edge (Delete on a selected stretch), keeping the rest of it as built: each run of
+    /// kept stretches becomes an edge, cut at the road points, with a new dead end at each cut. Where what's left
+    /// meets itself again (a loop with nothing else at its node) it joins back into one edge. Returns the edges left.
+    /// </summary>
+    public List<int> RemoveStretches(int edgeId, IReadOnlyCollection<int> stretches)
+    {
+        var e = _edges[edgeId];
+        var a = e.Alignment;
+        var keep = new List<(float S0, float S1)>();
+        for (int k = 0; k < a.StretchCount; k++)
+        {
+            if (stretches.Contains(k)) continue;
+            float s0 = a.RoadStation(k), s1 = a.RoadStation(k + 1);
+            if (keep.Count > 0 && MathF.Abs(keep[^1].S1 - s0) < 1e-3f) keep[^1] = (keep[^1].S0, s1);
+            else keep.Add((s0, s1));
+        }
+        if (keep.Count == 0) return RemoveEdge(edgeId);
+        DetachEdge(edgeId);
+        var made = new List<int>();
+        foreach (var (s0, s1) in keep)
+        {
+            var piece = AlignmentOps.Between(a, s0, s1);
+            int from = s0 < 1e-3f ? e.Start : NewNode(piece.Pis[0].Position);
+            int to = s1 > a.Length - 1e-3f ? e.End : NewNode(piece.Pis[^1].Position);
+            made.Add(NewEdge(e.Rules, piece, from, to, e.CustomData));
+        }
+        foreach (int n in new[] { e.Start, e.End }.Distinct())
+        {
+            if (!_nodes.TryGetValue(n, out var node)) continue;
+            if (node.Edges.Count == 0) _nodes.Remove(n);
+            else if (TryMerge(n) is { } m) made.Add(m);
+        }
+        return made.Where(_edges.ContainsKey).ToList();
     }
 
     /// <summary>

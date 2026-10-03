@@ -49,6 +49,7 @@ $G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + buil
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --headless --path . --quit-after 200 -- --demo-junctions  # S4+: graph, junctions, validation, prints "Demo junctions: all ok"
 $G --headless --path . --quit-after 200 -- --demo-edit-splines  # S5+: Edit tool graph ops, prints "Demo edit-splines: all ok"
+$G --headless --path . --quit-after 200 -- --demo-modes      # S6+: Curve, Freehand, Grid, prints "Demo modes: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 $G --path . -- --test-pad[=2000]   # levels a sand-painted square (metres) at the map centre; "Splines: Play" uses it
 # S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
@@ -350,10 +351,55 @@ Two passes, with a play-test between them (from the user, 2026-10-02).
   the avenue stretching).
 - Answered (2026-10-02): Smooth stays "largest that fits"; a box takes only edges wholly inside.
 
-### ⬜ S6: Curve, Freehand and Grid modes
-- Curve: 3 clicks → one PI with the largest fitting radius.
-- Freehand: drag → RDP simplify → PIs with fitted radii.
-- Grid: 3 clicks → a block of edges and junctions, sized to `SnapLength`.
+### ⬜ S6: Curve, Freehand and Grid modes (built 2026-10-03, waiting for the user's play-test)
+All three live in `SplineDrawTool` (partial files `.Curve.cs`, `.Freehand.cs`, `.Grid.cs`) and share Draw's
+snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`SplinesTestbed.ModeChanged`).
+- **Curve** (2): start, bend, end. The bend is the PI (the storyboard's control point), rounded at **the largest
+  radius that fits** (`R 178 m · fit` on the pill). With ends either side a corner can use the whole of the
+  shorter leg, so the arc reaches the nearer click and the longer leg keeps a straight tail. Shift+wheel / `[` `]`
+  bring the bend in (back to "fit" at the top). A fit under `MinRadius` is red and refused unless Anarchy. The third
+  click builds the leg, then **the chain goes on** (from the user): two more clicks make the next arc, continuing the
+  road with a rounded joint. Ctrl+Z drops a placed bend, else the last curve. `DrawSession` holds the bend per leg.
+- **Freehand** (3): hold LMB and drag; samples every 2 m, start and end snapped. `FreehandFit` (Core): smooth the
+  stroke (hand wobble out), Ramer–Douglas–Peucker at `max(2 m, Width/2)`, merge a flick at either end, a Kåsa
+  least-squares circle per bend for its radius, the PI pushed out by `R·(sec(Δ/2) − 1)` so the arc passes through the
+  stroke, and bends with no room for `MinRadius` dropped (tightest first). Tried live like a Draw leg; built on
+  release. Overlay: the raw stroke dotted, a dot per bend, `61 samples → 6 points`. RMB cancels.
+- **Grid** (4): corner, width (direction and rotation from the first edge, snaps and Ctrl steps apply), depth
+  (either side). **Block size per axis** in lots of clear space between the roads, so zoning fills it with no part
+  cells (from the user, after the research below): default 8 × 8 lots; `[` `]` / Shift+wheel along, Shift+`[` `]` /
+  Ctrl+Shift+wheel across, or the `Block W × D lots` spin boxes in the options bar (shown in Grid). Centre lines are
+  lots·`SnapLength` + `Width` apart. `GridLayout` (Core) makes full-length straight row and column lines, exactly
+  square; they're added with `Ends.None` in one `Network.Apply`, so crossings make the 4-ways and Ts and the corners
+  stay square. From the second click the whole grid is a trial graph shown with `Network.ShowTrial` (the Edit tool
+  no longer clears every trial when idle, only its own).
+- Checked: `--demo-modes` (curve at the fit and not clamped; chained curves are one road with the second bend at
+  half the joint leg; undo of a bend and of a curve; a rail curve under its minimum refused, then red with Anarchy; a
+  noisy S stroke → ≤ 6 points within tolerance, no bend under min; a straight stroke → 2 points; a 3 × 2 grid → 17
+  edges, 4 corners, 6 Ts, 2 four-ways, nothing red, one undo; a grid across a street joins it at each row; 12 × 8
+  lots spacing). Storyboard frames `--storyboard=mode-curve | mode-freehand | mode-grid`. The other demos still pass.
+- **Fix after play-test (2026-10-03): circles in Curve mode** (from the user: "curve mode should let people create
+  circles"). Chained curves kinked: the next bend went anywhere, and even on the tangent a chained arc got only half
+  its leg. Now the bend that continues a road is held on its tangent (`SnapQuery.TangentLock`, tag `tangent`, the ray
+  drawn as a guide; Space frees it), a corner next to a **straight-through PI** may use the whole leg (`Alignment`,
+  mirrored in `BendFit`), and where the tangent meets the extension out of the chain's own start the bend snaps
+  there (`close loop · tangent`), so ending on the start closes a seamless loop. Checked: `--demo-modes` (chained
+  bend now R 100 = the whole leg, joint straight through; four quarters → one loop edge, each bend R 100 unclamped,
+  length 2πR, the node's two arms opposite, no issues; a Space-held bend still makes a turning joint). The other
+  demos pass unchanged. Storyboard frames `--storyboard=mode-curve-close | mode-curve-circle`.
+  Then (from the user): **road points**. Each corner's point on the road (`Alignment.RoadPoint`: the PI where the
+  road passes through it, a joint or a sharp corner, else its arc's middle, where the knob sits) shows as a white dot
+  in every mode, Draw and Edit, as a guide, and snaps as a node (`snap: node`), so a road can connect there (the edge
+  splits into a T). And in Edit, a click on a road with corners selects the **stretch** between two road points
+  (`Stretch`, `SplineEditTool.Stretch.cs`), not the whole edge: outlined with its two corners' handles; Delete takes it
+  out (`SplineGraph.RemoveStretches`, the rest kept, a loop joined back), a drag moves its leg (`MoveGroup` with
+  stretches), RMB on the road opens the radial menu for it. A box still takes whole edges. Checked: `--demo-modes` (a
+  road started by a circle's joint, and by an arc's middle, makes a 3-arm node there), `--demo-edit-splines` (a
+  circle is 8 stretches; a quarter deleted leaves one 3/4 road cut at its joints; a middle stretch moved keeps its
+  radii and ends; an end stretch moves its node only). Storyboard `edit-stretch | edit-stretch-deleted |
+  edit-stretch-move`.
+- For the play-test: are 8 × 8 lots the right default block? Is a freehand stroke kept close enough (6 points for
+  the storyboard's S, against its 5)?
 
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.
@@ -405,8 +451,8 @@ Only after the features. Things to expect:
 - Node Controller style per-node shape overrides
 
 ## Open questions
-- Should Curve mode's bend point be the PI (current plan) or a point the arc passes through?
-- Should the grid mode rotate to the terrain or to the first edge only?
+- None open. (S6 settled the last two from the storyboard: Curve's bend is the PI, and a grid takes the first
+  edge's rotation.)
 
 ## Research notes
 Sources and what players like or miss are in the storyboard's last section (`docs/spline-controls.html`). The short
@@ -423,6 +469,14 @@ version:
     and a steep fallback slope.
   - Hence `GroundSmoothing` per profile (streets hug, rails smooth), `Edge` = Slope / Wall / Auto, and `MaxCutFill`
     warnings.
+- Grids (S6): the top complaint about CS2's grid tool is no control over block size ("set 4x8 and it just makes the
+  grid"). Grids also break into ½ or ¼ cell gaps, and angles drift by fractions of a degree while still reading 90°.
+  The Advanced Road Tools mod's grid tool takes a rectangle from 2 points, plus rows and columns. The community rule
+  is 4-deep zoning each side, so 8 cells of clear space between roads, with the length free. Hence blocks in whole
+  lots of clear space, set per axis, and exact square geometry.
+  [Steam: Roads and Grids](https://steamcommunity.com/app/949230/discussions/0/3877095833479730505/) ·
+  [Practical Engineering: Efficient Grids](https://steamcommunity.com/sharedfiles/filedetails/?id=3062339423) ·
+  [Advanced Road Tools](https://mods.paradoxplaza.com/mods/102147/Windows)
 
 ## Decision log
 - 2026-09-29: One Draw tool, polyline with auto-rounded corners, is the default mode. Curve, Freehand and Grid are
@@ -478,3 +532,12 @@ version:
   one action gives the gentlest curve and the knob can bring it back in. Box select takes nodes inside and edges
   **wholly** inside, so a box round a junction can move it with its arms stretching. A group move snaps only when
   held by a node. Confirmed by the user, and **no delete on hover**: Delete only acts on a selection.
+- 2026-10-03 (S6, from the user): **Curve chains on** (the end starts the next curve, the joint rounded), and its bend
+  is the PI at the largest radius that fits. **Grid blocks are set per axis** in lots of clear space between roads
+  (default 8 × 8), after the research on CS2's grid complaints. Freehand drops bends that can't take the profile's
+  minimum radius rather than building them red.
+- 2026-10-03 (S6 play-test, from the user): **Curve mode chains on the tangent**, CS-style: a bend continuing a road
+  is held on its tangent (Space frees it), and a bend snaps to close a loop smoothly, so a circle is 3–4 curves.
+  Draw mode isn't expected to make circles. Road points (each corner's point on the road) show as dots in every mode
+  and snap as nodes; in Edit a click selects the stretch between two of them (delete, move, radial menu), a box
+  still whole edges.

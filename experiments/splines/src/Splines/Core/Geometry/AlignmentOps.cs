@@ -55,6 +55,14 @@ public static class AlignmentOps
         return (new Alignment(l), new Alignment(rt));
     }
 
+    /// <summary>The part of <paramref name="a"/> between stations <paramref name="s0"/> and <paramref name="s1"/>.</summary>
+    public static Alignment Between(Alignment a, float s0, float s1)
+    {
+        var right = s0 > 1e-3f ? SplitAt(a, s0).Right : a;
+        float length = s1 - MathF.Max(s0, 0);
+        return length < right.Length - 1e-3f ? SplitAt(right, length).Left : right;
+    }
+
     /// <summary>
     /// Joins <paramref name="a"/> (ending where <paramref name="b"/> starts) into one alignment. When the two PIs
     /// either side of the joint are the halves of one arc (as <see cref="SplitAt"/> made them), they fold back into

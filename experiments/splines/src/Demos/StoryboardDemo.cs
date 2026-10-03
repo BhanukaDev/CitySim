@@ -71,6 +71,14 @@ public partial class StoryboardDemo : Node
             ["edit-smoothed"] = EditSmoothed,
             ["edit-box"] = EditBox,
             ["edit-move"] = EditMove,
+            ["edit-stretch"] = () => EditStretch(0),
+            ["edit-stretch-deleted"] = () => EditStretch(1),
+            ["edit-stretch-move"] = () => EditStretch(2),
+            ["mode-curve"] = ModeCurve,
+            ["mode-curve-close"] = () => ModeCurveCircle(close: false),
+            ["mode-curve-circle"] = () => ModeCurveCircle(close: true),
+            ["mode-freehand"] = ModeFreehand,
+            ["mode-grid"] = ModeGrid,
         };
     }
 
@@ -459,6 +467,20 @@ public partial class StoryboardDemo : Node
 
     // --- Editing ---
 
+    /// <summary>Edit · a stretch of the Curve-mode circle clicked (the one from its east joint to the next arc's
+    /// middle): <paramref name="then"/> 0 selected, 1 deleted, 2 held moved out by 30 m.</summary>
+    private void EditStretch(int then)
+    {
+        ModeCurveCircle(close: true);
+        DrawTool!.ForcedPlanCursor = null;
+        Testbed!.SetTool(SplineTool.Edit);
+        var on = P((160 + 80 * MathF.Cos(0.35f), 100 + 80 * MathF.Sin(0.35f)));
+        EditTool!.ClickForTest(on);
+        if (then == 1) EditTool.DeleteForTest();
+        if (then == 2) EditTool.MoveSelectionForTest(on, on + new NumVector2(30, 0));
+        else EditTool.ForcedPlanCursor = P((300, 20));
+    }
+
     /// <summary>Frame "Drag a node": a street's corner point dragged, the old shape a faint outline until release.</summary>
     private void EditDrag()
     {
@@ -560,6 +582,63 @@ public partial class StoryboardDemo : Node
 
     // --- Helpers ---
 
+    // --- Four ways to shape a curve (S6) ---
+
+    /// <summary>Curve · three clicks: start and bend placed, the end under the cursor; the arc at the fit.</summary>
+    private void ModeCurve()
+    {
+        Testbed!.SetMode(DrawMode.Curve);
+        Use("avenue");
+        Click((30, 170));
+        Click((160, 20));
+        Hover((295, 165));
+    }
+
+    /// <summary>Curve · a circle in four quarters (R 80): each bend held on the tangent. <paramref name="close"/> false:
+    /// three built, the last bend under the cursor at the close-loop snap; true: closed on the start.</summary>
+    private void ModeCurveCircle(bool close)
+    {
+        Testbed!.SetMode(DrawMode.Curve);
+        Use("street");
+        Click((160, 20));
+        Click((240, 20));
+        Click((240, 100));
+        SnapClick((244, 180));
+        Click((160, 180));
+        SnapClick((80, 184));
+        Click((80, 100));
+        if (!close) { Hover((81, 22)); return; }
+        SnapClick((82, 24));
+        Click((160, 20));
+    }
+
+    /// <summary>Freehand · drag: the storyboard's wobbly S, mid-drag, fitted to a few points.</summary>
+    private void ModeFreehand()
+    {
+        Testbed!.SetMode(DrawMode.Freehand);
+        Use("street");
+        var stroke = Enumerable.Range(0, 61).Select(i =>
+        {
+            float t = i / 60f, n = 3.5f * MathF.Sin(i * 1.9f) + 2.2f * MathF.Sin(i * 0.73f);
+            return P((25 + t * 275, 160 - 120 * t + 38 * MathF.Sin(t * MathF.PI * 1.6f) + n));
+        }).ToList();
+        DrawTool!.StrokeForTest(stroke, build: false);
+    }
+
+    /// <summary>Grid · three clicks: corner and width placed along a slightly turned first edge, the depth under the
+    /// cursor: 3 × 2 blocks of 8 × 8 lots.</summary>
+    private void ModeGrid()
+    {
+        Testbed!.SetMode(DrawMode.Grid);
+        Use("street");
+        var ux = NumVector2.Normalize(new NumVector2(10, 1.3f));
+        var uy = new NumVector2(-ux.Y, ux.X);
+        (float, float) At(float a, float b) => (10 + ux.X * a + uy.X * b, 20 + ux.Y * a + uy.Y * b);
+        Click(At(0, 0));
+        Click(At(228, 0));
+        Hover(At(200, 150));
+    }
+
     private static NumVector2 P((float X, float Y) svg) => Origin + new NumVector2(svg.X, svg.Y);
 
     private SplineProfile Profile(string id) =>
@@ -580,6 +659,12 @@ public partial class StoryboardDemo : Node
     {
         DrawTool!.ForcedPlanCursor = P(at);
         DrawTool.PlaceForTest(hard);
+    }
+
+    private void SnapClick((float, float) at)
+    {
+        DrawTool!.ForcedPlanCursor = P(at);
+        DrawTool.SnapClickForTest();
     }
 
     private void Hover((float, float) at) => DrawTool!.ForcedPlanCursor = P(at);

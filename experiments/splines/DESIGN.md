@@ -156,7 +156,7 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 | RMB | stop: end the chain, dropping the preview leg (built legs stay) |
 | Esc | stop, as RMB; again leaves the tool |
 | Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
-| Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy) |
+| Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy). Curve mode with a bend placed: the bend's radius (up to the fit). Grid mode: block lots along the first edge; Shift+`[` `]` or Ctrl+Shift+wheel: lots across |
 | Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start) |
 | Space (hold) | all snapping off |
 | `1`–`4` | Draw · Curve · Freehand · Grid |
@@ -168,23 +168,40 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 **Modes** all produce PIs:
 1. **Draw**: each click is a PI with the profile's `DefaultRadius`. This is the default mode.
 2. **Curve**: CS-style three clicks: start, bend, end. The bend is the PI, and the radius is the largest one that
-   fits, so the arc passes near the bend point.
-3. **Freehand**: hold LMB and drag. Samples are simplified (Ramer–Douglas–Peucker) into PIs, and each PI gets a
-   radius fitted to the stroke, clamped to the profile.
-4. **Grid**: corner, width, depth (three clicks). Makes a block of edges with 90° `Node` junctions. Sizes snap to
-   `SnapLength`.
+   fits (the whole of the shorter leg where its neighbour is an end or runs straight through, half where it's a
+   corner), so the arc passes near the bend point. Shift+wheel brings it in. The chain goes on: the end starts the
+   next curve, continuing the road, until RMB/Esc/double-click. As in CS, a bend that continues a road is **held on
+   its tangent** (tag `tangent`; Space frees it for a deliberate corner), so the joint runs straight through and the
+   arcs meet seamlessly. Where the tangent meets the line out of the chain's own start the bend snaps there
+   (`close loop · tangent`), and the end on the start closes the loop smoothly: a circle is 3–4 curves. The joints
+   stay points to connect to (see **Road points** below).
+3. **Freehand**: hold LMB and drag. The stroke is smoothed, then simplified (Ramer–Douglas–Peucker, tolerance
+   `max(2 m, Width/2)`) into PIs. Each bend gets the radius of a circle fitted to the stroke around it, its PI pushed
+   out so the arc passes through the stroke. A bend with no room for `MinRadius` is dropped (unless Anarchy), and a
+   flick at either end merges into the end leg. Start and end snap like clicks. Built on release; RMB cancels.
+4. **Grid**: corner, width, depth (three clicks). The first edge sets the rotation; width and depth round to whole
+   blocks, and the depth can go to either side. A block is set **per axis** in lots of clear space between the
+   roads (default 8 × 8: zoning 4 deep from each side), so the centre lines are lots·`SnapLength` + `Width` apart.
+   Makes full-length straight rows and columns, exactly square; their crossings become `Node` junctions and the
+   corners stay square (no continuing). One undo step. The block size is in the options bar while Grid is on.
+
+**Road points**: every corner has a point on the road: the PI itself where the road passes through it (a joint between
+chained curves, a sharp or hard corner), else the middle of its arc (where the Edit tool's radius knob sits). In every
+mode, Draw and Edit, each road point shows as a small white dot beside the nodes, as a guide for drawing other roads,
+and snaps as a node (`snap: node`): a road started or ended there splits the edge into a junction. A rounded corner's
+PI is off the road, so it isn't one (Edit still shows it as a handle on a selection).
 
 ### Edit tool (`M`)
 | Input | Action |
 |---|---|
-| LMB on a spline / node | select that edge (between two nodes; shows its PIs and a radius knob on each corner) or node. Shift+click adds or removes one; a click on empty ground clears |
+| LMB on a spline / node | select a **stretch** (on a road with corners: just the part between two road points, outlined, with its two corners' PIs and knobs), a road with no corners as a whole, or a node. Shift+click adds or removes one; a click on empty ground clears |
 | Drag a PI / node | move it; connected edges follow and keep their radii |
 | Drag a radius knob | change that corner's radius (same limits as drawing) |
 | Alt + drag a PI | snap it onto the line through its neighbours (straighten) |
-| RMB on a PI / node | radial menu: Smooth · Hard · Straight · Delete (press-slide-release, or click; the hovered action is tried live; ones that don't apply are greyed) |
+| RMB on a PI / node / road | radial menu (on a road: for the stretch there; Delete takes the stretch out, the others act on its corners): Smooth · Hard · Straight · Delete (press-slide-release, or click; the hovered action is tried live; ones that don't apply are greyed) |
 | Drag on empty ground | box select: nodes inside and edges wholly inside (Shift adds) |
-| Drag a selected edge / node | move the selection: edges with both ends moving move rigidly, the rest stretch (an unselected edge's body is selected first) |
-| Delete | delete the selected edges and every edge at a selected node |
+| Drag a selected edge / stretch / node | move the selection: edges with both ends moving move rigidly, the rest stretch; a stretch moves its leg (its two PIs), the road either side stretching (an unselected stretch or edge is selected first) |
+| Delete | delete the selected stretches (the rest of the road stays, cut at the road points; a loop left whole joins back into one road), the selected edges, and every edge at a selected node |
 | Esc | close the menu, else cancel a drag or box, else clear the selection, else back to Draw |
 
 **Radial menu actions.** On a corner point: Smooth = the largest radius that fits, Hard = hard corner (if the profile

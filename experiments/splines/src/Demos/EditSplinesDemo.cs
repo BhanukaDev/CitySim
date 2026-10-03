@@ -11,7 +11,8 @@ namespace CitySim.Splines;
 /// other radii, a dragged junction stays one junction, a road dragged across another joins it (or is an Invalid
 /// crossing where the profiles don't connect), a dropped dead end joins a node, a road or continues a dead end, the
 /// radius knob's maths, Alt-straighten, deleting one edge between two junctions, custom data across a reconnect (S5a);
-/// the radial menu's Smooth · Hard · Straighten · Delete on a corner point and on a node, and moving a group (S5b).
+/// the radial menu's Smooth · Hard · Straighten · Delete on a corner point and on a node, and moving a group (S5b);
+/// stretches between road points: deleting one out of a circle and moving one's leg.
 /// Prints each case, then <c>Demo edit-splines: all ok</c> or <c>FAILED</c>. Pure Core, no scene needed.
 /// </summary>
 public partial class EditSplinesDemo : Node
@@ -44,6 +45,7 @@ public partial class EditSplinesDemo : Node
         RadialPi();
         RadialNode();
         MoveGroup();
+        Stretches();
         foreach (var f in _failures) GD.PrintErr($"Demo edit-splines: FAILED {f}");
         GD.Print($"Demo edit-splines: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
     }
@@ -322,6 +324,45 @@ public partial class EditSplinesDemo : Node
         int far = g.NodeAt(V(100, 100))!.Value;
         g.Reconnect(g.MoveGroup(new[] { far }, Array.Empty<int>(), V(0, 100)));
         Check("Group: dropped end joins the road", g.NodeAt(V(100, 200)) is { } n && g.Arms(n).Count == 3);
+    }
+
+    /// <summary>Stretches: a circle of four quarters (R 100) is 8 stretches; deleting two (a quarter) leaves one road
+    /// joined back through the loop's node; moving a polyline's middle stretch moves its leg and keeps the radii; an end
+    /// stretch moves its node but not the rest of its edge.</summary>
+    private void Stretches()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(new Alignment(new[]
+        {
+            new Pi(V(0, -100)), new Pi(V(100, -100), 100), new Pi(V(100, 0), 16), new Pi(V(100, 100), 100), new Pi(V(0, 100)),
+        }), Street);
+        g.AddSpline(new Alignment(new[] { new Pi(V(0, 100)), new Pi(V(-100, 100), 100), new Pi(V(-100, 0), 16), new Pi(V(-100, -100), 100), new Pi(V(0, -100)) }), Street);
+        var loop = g.Edges.Single();
+        Check("Stretch: one loop road", loop.Start == loop.End);
+        Check("Stretch: 8 stretches", loop.Alignment.StretchCount, 8);
+        Check("Stretch: a joint is a road point", loop.Alignment.RoadPoint(2), V(100, 0));
+        Check("Stretch: stretch at the east joint's south side", loop.Alignment.StretchAt(loop.Alignment.RoadStation(2) + 1), 2);
+
+        var left = g.RemoveStretches(loop.Id, new[] { 2, 3 });
+        Check("Stretch: a quarter out leaves one road", g.EdgeCount, 1);
+        var rest = g.Edges.Single();
+        Check("Stretch: three quarters long (m)", (int)MathF.Round(rest.Alignment.Length), (int)MathF.Round(1.5f * MathF.PI * 100));
+        Check("Stretch: cut at the two joints", g.NodeAt(V(100, 0)) is { } a && g.NodeAt(V(0, 100)) is { } b && g.Arms(a).Count == 1 && g.Arms(b).Count == 1);
+        Check("Stretch: the loop's node joined back", g.NodeAt(V(0, -100)) is null && left.Count == 1);
+
+        var h = new SplineGraph();
+        h.AddSpline(new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(100, 0), 16), new Pi(V(100, 100), 16), new Pi(V(200, 100)) }), Street);
+        var e = h.Edges.Single();
+        h.Reconnect(h.MoveGroup(Array.Empty<int>(), Array.Empty<int>(), V(30, 0), new[] { new Stretch(e.Id, 1) }));
+        var moved = h.Edges.Single().Alignment;
+        Check("Stretch move: its leg moved", moved.Pis[1].Position == V(130, 0) && moved.Pis[2].Position == V(130, 100));
+        Check("Stretch move: ends stay", moved.Pis[0].Position == V(0, 0) && moved.Pis[3].Position == V(200, 100));
+        Check("Stretch move: radii kept", moved.EffectiveRadius(1), 16f);
+        e = h.Edges.Single();
+        h.Reconnect(h.MoveGroup(Array.Empty<int>(), Array.Empty<int>(), V(0, -20), new[] { new Stretch(e.Id, 0) }));
+        moved = h.Edges.Single().Alignment;
+        Check("Stretch move: an end stretch moves its node", moved.Pis[0].Position == V(0, -20) && moved.Pis[1].Position == V(130, -20));
+        Check("Stretch move: and not the rest", moved.Pis[2].Position == V(130, 100) && moved.Pis[3].Position == V(200, 100));
     }
 
     private void Check(string name, bool ok)

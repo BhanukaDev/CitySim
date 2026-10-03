@@ -21,6 +21,10 @@ public sealed class EditFrame
 {
     /// <summary>Selected edges: outlined, with their tangent legs, corner points and radius knobs.</summary>
     public IReadOnlyList<EditEdge> Selected { get; init; } = Array.Empty<EditEdge>();
+    /// <summary>Selected stretches of roads with corners: outlined like a selected edge, from dot to dot.</summary>
+    public IReadOnlyList<EditEdge> Stretches { get; init; } = Array.Empty<EditEdge>();
+    /// <summary>Corners whose handles show besides the selected edges' (a selected stretch's two).</summary>
+    public IReadOnlyList<(Alignment Alignment, int Index)> Corners { get; init; } = Array.Empty<(Alignment, int)>();
     /// <summary>Selected nodes: an accent ring.</summary>
     public IReadOnlyList<NumVector2> SelectedNodes { get; init; } = Array.Empty<NumVector2>();
     /// <summary>The edge a click would select (outlined thinner).</summary>
@@ -30,6 +34,8 @@ public sealed class EditFrame
     public IReadOnlyList<EditEdge> BoxEdges { get; init; } = Array.Empty<EditEdge>();
     public IReadOnlyList<NumVector2> BoxNodes { get; init; } = Array.Empty<NumVector2>();
     public RadialMenu? Menu { get; init; }
+    /// <summary>Each corner's point on the road (a joint, an arc's middle): a small white dot, as while drawing.</summary>
+    public IReadOnlyList<NumVector2> Points { get; init; } = Array.Empty<NumVector2>();
     /// <summary>Every node, a white disc.</summary>
     public IReadOnlyList<NumVector2> Nodes { get; init; } = Array.Empty<NumVector2>();
     /// <summary>The handle under the cursor or being dragged: drawn bigger, a knob in the accent colour.</summary>
@@ -69,6 +75,27 @@ public partial class SplineOverlay
     /// point, and a ring knob in the middle of each arc (a square at a hard corner). The handle under the cursor is
     /// drawn bigger; the knob being dragged turns accent blue.
     /// </summary>
+    /// <summary>A selected corner's handles: a dot at its point, and a ring knob in the middle of its arc (a square
+    /// at a hard corner).</summary>
+    private void CornerHandles(Alignment a, int i)
+    {
+        var at = a.Pis[i].Position;
+        var c = a.Corner(i);
+        if (ScreenOf(at) is { } d) { DrawCircle(d, 3.5f, Shadow, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
+        if (a.Pis[i].Hard || c.Radius <= 0)
+        {
+            if (a.Pis[i].Hard && ScreenOf(at) is { } sq)
+            {
+                var r = new Rect2(sq - new Vector2(4, 4), new Vector2(8, 8));
+                DrawRect(r.Grow(1), Shadow);
+                DrawRect(r, Line);
+            }
+            return;
+        }
+        GroundDisc(c.Mid, 6f, TagBg);
+        GroundRing(c.Mid, 6f, Line, 2.5f);
+    }
+
     private void DrawEdit(EditFrame f)
     {
         var ghost = Line with { A = 0.35f };
@@ -82,33 +109,18 @@ public partial class SplineOverlay
             Outline(e, outline, ThinWidth);
             DashedPolyline(e.Alignment.Pis.Select(p => p.Position).ToList(), Line with { A = 0.6f }, 1.5f, 6f, 5f);
         }
+        foreach (var e in f.Stretches) Outline(e, outline, ThinWidth);
+        foreach (var (a, i) in f.Corners)
+            DashedPolyline(new[] { a.Pis[i - 1].Position, a.Pis[i].Position, a.Pis[i + 1].Position }, Line with { A = 0.6f }, 1.5f, 6f, 5f);
 
+        foreach (var p in f.Points) GroundDisc(p, 4f, Line with { A = 0.75f });
         foreach (var n in f.Nodes) GroundDisc(n, 5f, Line with { A = 0.85f }, outline: true);
         foreach (var n in f.BoxNodes) GroundRing(n, 8f, Accent with { A = 0.7f }, 2f);
         foreach (var n in f.SelectedNodes) GroundRing(n, 8f, Accent, 2.5f);
 
         foreach (var e in f.Selected)
-        {
-            var a = e.Alignment;
-            for (int i = 1; i < a.Pis.Count - 1; i++)
-            {
-                var at = a.Pis[i].Position;
-                var c = a.Corner(i);
-                if (ScreenOf(at) is { } d) { DrawCircle(d, 3.5f, Shadow, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
-                if (a.Pis[i].Hard || c.Radius <= 0)
-                {
-                    if (a.Pis[i].Hard && ScreenOf(at) is { } sq)
-                    {
-                        var r = new Rect2(sq - new Vector2(4, 4), new Vector2(8, 8));
-                        DrawRect(r.Grow(1), Shadow);
-                        DrawRect(r, Line);
-                    }
-                    continue;
-                }
-                GroundDisc(c.Mid, 6f, TagBg);
-                GroundRing(c.Mid, 6f, Line, 2.5f);
-            }
-        }
+            for (int i = 1; i < e.Alignment.Pis.Count - 1; i++) CornerHandles(e.Alignment, i);
+        foreach (var (a, i) in f.Corners) CornerHandles(a, i);
 
         if (f.HotPoint is { } hot)
         {
