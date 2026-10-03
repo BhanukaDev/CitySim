@@ -10,7 +10,7 @@ namespace CitySim.Splines;
 /// <c>--demo-junctions</c> (S4): checks the graph, junctions and validation in Core on synthetic profiles: a T and a
 /// 4-way (splits, labels, footprint cut-backs and curbs), a crossing on a curve, a too-sharp angle (Warn), a square rail branch (Invalid) and
 /// its legal turnout ghost, a crossing through an existing junction, ConnectsTo refusing a canal, an overlap, a
-/// clamped radius, and split → merge round trips on a straight and on an arc. Prints each case, then
+/// clamped radius, split → merge round trips on a straight and on an arc, and kerb handles. Prints each case, then
 /// <c>Demo junctions: all ok</c> or <c>FAILED</c>. Pure Core, no scene needed.
 /// </summary>
 public partial class JunctionDemo : Node
@@ -20,14 +20,16 @@ public partial class JunctionDemo : Node
     private static readonly ProfileRules Street = new()
     {
         Id = "street", Width = 12, DefaultRadius = 16, MinRadius = 10, JunctionKind = JunctionKind.Node,
-        MinJunctionAngle = 30, ConnectsTo = new[] { "avenue" },
+        MinJunctionAngle = 30, ConnectsTo = new[] { "avenue" }, KerbRadius = 6, MinKerbRadius = 2, MaxKerbRadius = 16,
     };
-    private static readonly ProfileRules Avenue = Street with { Id = "avenue", Width = 24, DefaultRadius = 60, MinRadius = 40, MinJunctionAngle = 45, ConnectsTo = new[] { "street" } };
+    private static readonly ProfileRules Avenue = Street with { Id = "avenue", Width = 24, DefaultRadius = 60, MinRadius = 40, MinJunctionAngle = 45, ConnectsTo = new[] { "street" },
+        KerbRadius = 10, MinKerbRadius = 4, MaxKerbRadius = 30 };
     private static readonly ProfileRules Rail = new()
     {
         Id = "rail", Width = 5, DefaultRadius = 500, MinRadius = 300, JunctionKind = JunctionKind.Turnout, TurnoutMaxAngle = 6.3f,
     };
-    private static readonly ProfileRules Canal = new() { Id = "canal", Width = 14, DefaultRadius = 40, MinRadius = 25, MinJunctionAngle = 45 };
+    private static readonly ProfileRules Canal = new() { Id = "canal", Width = 14, DefaultRadius = 40, MinRadius = 25, MinJunctionAngle = 45,
+        KerbRadius = 8, MinKerbRadius = 4, MaxKerbRadius = 20 };
 
     public override void _Ready()
     {
@@ -48,6 +50,8 @@ public partial class JunctionDemo : Node
         Continue();
         Squeezed();
         Transition();
+        Kerbs();
+        KerbShapes();
         foreach (var f in _failures) GD.PrintErr($"Demo junctions: FAILED {f}");
         GD.Print($"Demo junctions: {(_failures.Count == 0 ? "all ok" : $"FAILED ({_failures.Count})")}");
     }
@@ -69,10 +73,10 @@ public partial class JunctionDemo : Node
         Check("T: no issues", Validation.Check(g).Count, 0);
         var f = Junctions.Footprint(g, node);
         Check("T: footprint", f is not null);
-        // Each arm is cut back by the other road's half width plus the 16 m curb.
-        foreach (var c in f?.Cuts ?? Array.Empty<ArmCut>()) Check($"T: cut-back edge {c.EdgeId}", c.CutBack, 22f);
+        // Each arm is cut back by the other road's half width plus the 6 m kerb.
+        foreach (var c in f?.Cuts ?? Array.Empty<ArmCut>()) Check($"T: cut-back edge {c.EdgeId}", c.CutBack, 12f);
         Check("T: two curbs", f?.Curbs.Count ?? 0, 2);
-        Check("T: curb centre", f?.Curbs.Any(c => Vector2.Distance(c.Centre, V(78, 22)) < 0.01f) == true);
+        Check("T: curb centre", f?.Curbs.Any(c => Vector2.Distance(c.Centre, V(88, 12)) < 0.01f) == true);
     }
 
     private void FourWay()
@@ -85,10 +89,11 @@ public partial class JunctionDemo : Node
         int centre = r.Nodes.Single(n => g.Arms(n).Count == 4);
         Check("X: label", Junctions.Label(g, centre) ?? "", "4-way · 90°");
         Check("X: no issues", Validation.Check(g).Count, 0);
-        // Street arms cut back past the avenue's half width (12) + street curb 16; avenue arms by 6 + 16.
+        // Street arms cut back past the avenue's half width (12) + the street's 6 m kerb (the narrower arm's); avenue
+        // arms by 6 + 6.
         var f = Junctions.Footprint(g, centre)!;
-        Check("X: street cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "street").Max(c => c.CutBack), 28f);
-        Check("X: avenue cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "avenue").Max(c => c.CutBack), 22f);
+        Check("X: street cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "street").Max(c => c.CutBack), 18f);
+        Check("X: avenue cut-back", f.Cuts.Where(c => g.Edge(c.EdgeId).Rules.Id == "avenue").Max(c => c.CutBack), 12f);
         Check("X: four curbs", f.Curbs.Count, 4);
     }
 
@@ -418,6 +423,164 @@ public partial class JunctionDemo : Node
         Check("transition: street width at the node", Has(100, 6) && Has(100, -6));
         Check("transition: avenue width at the cut", Has(70, 12) && Has(70, -12));
         Check("transition: no label, no issues", Junctions.Label(g, node) is null && Validation.Check(g).Count == 0);
+    }
+
+    /// <summary>Kerb knobs and road handles on a street T (DESIGN.md → Junctions → Kerb handles): a road handle per arm at
+    /// its cut-back and a knob per kerb, their ranges, a road handle making its kerbs lopsided and keeping a difference
+    /// set with a knob, a knob making its kerb round, below the minimum invalid, reset, and the values kept through a
+    /// junction move, a split and a merge.</summary>
+    private void Kerbs()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(200, 0)), Street);
+        var r = g.AddSpline(Line(V(100, 0), V(100, 100)), Street);
+        int node = r.Nodes[0];
+        int stemId = r.Edges[0];
+        int eastId = g.Arms(node).Single(a => a.Direction.X > 0.5f).EdgeId;
+        bool eastAtStart = g.Arms(node).Single(a => a.EdgeId == eastId).AtStart;
+        var hs = Junctions.KerbHandles(g, node, anarchy: false);
+        Check("Kerb: a road handle per arm", hs.Count, 3);
+        var stem = hs.Single(h => h.EdgeId == stemId);
+        Check("Kerb: stem handle at its cut-back", stem.Station, 12f);
+        Check("Kerb: stem handle on the centre line", stem.Position, V(100, 12));
+        Check("Kerb: stem kerbs R 6", stem.Radii.All(x => MathF.Abs(x.Min - 6) < 0.05f && MathF.Abs(x.Max - 6) < 0.05f));
+        // Pulled out alone, the stem's kerb ends grow until they're the street's largest kerb, R 16 at 6 + 16 = 22;
+        // pulled in, until they're its tightest, R 2 at 6 + 2 = 8.
+        Check("Kerb: stem max", stem.StationOf(stem.FactorMax), 22f);
+        Check("Kerb: stem max is the largest kerb", stem.MaxLimit == KerbLimit.Radius);
+        Check("Kerb: stem min", stem.StationOf(stem.FactorMin), 8f);
+        // With Anarchy the minimum goes, but a kerb can't be more lopsided than 4 : 1 (6 m against 1.5 m).
+        var anarchy = Junctions.KerbHandles(g, node, anarchy: true).Single(h => h.EdgeId == stemId);
+        Check("Kerb: Anarchy goes to the flare limit", anarchy.StationOf(anarchy.FactorMin), 7.5f);
+        var knobs = Junctions.KerbKnobs(g, node, anarchy: false);
+        Check("Kerb: a knob per kerb", knobs.Count, 2);
+        Check("Kerb: knob range R 2..16", knobs.All(k => MathF.Abs(k.Min - 2) < 0.01f && MathF.Abs(k.Max - 16) < 0.01f));
+        var eastKnob = knobs.Single(k => k.EdgeId == eastId || k.OtherEdgeId == eastId);
+        Check("Kerb: knob in the kerb's middle", Vector2.Distance(eastKnob.Position, eastKnob.At(6)) < 0.05f);
+
+        g.SetKerb(stemId, true, new KerbEnds(14, 14)); // R 14 at the stem: its kerbs start 6 + 14 = 20 m up it
+        var f = Junctions.Footprint(g, node)!;
+        Check("Kerb: stem cut at the handle", f.CutBack(stemId, true), 20f);
+        Check("Kerb: main arms still 12", f.Cuts.Where(c => c.EdgeId != stemId).All(c => MathF.Abs(c.CutBack - 12) < 0.01f));
+        Check("Kerb: both curbs set and lopsided", f.Curbs.Count == 2 && f.Curbs.All(c => c.Set && c.Control is not null));
+        Check("Kerb: rated R 6 at the main road, R 14 up the stem", f.Curbs.All(c => MathF.Abs(c.Radius - 6) < 0.01f && MathF.Abs(c.MaxRadius - 14) < 0.01f));
+        Check("Kerb: outline reaches it", f.Outline.Any(p => Vector2.Distance(p, V(94, 20)) < 0.05f) && f.Outline.Any(p => Vector2.Distance(p, V(106, 20)) < 0.05f));
+        Check("Kerb: no issues", Validation.Check(g).Count, 0);
+        g.ResetKerbs(node);
+
+        // The knob between east and the stem: that kerb round at R 10, the other one left at 6.
+        g.SetKerb(eastKnob.EdgeId, eastKnob.AtStart, +1, 10);
+        g.SetKerb(eastKnob.OtherEdgeId, eastKnob.OtherAtStart, -1, 10);
+        f = Junctions.Footprint(g, node)!;
+        Check("Kerb: knob makes its kerb round R 10", f.Curbs.Count(c => MathF.Abs(c.Radius - 10) < 0.01f && MathF.Abs(c.MaxRadius - 10) < 0.01f) == 1
+            && f.Curbs.Count(c => MathF.Abs(c.Radius - 6) < 0.01f && MathF.Abs(c.MaxRadius - 6) < 0.01f) == 1);
+        Check("Kerb: east cut 6 + 10", f.CutBack(eastId, eastAtStart), 16f);
+        // The stem's road handle now scales its two ends (10 toward east, 6 toward west) by one factor.
+        stem = Junctions.KerbHandles(g, node, anarchy: false).Single(h => h.EdgeId == stemId);
+        Check("Kerb: stem handle sees R 10 and 6", stem.Sides.Count == 2 && stem.Sides.Any(x => MathF.Abs(x.Radius - 10) < 0.01f) && stem.Sides.Any(x => MathF.Abs(x.Radius - 6) < 0.01f));
+        foreach (var side in stem.Sides) g.SetKerb(stemId, true, side.Side, side.Radius * 1.5f);
+        var ends = g.Edge(stemId).KerbStart;
+        Check("Kerb: road handle keeps the difference (15 and 9)", new[] { ends.Left ?? 0, ends.Right ?? 0 }.OrderBy(x => x).SequenceEqual(new[] { 9f, 15f }));
+
+        // Below the minimum: only a control set with Anarchy gets there, and it's invalid.
+        g.SetKerb(stemId, true, new KerbEnds(0.5f, 0.5f));
+        Check("Kerb: below min is invalid", Validation.Check(g).Any(i => i.Code == "kerb-min" && i.Severity == Severity.Invalid));
+        Check("Kerb: reset", g.ResetKerbs(node) && g.Arms(node).All(a => !g.Edge(a.EdgeId).KerbAt(a.AtStart).IsSet));
+
+        // Kept through edits: a junction move (reconnect renumbers the edges), a split of the arm, a merge.
+        g.SetKerb(stemId, true, new KerbEnds(14, 12));
+        g.Reconnect(g.MoveNode(node, V(104, 0)), node);
+        int moved = g.NodeAt(V(104, 0))!.Value;
+        var stemArm = g.Arms(moved).Single(a => a.Direction.Y > 0.5f);
+        Check("Kerb: kept through a junction move", g.Edge(stemArm.EdgeId).KerbAt(stemArm.AtStart) == new KerbEnds(14, 12));
+        var (_, left, _) = g.SplitEdge(stemArm.EdgeId, 50);
+        stemArm = g.Arms(moved).Single(a => a.Direction.Y > 0.5f);
+        Check("Kerb: kept by the piece at the junction", left is not null && g.Edge(stemArm.EdgeId).KerbAt(stemArm.AtStart) == new KerbEnds(14, 12));
+        var west = g.Arms(moved).Single(a => a.Direction.X < -0.5f);
+        g.SetKerb(west.EdgeId, !west.AtStart, new KerbEnds(7, 8)); // its far (dead) end, to follow it through the merge
+        g.RemoveEdge(stemArm.EdgeId);
+        var merged = g.Edges.Single(e => e.Rules.Id == "street" && e.Alignment.Length > 150);
+        Check("Kerb: far ends kept through a merge", merged.KerbStart == new KerbEnds(7, 8) || merged.KerbEnd == new KerbEnds(7, 8));
+    }
+
+    /// <summary>Kerb controls on junctions of every shape: T at 30–150°, skewed and square crossings of a street and an
+    /// avenue, a 5-way and a 6-way, and a crossing on a curve. Every kerb gets a knob and every arm with a kerb a road
+    /// handle, each with a real range (at least 4 m of radius), and taking either to both ends of its range builds with
+    /// no issues: a road handle cut back where it says, a knob's kerb round at its radius.</summary>
+    private void KerbShapes()
+    {
+        foreach (float deg in new[] { 30f, 45f, 60f, 75f, 90f, 120f, 150f })
+        {
+            var g = new SplineGraph();
+            g.AddSpline(Line(V(0, 0), V(300, 0)), Street);
+            g.AddSpline(Line(V(150, 0), V(150, 0) + Dir(deg) * 120), Street);
+            Shape($"T {deg:0}°", g, V(150, 0), 3);
+        }
+        foreach (float deg in new[] { 45f, 60f, 90f })
+        {
+            var g = new SplineGraph();
+            g.AddSpline(Line(V(0, 0), V(300, 0)), Avenue);
+            g.AddSpline(Line(V(150, 0) - Dir(deg) * 120, V(150, 0) + Dir(deg) * 120), Street);
+            Shape($"X {deg:0}°", g, V(150, 0), 4);
+        }
+        foreach (int arms in new[] { 5, 6 })
+        {
+            var g = new SplineGraph();
+            g.AddSpline(Line(V(0, 0), V(300, 0)), Street);
+            g.AddSpline(Line(V(150, -120), V(150, 120)), Street);
+            g.AddSpline(Line(V(150, 0), V(150, 0) + Dir(45) * 120), Street);
+            if (arms == 6) g.AddSpline(Line(V(150, 0), V(150, 0) + Dir(-135) * 120), Street);
+            Shape($"{arms}-way", g, V(150, 0), arms);
+        }
+        {
+            var g = new SplineGraph();
+            g.AddSpline(new Alignment(new[] { new Pi(V(0, 200)), new Pi(V(150, 0), 120), new Pi(V(300, 200)) }), Avenue);
+            var r = g.AddSpline(Line(V(125, -100), V(125, 300)), Street);
+            Shape("on a curve", g, g.Node(r.Nodes.Single(n => g.Arms(n).Count == 4)).Position, 4);
+        }
+
+        static Vector2 Dir(float deg) => SplineMath.Direction(deg * MathF.PI / 180f);
+    }
+
+    private void Shape(string name, SplineGraph g, Vector2 at, int arms)
+    {
+        int node = g.NodeAt(at)!.Value;
+        var f = Junctions.Footprint(g, node)!;
+        var hs = Junctions.KerbHandles(g, node, anarchy: false);
+        var knobs = Junctions.KerbKnobs(g, node, anarchy: false);
+        // An arm between two straight-on neighbours (a T's top, both sides) has no kerb, so no handle.
+        Check($"{name}: a kerb per corner ({f.Curbs.Count}), a knob each ({knobs.Count}), a road handle per arm with one ({hs.Count})",
+            f.Curbs.Count >= arms - 1 && knobs.Count == f.Curbs.Count && hs.Count >= arms - 1);
+        foreach (var h in hs)
+        {
+            string arm = $"{name} road {SplineMath.Angle(g.Arms(node).First(a => a.EdgeId == h.EdgeId && a.AtStart == h.AtStart).Direction) * 180 / MathF.PI:0}°";
+            float r0 = h.Outer.Radius;
+            Check($"{arm}: R {r0:0.#} in {r0 * h.FactorMin:0.#}..{r0 * h.FactorMax:0.#}, slides {h.Min:0.#}..{h.Max:0.#} m",
+                h.FactorMin <= 1 + 1e-3f && 1 <= h.FactorMax + 1e-3f && r0 * (h.FactorMax - h.FactorMin) >= 4f && h.Max - h.Min >= 2f);
+            foreach (float x in new[] { h.FactorMin, h.FactorMax })
+            {
+                var t = g.Clone();
+                foreach (var side in h.Sides) t.SetKerb(h.EdgeId, h.AtStart, side.Side, side.Radius * x);
+                var tf = Junctions.Footprint(t, node)!;
+                bool cutOk = MathF.Abs(tf.CutBack(h.EdgeId, h.AtStart) - h.StationOf(x)) < 0.05f;
+                var issues = Validation.Check(t);
+                Check($"{arm}: at ×{x:0.##} it builds, cut {tf.CutBack(h.EdgeId, h.AtStart):0.#} m (handle {h.StationOf(x):0.#}){string.Concat(issues.Select(i => " · " + i.Message))}", cutOk && issues.Count == 0);
+            }
+        }
+        foreach (var k in knobs)
+        {
+            string corner = $"{name} knob {SplineMath.Angle(k.Bisector) * 180 / MathF.PI:0}°";
+            Check($"{corner}: R {k.Radii.Min:0.#} in {k.Min:0.#}..{k.Max:0.#}", k.Max - k.Min >= 4f);
+            foreach (float r in new[] { k.Min, k.Max })
+            {
+                var t = g.Clone();
+                t.SetKerb(k.EdgeId, k.AtStart, +1, r);
+                t.SetKerb(k.OtherEdgeId, k.OtherAtStart, -1, r);
+                var issues = Validation.Check(t);
+                bool round = Junctions.Footprint(t, node)!.Curbs.Any(c => c.Set && MathF.Abs(c.Radius - r) < 0.05f && MathF.Abs(c.MaxRadius - r) < 0.05f);
+                Check($"{corner}: at R {r:0.#} it builds round{string.Concat(issues.Select(i => " · " + i.Message))}", round && issues.Count == 0);
+            }
+        }
     }
 
     private void Check(string name, bool ok)

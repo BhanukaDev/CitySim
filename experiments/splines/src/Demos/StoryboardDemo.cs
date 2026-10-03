@@ -71,6 +71,15 @@ public partial class StoryboardDemo : Node
             ["edit-smoothed"] = EditSmoothed,
             ["edit-box"] = EditBox,
             ["edit-move"] = EditMove,
+            ["kerb-select"] = KerbSelect,
+            ["kerb-drag"] = KerbDrag,
+            ["kerb-cross"] = KerbCross,
+            ["kerb-menu"] = KerbMenu,
+            ["kerb-angled"] = () => KerbAngled(release: false),
+            ["kerb-angled-built"] = () => KerbAngled(release: true),
+            ["kerb-5way"] = Kerb5Way,
+            ["kerb-knob"] = KerbKnobFrame,
+            ["kerb-knob-road"] = KerbKnobThenRoad,
             ["loop-closing"] = LoopClosing,
             ["loop-built"] = () => LoopMove(false),
             ["loop-moved"] = () => LoopMove(true),
@@ -89,6 +98,11 @@ public partial class StoryboardDemo : Node
             ["mode-curve-circle"] = () => ModeCurveCircle(close: true),
             ["mode-freehand"] = ModeFreehand,
             ["mode-grid"] = ModeGrid,
+            ["corner-slide"] = () => CornerJunction(slide: 12, branch: null, build: false),
+            ["corner-red"] = () => CornerJunction(slide: 6, branch: null, build: false),
+            ["corner-tee"] = () => CornerJunction(slide: 0, branch: (200, 5), build: false),
+            ["corner-y"] = () => CornerJunction(slide: 12, branch: (250, 15), build: false),
+            ["corner-tee-built"] = () => CornerJunction(slide: 0, branch: (200, 5), build: true),
         };
     }
 
@@ -590,6 +604,133 @@ public partial class StoryboardDemo : Node
         EditTool.MoveSelectionForTest(P((220, 150)), P((250, 170)));
     }
 
+    // --- Kerb handles (docs/kerb-handles.html) ---
+
+    /// <summary>A street T with its junction clicked: a kerb handle on each arm, its track pale.</summary>
+    private void KerbSelect()
+    {
+        Build("street", (20, 60), (300, 60));
+        Build("street", (160, 60), (160, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.ClickForTest(P((160, 60)));
+        EditTool.ForcedPlanCursor = P((260, 160));
+    }
+
+    /// <summary>The stem's handle dragged out from 12 m to 24 m: both its kerbs flare up the stem (the old ones faint).</summary>
+    private void KerbDrag()
+    {
+        KerbSelect();
+        EditTool!.DragForTest(P((160, 72)), P((160, 84)));
+    }
+
+    /// <summary>A street across an avenue, the junction selected and one avenue arm's handle pulled out and built: the
+    /// kerbs on that side are lopsided, the others the street's 6 m.</summary>
+    private void KerbCross()
+    {
+        Build("avenue", (20, 90), (300, 90));
+        Build("street", (160, 10), (160, 190));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.ClickForTest(P((160, 90)));
+        EditTool.DragForTest(P((172, 90)), P((190, 90)));
+        EditTool.ReleaseForTest();
+        EditTool.ForcedPlanCursor = P((260, 170));
+        var net = EditTool.Network!;
+        string Set() => net.Graph.Edges.SelectMany(e => new[] { e.KerbStart, e.KerbEnd }).Where(k => k.IsSet)
+            .Select(k => $"L {k.Left} R {k.Right}").FirstOrDefault() ?? "none";
+        string built = Set();
+        net.Undo();
+        string undone = Set();
+        net.Redo();
+        GD.Print($"Storyboard: kerb set {built} (want 16 both sides, the street's largest kerb, at the avenue arm's end), after undo {undone}, after redo {Set()}");
+    }
+
+    /// <summary>A street leaving another at 60°: the junction selected and the angled arm's handle dragged 12 m further
+    /// out (held, or let go and built). Both its kerbs grow: the acute one starts far up the arm, the obtuse one near.</summary>
+    private void KerbAngled(bool release)
+    {
+        var d = new NumVector2(MathF.Cos(MathF.PI / 3), MathF.Sin(MathF.PI / 3));
+        Build("street", (20, 40), (300, 40));
+        var end = P((160, 40)) + d * 140;
+        BuildPoints("street", P((160, 40)), end);
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.ClickForTest(P((160, 40)));
+        DragKerb(P((160, 40)), d, 12f, release);
+    }
+
+    /// <summary>A 5-way (a crossing with a diagonal street): the diagonal's handle pulled out 10 m and built, then the
+    /// west arm's pushed in 3 m and held.</summary>
+    private void Kerb5Way()
+    {
+        Build("street", (20, 100), (300, 100));
+        Build("street", (160, 10), (160, 190));
+        var d = NumVector2.Normalize(new NumVector2(1, 1));
+        BuildPoints("street", P((160, 100)), P((160, 100)) + d * 120);
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.ClickForTest(P((160, 100)));
+        DragKerb(P((160, 100)), d, 10f, release: true);
+        DragKerb(P((160, 100)), new NumVector2(-1, 0), -3f, release: false);
+    }
+
+    /// <summary>Drags the kerb handle on the arm leaving <paramref name="node"/> along <paramref name="dir"/> by
+    /// <paramref name="by"/> metres along it, and prints the end radius before and after.</summary>
+    private void DragKerb(NumVector2 node, NumVector2 dir, float by, bool release)
+    {
+        var net = EditTool!.Network!;
+        int id = net.Graph.NodeAt(node)!.Value;
+        var arm = net.Graph.Arms(id).OrderByDescending(a => NumVector2.Dot(a.Direction, dir)).First();
+        var h = Junctions.KerbHandles(net.Graph, id, false).Single(k => k.EdgeId == arm.EdgeId && k.AtStart == arm.AtStart);
+        bool held = EditTool.DragForTest(h.Position, h.Position + arm.Direction * by);
+        if (release) EditTool.ReleaseForTest();
+        var after = Junctions.KerbHandles(net.Graph, id, false)
+            .Select(k => (k, e: net.Graph.HasEdge(k.EdgeId) ? net.Graph.Edge(k.EdgeId) : null))
+            .FirstOrDefault(x => x.e is not null && NumVector2.Dot(net.Graph.Arms(id).First(a => a.EdgeId == x.k.EdgeId && a.AtStart == x.k.AtStart).Direction, dir) > 0.99f).k;
+        GD.Print($"Storyboard: road handle {(held ? "picked up" : "NOT picked up")}, R {Radii(h.Radii)} at {h.Station:0.#} m (×{h.FactorMin:0.##}..×{h.FactorMax:0.##})"
+            + (release ? $" → built R {(after is null ? "?" : Radii(after.Radii))} at {after?.Station:0.#} m" : " (held)"));
+        if (!release) EditTool.ForcedPlanCursor = h.Position + arm.Direction * by;
+    }
+
+    private static string Radii(IReadOnlyList<(float Min, float Max)> r) =>
+        string.Join(" · ", r.Select(x => x.Max - x.Min < 0.05f ? $"{x.Min:0.#}" : $"{x.Min:0.#}–{x.Max:0.#}"));
+
+    /// <summary>A street T, junction selected, the knob of the kerb between east and the stem dragged out to R 12 (held):
+    /// that corner round and bigger, the other one still 6 m.</summary>
+    private void KerbKnobFrame()
+    {
+        KerbSelect();
+        DragKnob(P((160, 60)), new NumVector2(1, 1), 12f, release: false);
+    }
+
+    /// <summary>The same knob set to R 12 and built, then the stem's road handle pulled out 4 m (held): both stem kerbs grow
+    /// at the stem's end, keeping the difference the knob made.</summary>
+    private void KerbKnobThenRoad()
+    {
+        KerbSelect();
+        DragKnob(P((160, 60)), new NumVector2(1, 1), 12f, release: true);
+        DragKerb(P((160, 60)), new NumVector2(0, 1), 4f, release: false);
+    }
+
+    /// <summary>Drags the knob of the kerb whose corner faces <paramref name="towards"/> at <paramref name="node"/> to round
+    /// radius <paramref name="radius"/>, and prints it.</summary>
+    private void DragKnob(NumVector2 node, NumVector2 towards, float radius, bool release)
+    {
+        var net = EditTool!.Network!;
+        int id = net.Graph.NodeAt(node)!.Value;
+        var k = Junctions.KerbKnobs(net.Graph, id, false).OrderByDescending(x => NumVector2.Dot(x.Bisector, NumVector2.Normalize(towards))).First();
+        bool held = EditTool.DragForTest(k.Position, k.At(radius));
+        if (release) EditTool.ReleaseForTest();
+        var now = Junctions.KerbKnobs(net.Graph, id, false).OrderByDescending(x => NumVector2.Dot(x.Bisector, NumVector2.Normalize(towards))).First();
+        GD.Print($"Storyboard: kerb knob {(held ? "picked up" : "NOT picked up")}, R {Radii(new[] { k.Radii })} (R {k.Min:0.#}..{k.Max:0.#})"
+            + (release ? $" → built R {Radii(new[] { now.Radii })}" : $" → R {radius:0.#} (held)"));
+        if (!release) EditTool.ForcedPlanCursor = k.At(radius);
+    }
+
+    /// <summary>The same junction's radial menu: Smooth is Reset kerbs here, hovered (tried live: back to 6 m).</summary>
+    private void KerbMenu()
+    {
+        KerbCross();
+        EditTool!.MenuForTest(P((160, 90)), 0);
+    }
+
     /// <summary>A loop drawn by clicks, the last leg's end on the start: the preview's closing corner.</summary>
     private void LoopClosing()
     {
@@ -764,6 +905,26 @@ public partial class StoryboardDemo : Node
         Hover(At(200, 150));
     }
 
+    /// <summary>
+    /// Corner junctions (<c>docs/corner-junctions.html</c>): a street with an R 16 bend; the cursor on the bend's slider
+    /// at <paramref name="slide"/> (its radius; 0 = the corner point), then optionally a branch drawn from there
+    /// (<paramref name="branch"/>), left as the preview or built.
+    /// </summary>
+    private void CornerJunction(float slide, (float, float)? branch, bool build)
+    {
+        Use("street");
+        BuildCurve("street", 16, (60, 60), (200, 60), (200, 180));
+        var a = new Alignment(new[] { new Pi(P((60, 60))), new Pi(P((200, 60)), 16), new Pi(P((200, 180))) });
+        var at = a.BendPoint(1, slide) - Origin;
+        // Nudged off the track a little, as a hand would be, so the snap does the work.
+        var (inward, _) = a.BendAxis(1);
+        var cursor = (at.X + inward.Y * 0.3f, at.Y - inward.X * 0.3f);
+        if (branch is not { } b) { Hover(cursor); return; }
+        SnapClick(cursor);
+        if (build) { Click(b); DrawTool!.FinishForTest(); }
+        else Hover(b);
+    }
+
     private static NumVector2 P((float X, float Y) svg) => Origin + new NumVector2(svg.X, svg.Y);
 
     private SplineProfile Profile(string id) =>
@@ -774,6 +935,10 @@ public partial class StoryboardDemo : Node
     /// <summary>A built straight spline of <paramref name="id"/>'s profile.</summary>
     private void Build(string id, (float, float) a, (float, float) b) =>
         DrawTool!.AddBuiltForTest(Profile(id), new Alignment(new[] { new Pi(P(a)), new Pi(P(b)) }));
+
+    /// <summary>A built straight spline between two plan points (not on the SVG grid).</summary>
+    private void BuildPoints(string id, NumVector2 a, NumVector2 b) =>
+        DrawTool!.AddBuiltForTest(Profile(id), new Alignment(new[] { new Pi(a), new Pi(b) }));
 
     /// <summary>A built spline through <paramref name="pts"/>, every corner at <paramref name="radius"/>.</summary>
     private void BuildCurve(string id, float radius, params (float, float)[] pts) =>

@@ -31,6 +31,7 @@ public partial class SplineDrawTool
             GetViewport().SetInputAsHandled();
             _sessionProfile = profile;
             _stroke = new List<NumVector2> { _snap?.Position ?? _view.PlanOf(hit) };
+            _startBend = _snap?.Bend;
         }
         else if (!mb.Pressed && _stroke is not null)
         {
@@ -56,11 +57,13 @@ public partial class SplineDrawTool
             fit = Fit(samples, rules);
             _trial = Try(fit, rules);
             (preview, leadIn, leadOut) = ShowTrialPreview(fit, rules, profile);
+            ShowBends(fit);
         }
         else
         {
             Network!.Hide(Array.Empty<int>());
             _renderer!.SetPreview(null, 0);
+            ShowBends(null);
         }
         _renderer!.SetGhost(null, 0);
         _issueList?.Show(_trial?.Issues ?? new List<Issue>(), Network!.Issues, Testbed!.Anarchy);
@@ -71,7 +74,7 @@ public partial class SplineDrawTool
         {
             Snap = _snap,
             Rules = rules,
-            BuiltEnds = SplineToolView.Points(Network.Graph),
+            BuiltEnds = Dots(),
             Mouse = _view.MouseScreen(),
             Flashes = _flashes.Select(f => f.Tag).ToList(),
             Preview = preview,
@@ -84,6 +87,7 @@ public partial class SplineDrawTool
             Worst = _trial?.Worst,
             SharpAngles = _trial is { } t2 ? SharpAngles(t2) : Array.Empty<(NumVector2, NumVector2, NumVector2)>(),
             PlaceLabel = _stroke is null ? "Hold and drag" : "Release to build",
+            Bend = BendMark(),
         });
     }
 

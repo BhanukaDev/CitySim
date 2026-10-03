@@ -18,11 +18,32 @@ public sealed class GraphNode
 /// <summary>
 /// An edge between two nodes: its alignment (treated as immutable once in the graph: operations replace it), the
 /// profile it was drawn with, and the consumer's <see cref="CustomData"/>, which the graph copies across split and
-/// merge but never reads.
+/// merge but never reads. <see cref="KerbStart"/> / <see cref="KerbEnd"/>: the kerb radii set at each end by the Edit
+/// tool's kerb knobs and road handles (DESIGN.md → Junctions → Kerb handles). They stay with the end while it's on the
+/// same road.
 /// </summary>
 public sealed record GraphEdge(int Id, ProfileRules Rules, Alignment Alignment, int Start, int End)
 {
     public object? CustomData { get; init; }
+    public KerbEnds KerbStart { get; init; }
+    public KerbEnds KerbEnd { get; init; }
+
+    public KerbEnds KerbAt(bool atStart) => atStart ? KerbStart : KerbEnd;
+}
+
+/// <summary>
+/// The kerb radii set at one end of an edge: this end's radius of the kerb on each side of the road, as seen from the
+/// node looking along it (<see cref="Right"/> toward the next arm clockwise, <see cref="Left"/> the previous), or null
+/// for the profile's <see cref="ProfileRules.KerbRadius"/>. Relative to the end, so reversing the edge keeps them.
+/// </summary>
+public readonly record struct KerbEnds(float? Left, float? Right)
+{
+    public bool IsSet => Left is not null || Right is not null;
+
+    /// <summary>The side toward the next arm (+1, right) or the previous (−1, left).</summary>
+    public float? Side(int side) => side > 0 ? Right : Left;
+
+    public KerbEnds With(int side, float? radius) => side > 0 ? this with { Right = radius } : this with { Left = radius };
 }
 
 /// <summary>One edge leaving a node: which end of the edge is at the node, and the unit tangent pointing away.</summary>
@@ -151,10 +172,14 @@ public sealed partial class SplineGraph
     /// one carries the corner on (an avenue running on round a bend into a street). Otherwise ends join a node or split an edge they land on, and every crossing with an edge splits
     /// both, wherever the two profiles <see cref="Connects"/>. Where they don't, nothing joins (validation reports the
     /// crossing or overlap). <paramref name="continueAt"/> limits which ends may continue a dead end (an edit re-adding
-    /// a junction's arms one by one mustn't merge them), and the new edges carry <paramref name="data"/>.
+    /// a junction's arms one by one mustn't merge them), and the new edges carry <paramref name="data"/>. An edit
+    /// re-adding an edge passes its <paramref name="kerbs"/>: they go to the new spline's ends, unless an end continued
+    /// a dead end (it's a corner now).
     /// </summary>
-    public AddResult AddSpline(Alignment alignment, ProfileRules rules, Ends continueAt = Ends.Both, object? data = null)
+    public AddResult AddSpline(Alignment alignment, ProfileRules rules, Ends continueAt = Ends.Both, object? data = null,
+        (KerbEnds Start, KerbEnds End) kerbs = default)
     {
+        var (drawnStart, drawnEnd) = (alignment.Pis[0].Position, alignment.Pis[^1].Position);
         var continued = new List<int>();
         var emptied = new List<int>();
         var kept = new List<int>();
@@ -242,6 +267,10 @@ public sealed partial class SplineGraph
         }
         edges.Add(NewEdge(rules, rest, from, endNode, data));
         nodes.Add(endNode);
+        if (kerbs.Start.IsSet && Vector2.Distance(alignment.Pis[0].Position, drawnStart) < NodeTolerance)
+            _edges[edges[0]] = _edges[edges[0]] with { KerbStart = kerbs.Start };
+        if (kerbs.End.IsSet && Vector2.Distance(alignment.Pis[^1].Position, drawnEnd) < NodeTolerance)
+            _edges[edges[^1]] = _edges[edges[^1]] with { KerbEnd = kerbs.End };
         foreach (int n in emptied)
             if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
         if (continued.Count > 0)
@@ -336,7 +365,8 @@ public sealed partial class SplineGraph
             int far = atStart ? e.End : e.Start;
             int cut = NewNode(fromCut ? part.Pis[0].Position : part.Pis[^1].Position);
             var piece = atStart == fromCut ? part : AlignmentOps.Reversed(part);
-            kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData) : NewEdge(e.Rules, piece, far, cut, e.CustomData));
+            kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData, kerbEnd: e.KerbEnd)
+                : NewEdge(e.Rules, piece, far, cut, e.CustomData, kerbStart: e.KerbStart));
             emptied.Add(atStart ? e.Start : e.End);
         }
 
@@ -365,9 +395,47 @@ public sealed partial class SplineGraph
         var (l, r) = AlignmentOps.SplitAt(e.Alignment, s);
         int node = NewNode(l.Pis[^1].Position);
         DetachEdge(edgeId);
-        int left = NewEdge(e.Rules, l, e.Start, node, e.CustomData);
-        int right = NewEdge(e.Rules, r, node, e.End, e.CustomData);
+        int left = NewEdge(e.Rules, l, e.Start, node, e.CustomData, kerbStart: e.KerbStart);
+        int right = NewEdge(e.Rules, r, node, e.End, e.CustomData, kerbEnd: e.KerbEnd);
         return (node, left, right);
+    }
+
+    /// <summary>
+    /// Makes a junction node on a bend (DESIGN.md → Junctions → Corner junctions): interior PI <paramref name="pi"/>
+    /// of an edge is rebuilt at <paramref name="radius"/> (0 = a sharp corner at the PI) and the edge is split at that
+    /// arc's middle, which is <see cref="Alignment.BendPoint"/>. The edge's other corners keep the radii they were
+    /// built with. At the built radius it's the same split as a road ending on the arc's middle. Returns the node.
+    /// </summary>
+    public int SplitBend(int edgeId, int pi, float radius)
+    {
+        var reshaped = ReshapeBend(edgeId, pi, radius);
+        var (s0, s1) = reshaped.CornerStations(pi);
+        return SplitEdge(edgeId, (s0 + s1) / 2).Node;
+    }
+
+    /// <summary>The first half of <see cref="SplitBend"/>: the bend rebuilt at <paramref name="radius"/> (0 = sharp),
+    /// the other corners kept, nothing split (the Draw tool's hover preview). Returns the new alignment.</summary>
+    public Alignment ReshapeBend(int edgeId, int pi, float radius)
+    {
+        var e = _edges[edgeId];
+        var pis = AlignmentOps.Pinned(e.Alignment).Pis.ToList();
+        pis[pi] = radius <= 0 ? pis[pi] with { Hard = true } : pis[pi] with { Radius = radius, Hard = false };
+        var reshaped = new Alignment(pis);
+        _edges[edgeId] = e with { Alignment = reshaped };
+        return reshaped;
+    }
+
+    /// <summary>
+    /// Whether corner <paramref name="i"/> of an edge offers its road point (a dot, a snap): not when it lies within a
+    /// road width of a junction (3+ roads) at the edge's end. That's half of a bend a road was joined to, inside the
+    /// junction, whose node is the bend's point now. A long arc into a junction (a circle's quarter) keeps its dot.
+    /// </summary>
+    public bool ShowsRoadPoint(GraphEdge e, int i)
+    {
+        var p = e.Alignment.RoadPoint(i);
+        foreach (int n in new[] { e.Start, e.End })
+            if (_nodes[n].Edges.Count >= 3 && Vector2.Distance(_nodes[n].Position, p) < e.Rules.Width) return false;
+        return true;
     }
 
     // --- Removing ---
@@ -409,7 +477,8 @@ public sealed partial class SplineGraph
         DetachEdge(a.Id);
         DetachEdge(b.Id);
         _nodes.Remove(nodeId);
-        return NewEdge(a.Rules, AlignmentOps.Join(aa, bb), aFar, bFar, a.CustomData);
+        return NewEdge(a.Rules, AlignmentOps.Join(aa, bb), aFar, bFar, a.CustomData,
+            arms[0].AtStart ? a.KerbEnd : a.KerbStart, arms[1].AtStart ? b.KerbEnd : b.KerbStart);
     }
 
     // --- Helpers ---
@@ -437,10 +506,11 @@ public sealed partial class SplineGraph
         return id;
     }
 
-    private int NewEdge(ProfileRules rules, Alignment alignment, int start, int end, object? data = null)
+    private int NewEdge(ProfileRules rules, Alignment alignment, int start, int end, object? data = null,
+        KerbEnds kerbStart = default, KerbEnds kerbEnd = default)
     {
         int id = _nextEdge++;
-        _edges[id] = new GraphEdge(id, rules, alignment, start, end) { CustomData = data };
+        _edges[id] = new GraphEdge(id, rules, alignment, start, end) { CustomData = data, KerbStart = kerbStart, KerbEnd = kerbEnd };
         _nodes[start].Edges.Add(id);
         _nodes[end].Edges.Add(id);
         return id;

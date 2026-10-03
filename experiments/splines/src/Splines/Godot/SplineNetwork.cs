@@ -81,12 +81,17 @@ public partial class SplineNetwork : Node
         var set = new HashSet<int>(edges);
         if (set.SetEquals(_hidden)) return;
         _hidden = set;
-        _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
+        // A trial being shown keeps its own picture; the built one is drawn with these hidden when it ends.
+        if (!_showingTrial) _renderer?.SetNetwork(Graph, Footprints, Issues, ColorOf, _hidden);
     }
 
+    /// <summary>The edges left out of the visuals (<see cref="Hide"/>).</summary>
+    public IReadOnlyCollection<int> Hidden => _hidden;
+
     /// <summary>Draws a changed copy of the graph in place of the built one (an Edit drag in progress, before it's
-    /// built), with its footprints and issue halos; null goes back to the built graph.</summary>
-    public void ShowTrial(SplineGraph? trial, IReadOnlyList<Issue>? issues = null)
+    /// built), with its footprints and issue halos; null goes back to the built graph. With <paramref name="hidden"/>
+    /// the <see cref="Hidden"/> edges stay out of it too.</summary>
+    public void ShowTrial(SplineGraph? trial, IReadOnlyList<Issue>? issues = null, bool hidden = false)
     {
         if (trial is null)
         {
@@ -96,7 +101,7 @@ public partial class SplineNetwork : Node
             return;
         }
         _showingTrial = true;
-        _renderer?.SetNetwork(trial, Junctions.Footprints(trial), issues ?? Validation.Check(trial), ColorOf);
+        _renderer?.SetNetwork(trial, Junctions.Footprints(trial), issues ?? Validation.Check(trial), ColorOf, hidden ? _hidden : null);
     }
 
     private void Refresh()

@@ -36,6 +36,7 @@ public partial class ModesDemo : Node
         Curve(Network);
         Freehand(Network);
         Grid(Network);
+        CornerJunctions(Network);
         Testbed.SetMode(DrawMode.Draw);
         DrawTool.ForcedPlanCursor = null;
 
@@ -143,6 +144,76 @@ public partial class ModesDemo : Node
         DrawTool.FinishForTest();
         Check("and joins the circle there (3 arms)",
             network.Graph.NodeAt(mid) is { } m ? network.Graph.Arms(m).Count : 0, 3);
+    }
+
+    /// <summary>
+    /// Corner junctions (<c>docs/corner-junctions.html</c>): a bend's dot slides out to its corner point. At the corner
+    /// point a road drawn along a side makes a square T, part way out the bend tightens and a branch leaves at any
+    /// angle, below the min radius it's refused, and a leg drawn onto the slider ends on it.
+    /// </summary>
+    private void CornerJunctions(SplineNetwork network)
+    {
+        Testbed!.SetMode(DrawMode.Draw);
+        Use("street");
+        var pi = new NumVector2(3100, 1000);
+        Click(3000, 1000);
+        Click(pi.X, pi.Y);
+        Click(3100, 1100);
+        DrawTool!.FinishForTest();
+        var bend = EdgeThrough(network, pi);
+        Check("an L street, R 16 at its corner", (int)MathF.Round(bend.Alignment.EffectiveRadius(1)), 16);
+        int edges = network.Graph.EdgeCount;
+
+        // At the corner point, drawn north along the vertical side: a square T, the bend gone.
+        Check("the slider's end is the corner point", SnapClick(pi.X + 0.3f, pi.Y - 0.3f), "corner point");
+        Click(3100, 900);
+        DrawTool.FinishForTest();
+        var t = network.Graph.NodeAt(pi);
+        Check("one node at the corner point", t is not null);
+        if (t is { } tn)
+        {
+            Check("with 3 arms", network.Graph.Arms(tn).Count, 3);
+            Check("square T", Junctions.Label(network.Graph, tn) ?? "", "T-junction · 90°");
+            Check("no issues at it", !network.Issues.Any(i => i.NodeId == tn));
+        }
+        Check("the arms are straight (no corner left)", network.Graph.Edges.All(e => !e.Alignment.Pis.Skip(1).SkipLast(1).Any(q => q.Position == pi)));
+        network.Undo();
+        Check("one undo puts the bend back", network.Graph.EdgeCount == edges && EdgeThrough(network, pi).Alignment.EffectiveRadius(1) > 15.9f);
+
+        // Part way out: R 12, and a branch at 45° off it.
+        var a = EdgeThrough(network, pi).Alignment;
+        var at12 = a.BendPoint(1, 12);
+        Check("part way out tightens the bend", SnapClick(at12.X, at12.Y), "R 16 → 12 m");
+        Click(at12.X + 40, at12.Y - 40);
+        DrawTool.FinishForTest();
+        var y = network.Graph.NodeAt(at12);
+        Check("a node on the tightened bend", y is not null);
+        if (y is { } yn)
+        {
+            var arms = network.Graph.Arms(yn);
+            Check("with 3 arms", arms.Count, 3);
+            Check("both halves at R 12", arms.Where(x => network.Graph.Edge(x.EdgeId).Rules.Id == "street")
+                .Select(x => network.Graph.Edge(x.EdgeId).Alignment)
+                .Count(al => Enumerable.Range(1, Math.Max(0, al.Pis.Count - 2)).Any(i => MathF.Abs(al.EffectiveRadius(i) - 12) < 0.05f)), 2);
+            Check("the halves show no dots of their own",
+                !SplineToolView.RoadPoints(network.Graph).Any(p => NumVector2.Distance(p, at12) < 10));
+        }
+        network.Undo();
+
+        // Below the street's min radius (10 m): refused.
+        a = EdgeThrough(network, pi).Alignment;
+        var at6 = a.BendPoint(1, 6);
+        SnapClick(at6.X, at6.Y);
+        Click(at6.X + 40, at6.Y - 40);
+        Check("R 6 is refused (min 10)", network.Graph.EdgeCount, edges);
+        DrawTool.FinishForTest();
+
+        // A leg drawn onto the slider ends there: from the north onto the corner point.
+        Click(3100, 900);
+        Check("ending on the corner point", SnapClick(pi.X + 0.3f, pi.Y - 0.3f), "corner point");
+        DrawTool.FinishForTest();
+        Check("makes the T there too", network.Graph.NodeAt(pi) is { } e ? network.Graph.Arms(e).Count : 0, 3);
+        network.Undo();
     }
 
     /// <summary>Space frees the bend: off the tangent, the joint is a rounded corner as before.</summary>

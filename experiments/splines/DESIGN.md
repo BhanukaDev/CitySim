@@ -125,6 +125,8 @@ numbers are game feel, not engineering standards.
 | `JunctionKind` | `Node` (any branch), `Turnout` (tangent branch only), `Join` (no junction shape), `None` | Node | Turnout (ramps) | Turnout | Node | Join |
 | `MinJunctionAngle` | smallest angle between arms at a `Node` junction | 30° | n/a | n/a | 45° | 0° |
 | `TurnoutMaxAngle` | largest branch angle for `Turnout` | n/a | 8° | 6.3° (1:9) | n/a | n/a |
+| `KerbRadius` | kerb radius at a `Node` junction's corners (the narrower arm's); avenue 10 m | 6 m | n/a | n/a | 8 m | n/a |
+| `MinKerbRadius` / `MaxKerbRadius` | the range a kerb handle can set (below the min = invalid unless Anarchy); avenue 4 / 30 m | 2 / 16 m | n/a | n/a | 4 / 20 m | n/a |
 | `MaxGrade` | steepest slope | 12 % | 5 % | 2.5 % | 0 % | follows ground |
 | `SnapLength` | length step | 8 m | 8 m | 8 m | 8 m | 2 m |
 | `SnapUnitName` | what one step is called in tags ("40 m gap (5 lots)") | lot | lot | lot | lot | post |
@@ -197,6 +199,8 @@ PI is off the road, so it isn't one (Edit still shows it as a handle on a select
 | LMB on a spline / node | select a **stretch** (on a road with corners: just the part between two road points, outlined, with its two corners' PIs and knobs), a road with no corners as a whole, or a node. Shift+click adds or removes one; a click on empty ground clears |
 | Drag a PI / node | move it; connected edges follow and keep their radii |
 | Drag a radius knob | change that corner's radius (same limits as drawing) |
+| Drag a kerb knob (selected junction) | that kerb round at a bigger or tighter radius (see Junctions → Kerb handles); double-click resets it |
+| Drag a road handle (selected junction) | this road's end of the kerbs on both sides, scaled together (flares when pulled out alone); double-click resets it |
 | Alt + drag a PI | snap it onto the line through its neighbours (straighten) |
 | RMB on a PI / node / road | radial menu (on a road: for the stretch there; Delete takes the stretch out, the others act on its corners): Smooth · Hard · Straight · Delete (press-slide-release, or click; the hovered action is tried live; ones that don't apply are greyed) |
 | Drag on empty ground | box select: nodes inside and edges wholly inside (Shift adds) |
@@ -207,7 +211,8 @@ PI is off the road, so it isn't one (Edit still shows it as a handle on a select
 **Radial menu actions.** On a corner point: Smooth = the largest radius that fits, Hard = hard corner (if the profile
 allows), Straight = onto the line through its neighbours, Delete = remove the point. On a node: Smooth rounds a joint
 of two edges like a draw onto a dead end (same profile → one edge), Straight puts a joint on its neighbours' line,
-Delete removes every edge at the node; Hard never applies to a node.
+Delete removes every edge at the node; Hard never applies to a node. On a `Node` junction (3+ arms) Smooth's place is
+**Reset kerbs** (every kerb handle back to the profile's kerb; greyed when none is set).
 
 A drag is tried live and drawn in place of the built network, the old shape a faint outline. On release the edited
 edges are **joined like a draw**: a crossing with a profile they connect to becomes a junction, an end dropped on a
@@ -230,10 +235,13 @@ unless Anarchy (it springs back with the reason in red). Each release is one und
 
 ### Overlay visual language
 The storyboard (`docs/spline-controls.html`) sets *what* is shown; the in-game look follows Cities: Skylines 2's
-road tool (the user's reference, 2026-09-30). `--storyboard=<frame>` rebuilds each storyboard frame for a check. The
+road tool (the user's reference, 2026-09-30), restyled on 2026-10-03 to match the storyboard pages (from the user: no
+black outlines on lines, guides or arcs). `--storyboard=<frame>` rebuilds each storyboard frame for a check. The
 feedback is drawn over the 3D view (`SplineOverlay`): line widths and text are fixed in pixels, while rings, discs
 and arcs are laid on the ground plane so they follow the camera's perspective.
-- **Legs**: thick white dashes (4 px, soft shadow) from point to point, the tangent polygon the corners round off.
+- **No outlines**: lines, guides, arcs, rings and marks are plain white (or accent/amber/red) with no dark shadow under
+  them. Only a node's white disc keeps a thin dark rim, so it reads on light ground.
+- **Legs**: white dashes (3 px) from point to point, the tangent polygon the corners round off.
 - **Preview ribbon**: translucent light blue with a white outline along both edges (amber outline and halo when a
   corner is clamped).
 - **Nodes**: white discs on the ground at the start and the cursor end; a small dot at each corner point; a ring
@@ -244,13 +252,16 @@ and arcs are laid on the ground plane so they follow the camera's perspective.
   (`∡ 90° · square`).
 - **Lengths**: a pill in the middle of every leg: `↔ 130 m`; the current leg adds whole steps (`↔ 168 m · 21 × 8 m`)
   or `↔ = 100 m` for equal length, with thin step ticks and bold equal-length ticks.
-- **Guides**: thick white dashes (3 px) from their source to just past the snap; the snap point gets a white ground
-  ring (larger on a node, double on a guide crossing). Perpendicular: a right-angle mark at the foot. Parallel: a
-  white gap bracket. The snap's pill (blue border) names it: `extension · ∡ 90°`, `parallel · 40 m gap (5 lots)`.
+- **Guides**: thin white dashes (2 px, 80 %) from their source to just past the snap; the snap point gets a thin
+  white ground ring (larger on a node, double on a guide crossing). Perpendicular: a right-angle mark at the foot. Parallel: a
+  white gap bracket. The snap's pill (filled accent) names it: `extension · ∡ 90°`, `parallel · 40 m gap (5 lots)`.
+- **Bend slider**: the track from a bend's dot to its corner point in accent, red past the profile's minimum radius, a
+  small disc at each end, and the ghost node (white, accent ring; red ring when refused).
 - **Hints**: a stack of pills next to the cursor saying what each input does now: `LMB Place`, `RMB Stop`,
   `Double-click Finish`, `Ctrl+Z Undo leg`, `Shift+wheel Radius`.
-- **Pills**: dark rounded (`#121418`, 86 %), white sans text, the key or symbol in accent blue `#6A9CF2`; amber
-  `#E5A430` warn, red `#E7654F` refused. `∡` and `↔` are drawn as symbols. Pills never overlap (they nudge down).
+- **Pills**: filled, 4 px corners, monospace text (IBM Plex Mono, else SF Mono / Menlo): dark `#1C2629` for plain
+  (the key in accent blue `#6A9CF2`), accent for a snap, amber `#E5A430` (dark text) for a warning, red `#E7654F`
+  for refused. `∡` and `↔` are drawn as symbols. Pills never overlap (they nudge down).
 
 ## Snapping and guides
 
@@ -302,7 +313,22 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
 - A node's kind is the strictest of its arms' profiles: `Turnout`, then `Node`, then `Join`.
 - `Node` kind: splits both edges. Arms are cut back from the node centre so the corners fit. The addon computes the
   **junction footprint** (the arm cut-backs and curb corner arcs from the arm widths and the narrower arm's
-  `DefaultRadius`), for three or more arms. The consumer draws it.
+  `KerbRadius`), for three or more arms. The consumer draws it.
+- **Kerb handles** (`docs/kerb-handles.html`): every kerb has a radius at each of its two ends. In the Edit tool a
+  selected `Node` junction shows two kinds of control, and both edit those numbers:
+  - a **kerb knob** (dark disc, white ring, like a bend's radius knob) in the middle of each kerb: drag it across the
+    corner and the kerb becomes round at the radius whose arc's middle is under the cursor, both ends moving along their
+    roads. The other kerbs don't change.
+  - a **road handle** (white disc, accent ring) on each road's centre line where the outermost of its kerbs starts:
+    drag it along the road and this road's end of the kerbs on both sides scales by one factor (a difference set with
+    their knobs is kept). Their other ends stay put, so pulled out alone they flare up this road (`R 6–14 m`).
+  Each kerb end starts at `X + R / tan(half angle)` from where its corner's sides meet, so both work at any angle and
+  any number of arms. Limits: each end within `MinKerbRadius`..`MaxKerbRadius` (the min unless Anarchy), a far end at
+  most 4 × the near one, and no kerb starting past what fits on its road. The radii are stored per edge end and side
+  (`GraphEdge.KerbStart`/`KerbEnd` as `KerbEnds(Left, Right)`, looking out from the node; null = profile default) and
+  kept through moves, splits, merges and reconnects; one that no longer fits is squeezed to the road's limit. A joint of
+  two arms has no kerbs (it gets the bend fill). Double-click a knob or road handle to reset it; the junction's radial
+  menu has **Reset kerbs** in Smooth's place. One undo step each.
 - `Turnout` kind: a branch has to leave tangentially, within `TurnoutMaxAngle` (every arm must run along another
   arm's line within that angle). A square attempt shows red, and the tool offers the nearest legal turnout as a
   ghost: leaving along the line, curving at `MinRadius`, the arc starting at the switch. A click takes it.
@@ -318,6 +344,17 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
   junction): the joint is rounded with the drawn profile's rules, then the old road is split back off where that
   corner starts, so it keeps its profile and the drawn one carries the curve. The two meet straight on; a width
   difference tapers on the wider one, and the centre line runs on through. Tag `continue · avenue → street`.
+- **Corner junctions** (`docs/corner-junctions.html`, agreed 2026-10-03): in every draw mode but Grid, a bend's dot
+  is a **slider**. Its track runs along the bend's line of symmetry from the dot (the built radius) out to the corner
+  point (the PI, sharp); the cursor held on it is a ghost node, and the bend is previewed at the radius whose arc
+  passes through it (`R 16 → 12 m`, `corner point`). Both ends are magnets; between them the radius steps by 0.5 m.
+  A draw that starts or ends there rebuilds the bend at that radius and splits it at the arc's middle
+  (`SplineGraph.SplitBend`), with the leg as one undo step; the branch leaves at any angle. Below the profile's
+  `MinRadius` the track is red and the leg is refused unless Anarchy. At the corner point the bend becomes a sharp
+  joint at the node, so a road drawn along a side makes a square T. Cancelling before a leg is built leaves the bend
+  as it was. The two halves of a bend cut by a junction show no dots of their own (a road point within a road width
+  of a 3+ arm node at the edge's end is hidden). Only outward from the dot (a gentler bend is the Edit tool's), only
+  on bends (real nodes are moved in the Edit tool).
 - Two arms meeting at an angle that can't be one edge (what a delete leaves) keep their node, and the addon gives
   the **bend fill**: the outside of the bend, from one arm's side round to the other's.
 - An angle below `MinJunctionAngle` (the strictest Node arm's) is amber, and always buildable.
@@ -327,7 +364,7 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
 ## Validation
 
 Each edge and node gets a list of issues `{Severity: Warn|Invalid, Code, Message, Where}`. The checks are: radius
-(clamped → Warn, below `MinRadius` → Invalid), junction angle, turnout angle, grade, self-overlap, overlap with
+(clamped → Warn, below `MinRadius` → Invalid), a kerb handle below `MinKerbRadius` (Invalid), junction angle, turnout angle, grade, self-overlap, overlap with
 other corridors, and too-short edges. Warn builds. Invalid is refused unless Anarchy is on; Anarchy doesn't change a
 severity, so what it builds stays red. Validation is pure Core code, so headless checks can run it.
 

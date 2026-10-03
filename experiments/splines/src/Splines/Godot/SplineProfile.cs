@@ -38,6 +38,10 @@ public partial class SplineProfile : Resource
     [Export] public JunctionKind JunctionKind { get; set; } = JunctionKind.Node;
     [Export(PropertyHint.Range, "0,90,1")] public float MinJunctionAngle { get; set; } = 30f;
     [Export(PropertyHint.Range, "0,45,0.1")] public float TurnoutMaxAngle { get; set; }
+    /// <summary>Kerb radius at a Node junction's corners; the Edit tool's kerb handles go from min to max.</summary>
+    [Export(PropertyHint.Range, "0,200,0.5,or_greater")] public float KerbRadius { get; set; } = 6f;
+    [Export(PropertyHint.Range, "0,200,0.5,or_greater")] public float MinKerbRadius { get; set; } = 2f;
+    [Export(PropertyHint.Range, "0,200,0.5,or_greater")] public float MaxKerbRadius { get; set; } = 16f;
     /// <summary>Profile ids or tags this joins. Empty = only itself.</summary>
     [Export] public string[] ConnectsTo { get; set; } = Array.Empty<string>();
 
@@ -74,6 +78,9 @@ public partial class SplineProfile : Resource
         JunctionKind = JunctionKind,
         MinJunctionAngle = MinJunctionAngle,
         TurnoutMaxAngle = TurnoutMaxAngle,
+        KerbRadius = KerbRadius,
+        MinKerbRadius = MinKerbRadius,
+        MaxKerbRadius = MaxKerbRadius,
         MaxGrade = MaxGradePercent < 0 ? null : MaxGradePercent / 100f,
         SnapLength = SnapLength,
         SnapUnitName = SnapUnitName,

@@ -1,0 +1,600 @@
+<title>Kerb Handles</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: same storyboard language as docs/spline-controls.html — top-down map frames, captions under, one live frame. */
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --grid:#D6DED1; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
+  --asphalt:#57616B; --paint:#F4F1E6; --edge:#C9CFC4; --accent:#2463D1; --ghost:rgba(96,150,235,.55); --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
+  --pill:#1C2629; --pill-fg:#F4F1E6; --pill-key:#7FB0FF; --node:#FFFFFF;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --edge:#8E978F; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --pill-key:#8DB8FF; --node:#F4F6F2;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --grid:#212C29; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --edge:#8E978F; --accent:#6A9CF2; --ghost:rgba(106,156,242,.5); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --pill-key:#8DB8FF; --node:#F4F6F2;
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px}
+main{max-width:1120px;margin:0 auto;padding-block:36px 64px;display:grid;gap:48px}
+header{display:grid;gap:10px;max-width:72ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 52px/0.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:70ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:18px}
+.sec-head{display:grid;gap:8px}
+.sec-head p{color:var(--muted)}
+.heard{display:grid;gap:10px;margin:0;padding-left:20px;max-width:80ch}
+.heard b{font-weight:600}
+.frames{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
+figure.pick{border-color:var(--good);box-shadow:0 0 0 1px var(--good)}
+figure svg{display:block;width:100%;height:auto;background:var(--map)}
+figcaption{padding:10px 12px 12px;display:block;font-size:13.5px;color:var(--muted)}
+figcaption h3{color:var(--ink);margin-bottom:4px}
+figcaption .step{display:block;margin-bottom:6px}
+.step{font:500 11px/1 var(--mono);color:var(--accent);letter-spacing:.06em}
+.step.good{color:var(--good)} .step.bad{color:var(--bad)}
+kbd{font:500 11.5px/1 var(--mono);padding:2px 5px 3px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;background:var(--paper);color:var(--ink);white-space:nowrap}
+code{font:12.5px var(--mono)}
+.note{font-size:13.5px;color:var(--muted);max-width:80ch}
+
+/* live frame */
+.live{display:grid;gap:14px;grid-template-columns:minmax(0,1fr) 300px;align-items:start}
+@media (max-width:820px){.live{grid-template-columns:minmax(0,1fr)}}
+.live figure svg{touch-action:none;user-select:none;-webkit-user-select:none}
+.side{display:grid;gap:14px;min-width:0}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:10px}
+.box h3{font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button,.btn{font:500 13px/1 var(--body);padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn[aria-pressed="true"]{background:var(--bad);color:#fff;border-color:var(--bad)}
+.seg button:focus-visible,.btn:focus-visible,.h:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.rules{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.rules td{padding:4px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.rules td:last-child{text-align:right;font-family:var(--mono);font-size:12.5px}
+.rules tr:last-child td{border-bottom:0}
+.readout{font:13px/1.45 var(--mono);color:var(--muted);min-height:2.9em}
+.readout b{color:var(--ink);font-weight:500}
+.readout .w{color:var(--warn)} .readout .r{color:var(--bad)}
+.h{cursor:grab;outline:none}
+.h:active{cursor:grabbing}
+
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+table.prof{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px;font-variant-numeric:tabular-nums}
+table.prof th,table.prof td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+table.prof th{font:500 11px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+table.prof td.n{font-family:var(--mono);font-size:12.5px}
+table.prof tr:last-child td{border-bottom:0}
+.dim{color:var(--muted)}
+.qs{display:grid;gap:14px;margin:0;padding-left:22px;max-width:82ch}
+.qs li{padding-left:4px}
+.qs b{font-weight:600}
+.qs .rec{color:var(--good);font-weight:500}
+.spec{display:grid;gap:8px;margin:0;padding-left:20px;max-width:82ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">Splines · S5 follow-up · v2: kerb knobs + road handles</div>
+  <h1>Kerb handles</h1>
+  <p class="lede">A selected junction gets two kinds of control. A <b>knob</b> on each kerb sets that corner's size and keeps it a round
+  arc. A <b>road handle</b> on each road moves the kerbs on both sides of that road together, and flares them up the road when its
+  neighbours stay small.</p>
+</header>
+
+<section>
+  <div class="sec-head">
+    <h2>What I heard</h2>
+  </div>
+  <ul class="heard">
+    <li><b>Kerbs are too big.</b> They used the road's bend radius (16 m street, 60 m avenue). They now have their own, smaller
+      <code>KerbRadius</code> per profile. <i>Built.</i></li>
+    <li><b>Road handles stay.</b> One per road, on its centre line where its kerbs start. Drag it along the road: both kerbs beside that
+      road get bigger or tighter at that road's end. <i>Built.</i></li>
+    <li><b>Add a control per kerb.</b> Each corner can also be sized on its own. It sits on the kerb itself, like the radius knob on a road
+      bend, not as more handles along the road, which would crowd a 12 m street. <i>New in this version.</i></li>
+    <li><b>Same limits.</b> Min and max kerb radius from the profile (the min holds unless Anarchy is on), a kerb's far end at most
+      4 × its near end, and nothing past what fits on the road.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Try it</h2>
+    <p>Edit tool, junction selected. Drag a <b>knob</b> (dark ring on a kerb) in or out across its corner, or a <b>road handle</b> (white disc on
+    a centre line) along its road. Focus one and use the arrow keys, or double-click it to reset. Pale tracks show how far each can go.</p>
+  </div>
+  <div class="live">
+    <figure>
+      <svg id="live" viewBox="-64 -56 128 112" aria-label="Interactive junction with kerb knobs and road handles"></svg>
+      <figcaption><div class="readout" id="readout" aria-live="polite"></div></figcaption>
+    </figure>
+    <div class="side">
+      <div class="box">
+        <h3>Junction</h3>
+        <div class="seg" id="scen">
+          <button type="button" id="sc-t" data-s="t" aria-pressed="true">Street T</button>
+          <button type="button" id="sc-y" data-s="y" aria-pressed="false">Skewed 60°</button>
+          <button type="button" id="sc-x" data-s="x" aria-pressed="false">Street × avenue</button>
+          <button type="button" id="sc-5" data-s="five" aria-pressed="false">5-way</button>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Controls shown</h3>
+        <div class="seg" id="show">
+          <button type="button" id="sh-both" data-v="both" aria-pressed="true">Knobs + road handles</button>
+          <button type="button" id="sh-knobs" data-v="knobs" aria-pressed="false">Knobs only</button>
+        </div>
+        <p class="note" id="show-note"></p>
+      </div>
+      <div class="box">
+        <h3>Limits here</h3>
+        <table class="rules" id="rules"></table>
+        <div class="seg">
+          <button type="button" class="btn" id="anarchy" aria-pressed="false">Anarchy <kbd>Ctrl+A</kbd></button>
+          <button type="button" class="btn" id="reset">Reset kerbs</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Two controls, one set of numbers</h2>
+    <p>Every kerb has a radius at each of its two ends. Both controls edit those same numbers, so they never fight: whatever you did last is
+    what you see.</p>
+  </div>
+  <div class="frames">
+    <figure class="pick">
+      <svg id="f-knob" viewBox="-30 -14 64 52" role="img" aria-label="A kerb knob dragged out: one round corner bigger"></svg>
+      <figcaption><span class="step good">KERB KNOB · MOST OF THE TIME</span><h3>This corner, bigger or tighter</h3>
+        A dark ring in the middle of each kerb, like the radius knob on a road bend. Drag it across the corner: the kerb stays a round arc
+        and both its ends move along their roads. The other corners don't change. A lopsided kerb snaps round again when you grab its knob.</figcaption>
+    </figure>
+    <figure class="pick">
+      <svg id="f-road" viewBox="-30 -14 64 52" role="img" aria-label="A road handle dragged out: both kerbs flare up that road"></svg>
+      <figcaption><span class="step good">ROAD HANDLE · BOTH SIDES OF ONE ROAD</span><h3>This road's kerbs together</h3>
+        A white disc on the road's centre line, where its kerbs start. Drag it along the road: the kerbs on both sides change at this road's
+        end, keeping any difference you gave them with their knobs. Their other ends stay put, so pulling it out flares them up this road
+        (<code>R 6–14 m</code>).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Today vs the new default</h2>
+    <p>Already built: the same street T with the old kerb (the street's bend radius) and the new one.</p>
+  </div>
+  <div class="frames">
+    <figure>
+      <svg id="f-today" viewBox="-64 -40 128 84" role="img" aria-label="Street T-junction with 16 metre kerbs"></svg>
+      <figcaption><span class="step bad">BEFORE</span><h3>Kerb R 16 m</h3>
+        <p>Borrowed from the street's <code>DefaultRadius</code>. Arms cut back 22 m.</p></figcaption>
+    </figure>
+    <figure class="pick">
+      <svg id="f-new" viewBox="-64 -40 128 84" role="img" aria-label="Street T-junction with 6 metre kerbs"></svg>
+      <figcaption><span class="step good">NOW</span><h3>Kerb R 6 m</h3>
+        <p><code>KerbRadius</code> on the profile. Arms cut back 12 m.</p></figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Profile rules</h2>
+    <p>At a junction of two profiles a kerb uses the narrower road's values.</p>
+  </div>
+  <div class="table-wrap">
+    <table class="prof">
+      <thead><tr><th>Profile</th><th>Junction kind</th><th>KerbRadius</th><th>MinKerbRadius</th><th>MaxKerbRadius</th><th>Controls</th></tr></thead>
+      <tbody>
+        <tr><td>street · 12 m</td><td>Node</td><td class="n">6 m</td><td class="n">2 m</td><td class="n">16 m</td><td>yes</td></tr>
+        <tr><td>avenue · 24 m</td><td>Node</td><td class="n">10 m</td><td class="n">4 m</td><td class="n">30 m</td><td>yes</td></tr>
+        <tr><td>canal · 14 m</td><td>Node</td><td class="n">8 m</td><td class="n">4 m</td><td class="n">20 m</td><td>yes</td></tr>
+        <tr><td>highway, rail</td><td>Turnout</td><td class="n dim">–</td><td class="n dim">–</td><td class="n dim">–</td><td class="dim">no (no kerbs)</td></tr>
+        <tr><td>fence</td><td>Join</td><td class="n dim">–</td><td class="n dim">–</td><td class="n dim">–</td><td class="dim">no (no kerbs)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>How it behaves in the Edit tool</h2>
+  </div>
+  <ul class="spec">
+    <li>Knobs and road handles show on the <b>selected</b> junction only. They highlight on hover; hovering never changes anything.</li>
+    <li><b>Knob:</b> drag across the corner (along the line from the corner point through the kerb's middle). The kerb is a round arc of that
+      radius, both ends moving. Tag <code>kerb R 6 → 10 m</code>.</li>
+    <li><b>Road handle:</b> drag along the road. Both kerbs beside it change at this road's end, scaled together so a difference set with
+      their knobs is kept. Tag <code>kerbs R 6 · 9 → 8 · 12 m</code>; a lopsided kerb shows both ends, <code>R 6–14</code>.</li>
+    <li>Limits for both: each kerb end within the profile's min and max (the min unless Anarchy), a far end at most 4 × the near end, and
+      no kerb starting past what fits on its road. At a limit the tag turns amber and says which: <code>most that fits</code>,
+      <code>max R 16 m</code>, <code>max flare</code>, <code>tightest</code>.</li>
+    <li>0.5 m radius steps. Each release is one undo step. Double-click a knob or handle to reset it; the junction's radial menu has
+      <b>Reset kerbs</b> for all of them.</li>
+    <li>Data: each road end stores two radii, one for the kerb on each side (null = the profile's). They stay with the road through moves,
+      splits, merges and reconnects; one that no longer fits is squeezed to fit.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Questions for you</h2>
+  </div>
+  <ol class="qs">
+    <li><b>Road handle after knob edits.</b> When a road's two kerbs differ (say 6 and 12 from their knobs), should its handle scale both
+      and keep the difference, or snap both to the same radius? <span class="rec">I'd keep the difference</span> (the live frame does that),
+      so knob tweaks aren't lost by a later handle drag.</li>
+    <li><b>Knob on a lopsided kerb.</b> Grabbing it makes the kerb round again at the radius under the cursor.
+      <span class="rec">I think that's what a player expects</span>; the alternative is scaling both ends and keeping the flare.</li>
+  </ol>
+</section>
+</main>
+
+<script>
+(() => {
+"use strict";
+const PROF = {
+  street:{w:12, def:6,  min:2, max:16, oldDef:16},
+  avenue:{w:24, def:10, min:4, max:30, oldDef:60},
+};
+const MAX_FLARE = 4, SNAP = 0.5;
+// Arms sorted by screen angle (degrees clockwise from east; y points south). cap = furthest a kerb may start along it.
+const SCEN = {
+  t:{arms:[
+      {ang:0,   prof:"street", cap:45, why:"long road"},
+      {ang:90,  prof:"street", cap:18, why:"next junction 40 m away", len:40},
+      {ang:180, prof:"street", cap:45, why:"long road"}]},
+  y:{arms:[
+      {ang:0,   prof:"street", cap:45, why:"long road"},
+      {ang:60,  prof:"street", cap:45, why:"long road"},
+      {ang:180, prof:"street", cap:45, why:"long road"}]},
+  x:{arms:[
+      {ang:0,   prof:"avenue", cap:45, why:"long road"},
+      {ang:90,  prof:"street", cap:45, why:"long road"},
+      {ang:180, prof:"avenue", cap:45, why:"long road"},
+      {ang:270, prof:"street", cap:45, why:"long road"}]},
+  five:{arms:[
+      {ang:0,   prof:"street", cap:45, why:"long road"},
+      {ang:45,  prof:"street", cap:45, why:"long road"},
+      {ang:90,  prof:"street", cap:45, why:"long road"},
+      {ang:180, prof:"street", cap:45, why:"long road"},
+      {ang:270, prof:"street", cap:45, why:"long road"}]},
+};
+const NAMES = {0:"east",45:"south-east",60:"south-east",90:"south",180:"west",270:"north"};
+const NS = "http://www.w3.org/2000/svg";
+const add=(v,w)=>[v[0]+w[0],v[1]+w[1]], mul=(v,k)=>[v[0]*k,v[1]*k], dot=(v,w)=>v[0]*w[0]+v[1]*w[1], sub=(v,w)=>[v[0]-w[0],v[1]-w[1]];
+const norm=v=>{const l=Math.hypot(v[0],v[1])||1; return [v[0]/l,v[1]/l];};
+const narrower=(a,b)=>PROF[a].w<=PROF[b].w?PROF[a]:PROF[b];
+const snap=r=>Math.round(r/SNAP)*SNAP;
+
+function conic(P0,P1,P2,w,t){
+  const a=(1-t)*(1-t), b=2*t*(1-t)*w, c=t*t, d=a+b+c;
+  return [(a*P0[0]+b*P1[0]+c*P2[0])/d,(a*P0[1]+b*P1[1]+c*P2[1])/d];
+}
+
+// Static layout: arm directions and, for each pair of neighbouring arms, the corner X where their facing sides meet.
+// A kerb with end radius R starts R / tan(φ/2) from X along each side (φ = the angle between the arms).
+function layout(sc){
+  const arms=sc.arms.map(a=>{const r=a.ang*Math.PI/180; return {...a,d:[Math.cos(r),Math.sin(r)],hw:PROF[a.prof].w/2};});
+  const n=arms.length, kerbs=[];
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n, ai=arms[i], aj=arms[j];
+    const phi=((aj.ang-ai.ang)+360)%360;
+    const ni=[-ai.d[1],ai.d[0]], mj=[aj.d[1],-aj.d[0]];
+    const Ai=mul(ni,ai.hw), Aj=mul(mj,aj.hw);
+    const k={i,j,phi,Ai,Aj,rules:narrower(ai.prof,aj.prof),straight:phi>=178};
+    if(!k.straight){
+      const di=ai.d,dj=aj.d,D=sub(Aj,Ai), det=-di[0]*dj[1]+dj[0]*di[1];
+      k.ti=(D[0]*(-dj[1])+dj[0]*D[1])/det;
+      k.tj=(di[0]*D[1]-di[1]*D[0])/det;
+      k.X=add(Ai,mul(di,k.ti));
+      k.tanH=Math.tan(phi*Math.PI/360);
+      k.sinH=Math.sin(phi*Math.PI/360);
+      k.w=k.sinH;
+      k.bis=norm(add(di,dj));
+    }
+    kerbs.push(k);
+  }
+  return {arms,kerbs};
+}
+
+// er[x] = [radius at arm i's end, radius at arm j's end] for kerb x (null for a straight-on pair).
+function defaults(L,old){ return L.kerbs.map(k=>k.straight?null:[old?k.rules.oldDef:k.rules.def, old?k.rules.oldDef:k.rules.def]); }
+const clone=er=>er.map(e=>e?e.slice():null);
+
+function solve(L,er){
+  const ends=L.kerbs.map((k,x)=>k.straight?null:[k.ti+er[x][0]/k.tanH, k.tj+er[x][1]/k.tanH]);
+  const cut=L.arms.map((a,i)=>{
+    let c=0; L.kerbs.forEach((k,x)=>{ if(!ends[x])return; if(k.i===i)c=Math.max(c,ends[x][0]); if(k.j===i)c=Math.max(c,ends[x][1]);});
+    return c;
+  });
+  const curves=L.kerbs.map((k,x)=>{
+    if(k.straight) return {pts:[add(k.Ai,mul(L.arms[k.i].d,cut[k.i])),add(k.Aj,mul(L.arms[k.j].d,cut[k.j]))],straight:true};
+    const P0=add(k.Ai,mul(L.arms[k.i].d,ends[x][0])), P2=add(k.Aj,mul(L.arms[k.j].d,ends[x][1]));
+    const pts=[]; for(let s=0;s<=48;s++) pts.push(conic(P0,k.X,P2,k.w,s/48));
+    return {pts,P0,P2,R:Math.min(...er[x]),Rmax:Math.max(...er[x])};
+  });
+  return {ends,cut,curves};
+}
+function fmtR(c){ const a=snapShow(c.R), b=snapShow(c.Rmax); return a===b?`${a}`:`${a}–${b}`; }
+const snapShow=r=>Math.round(r*2)/2;
+
+// ---- the controls ----
+// A road handle on arm i edits the end at arm i of each kerb beside it: sides = [{x, e}] (e = 0: arm i is the kerb's i).
+function sidesOf(L,i){
+  const out=[]; L.kerbs.forEach((k,x)=>{ if(k.straight) return; if(k.i===i) out.push({x,e:0}); if(k.j===i) out.push({x,e:1}); });
+  return out;
+}
+const tOf=(k,e)=>e===0?k.ti:k.tj;
+function roadStation(L,er,i){ return Math.max(...sidesOf(L,i).map(({x,e})=>tOf(L.kerbs[x],e)+er[x][e]/L.kerbs[x].tanH)); }
+// The scale factor range for road handle i from er0: each end within min..max, flare ≤ 4 against the kerb's other end,
+// and not starting past the road's cap. Returns {lo, hi, why}.
+function roadRange(L,er0,i,anarchy){
+  let lo=0, hi=Infinity, why="fit"; const cap=L.arms[i].cap;
+  const tighten=(v,w)=>{ if(v<hi){hi=v;why=w;} };
+  sidesOf(L,i).forEach(({x,e})=>{
+    const k=L.kerbs[x], R0=er0[x][e], other=er0[x][1-e];
+    lo=Math.max(lo,(anarchy?0.5:k.rules.min)/R0, other/(MAX_FLARE*R0));
+    tighten(k.rules.max/R0,"max"); tighten(MAX_FLARE*other/R0,"flare"); tighten((cap-tOf(k,e))*k.tanH/R0,"fit");
+  });
+  return {lo,hi,why};
+}
+// A knob on kerb x sets both its ends to R (round). Its range: min..max and both ends within their roads' caps.
+function knobRange(L,x,anarchy){
+  const k=L.kerbs[x];
+  const fit=Math.min((L.arms[k.i].cap-k.ti)*k.tanH,(L.arms[k.j].cap-k.tj)*k.tanH);
+  return {lo:anarchy?0.5:k.rules.min, hi:Math.min(k.rules.max,fit), why:fit<k.rules.max?"fit":"max"};
+}
+// The round kerb of radius R has its middle at X + bis·R(1/sin(φ/2) − 1).
+const knobAt=(k,R)=>add(k.X,mul(k.bis,R*(1/k.sinH-1)));
+
+// ---- drawing ----
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const a in attrs)e.setAttribute(a,attrs[a]);if(parent)parent.appendChild(e);return e;}
+const path=pts=>"M"+pts.map(p=>p[0].toFixed(2)+" "+p[1].toFixed(2)).join("L");
+function pill(g,x,y,text,tone){
+  const fs=2.7, w=text.length*fs*0.6+3.2, h=fs+2.4;
+  const grp=el("g",{},g);
+  el("rect",{x:x-w/2,y:y-h/2,width:w,height:h,rx:h/2,fill:"var(--pill)",stroke:tone?`var(--${tone})`:"none","stroke-width":tone?0.6:0},grp);
+  const t=el("text",{x,y:y+fs*0.36,"text-anchor":"middle","font-family":"IBM Plex Mono, ui-monospace, monospace","font-size":fs,fill:tone?`var(--${tone})`:"var(--pill-fg)"},grp);
+  t.textContent=text;
+  return grp;
+}
+
+function drawMap(svg,L,er,opts){
+  svg.replaceChildren();
+  const vb=svg.viewBox.baseVal, VIS=Math.max(vb.width,vb.height)*1.2;
+  el("rect",{x:vb.x,y:vb.y,width:vb.width,height:vb.height,fill:"var(--map)"},svg);
+  const grid=el("g",{stroke:"var(--grid)","stroke-width":0.25},svg);
+  for(let g=Math.ceil(vb.x/8)*8;g<vb.x+vb.width;g+=8) el("line",{x1:g,y1:vb.y,x2:g,y2:vb.y+vb.height},grid);
+  for(let g=Math.ceil(vb.y/8)*8;g<vb.y+vb.height;g+=8) el("line",{x1:vb.x,y1:g,x2:vb.x+vb.width,y2:g},grid);
+
+  const S=solve(L,er), A=L.arms;
+  const side=(i,sgn,s)=>add(mul([-A[i].d[1]*sgn,A[i].d[0]*sgn],A[i].hw),mul(A[i].d,s));
+  A.forEach(a=>{ if(!a.len) return;
+    const c=mul(a.d,a.len), p=[-a.d[1],a.d[0]];
+    el("path",{d:path([add(c,mul(p,-80)),add(c,mul(p,80))]),stroke:"var(--asphalt)","stroke-width":12,opacity:.35,fill:"none"},svg);
+    if(opts.labels) pill(svg,c[0]+30,c[1],"next junction · "+a.len+" m");
+  });
+  const roads=el("g",{},svg);
+  A.forEach((a,i)=>{
+    const end=a.len||VIS;
+    el("path",{d:path([side(i,-1,S.cut[i]),side(i,-1,end),side(i,1,end),side(i,1,S.cut[i])])+"Z",fill:"var(--asphalt)"},roads);
+    el("path",{d:path([mul(a.d,S.cut[i]+1.5),mul(a.d,end)]),stroke:"var(--paint)","stroke-width":0.45,"stroke-dasharray":"3 3",fill:"none",opacity:.85},roads);
+  });
+  const poly=[];
+  L.kerbs.forEach((k,x)=>{ poly.push(...S.curves[x].pts); const j=k.j; poly.push(side(j,-1,S.cut[j]),side(j,1,S.cut[j])); });
+  el("path",{d:path(poly)+"Z",fill:"var(--asphalt)",stroke:"var(--asphalt)","stroke-width":0.3},roads);
+  if(opts.ghost){
+    const G=solve(L,opts.ghost);
+    G.curves.forEach(c=>{ if(!c.straight) el("path",{d:path(c.pts),stroke:"var(--ink)","stroke-width":0.35,"stroke-dasharray":"1 1",fill:"none",opacity:.45},svg);});
+  }
+  const kg=el("g",{fill:"none","stroke-linecap":"round"},svg);
+  L.kerbs.forEach((k,x)=>{
+    const c=S.curves[x];
+    if(k.straight){ el("path",{d:path([side(k.i,1,VIS),side(k.j,-1,VIS)]),stroke:"var(--edge)","stroke-width":0.5},kg); return; }
+    const hot=opts.hot&&opts.hot.includes(x);
+    el("path",{d:path(c.pts),stroke:hot?"var(--accent)":"var(--paint)","stroke-width":hot?1.1:0.8},kg);
+    el("path",{d:path([c.P0,side(k.i,1,A[k.i].len||VIS)]),stroke:"var(--edge)","stroke-width":0.5},kg);
+    el("path",{d:path([c.P2,side(k.j,-1,A[k.j].len||VIS)]),stroke:"var(--edge)","stroke-width":0.5},kg);
+  });
+  el("circle",{cx:0,cy:0,r:1.1,fill:"var(--node)",stroke:"var(--ink)","stroke-width":0.3,opacity:.8},svg);
+  if(opts.pills){
+    L.kerbs.forEach((k,x)=>{ if(k.straight) return;
+      const c=S.curves[x], m=c.pts[24], len=Math.hypot(m[0],m[1])||1, at=add(m,mul([m[0]/len,m[1]/len],opts.pillOut??7));
+      pill(svg,at[0],at[1],"R "+fmtR(c)+" m",opts.tone?opts.tone(x):null);
+    });
+  }
+  if(opts.profLabels){
+    A.forEach(a=>{ if(a.len) return;
+      const p=add(mul(a.d,48),mul([-a.d[1],a.d[0]],a.hw+4.5));
+      const t=el("text",{x:p[0],y:p[1],"text-anchor":"middle","font-family":"IBM Plex Mono, ui-monospace, monospace","font-size":2.5,fill:"var(--muted)"},svg);
+      t.textContent=a.prof+" · "+PROF[a.prof].w+" m"; });
+  }
+  return S;
+}
+
+// Road handle: white disc ringed in accent. Knob: dark disc with a white ring (the road-bend radius knob's look).
+function roadGlyph(svg,p,d,active){
+  const g=el("g",{},svg);
+  el("path",{d:path([add(p,mul(d,-3.4)),add(p,mul(d,3.4))]),stroke:active?"var(--accent)":"var(--node)","stroke-width":0.5,fill:"none",opacity:.9},g);
+  el("circle",{cx:p[0],cy:p[1],r:active?2.2:1.8,fill:"var(--node)",stroke:"var(--accent)","stroke-width":active?0.9:0.5},g);
+  return g;
+}
+function knobGlyph(svg,p,active){
+  const g=el("g",{},svg);
+  el("circle",{cx:p[0],cy:p[1],r:active?2.3:1.9,fill:"var(--pill)",stroke:active?"var(--accent)":"var(--node)","stroke-width":active?0.9:0.6},g);
+  return g;
+}
+function track(svg,a,b,active){
+  el("path",{d:path([a,b]),stroke:"var(--node)","stroke-width":1.6,"stroke-linecap":"round",opacity:active?.55:.25,fill:"none"},svg);
+  [a,b].forEach(p=>el("circle",{cx:p[0],cy:p[1],r:0.5,fill:"var(--node)",opacity:active?.9:.5},svg));
+}
+
+// ---- static frames ----
+(function statics(){
+  const L=layout(SCEN.t); L.arms.forEach(a=>{a.cap=45; delete a.len;});
+  drawMap(document.getElementById("f-today"),L,defaults(L,true),{pills:true,pillOut:6});
+  drawMap(document.getElementById("f-new"),L,defaults(L,false),{pills:true,pillOut:6});
+  // knob: the east–south kerb made round R 12
+  const ek=defaults(L,false); ek[0]=[12,12];
+  const fk=document.getElementById("f-knob");
+  drawMap(fk,L,ek,{pills:true,pillOut:7,tone:x=>x===0?"accent":null,hot:[0],ghost:defaults(L,false)});
+  const k0=L.kerbs[0]; track(fk,knobAt(k0,2),knobAt(k0,16),true);
+  knobGlyph(fk,knobAt(k0,12),true); knobGlyph(fk,solve(L,ek).curves[1].pts[24],false);
+  // road handle: the stem's end of both kerbs R 14
+  const er=defaults(L,false); er[0]=[6,14]; er[1]=[14,6];
+  const fr=document.getElementById("f-road");
+  drawMap(fr,L,er,{pills:true,pillOut:7,tone:x=>"accent",hot:[0,1],ghost:defaults(L,false)});
+  roadGlyph(fr,mul(L.arms[1].d,roadStation(L,er,1)),L.arms[1].d,true);
+})();
+
+// ---- live frame ----
+const live=document.getElementById("live"), readout=document.getElementById("readout");
+let scen="t", show="both", anarchy=false, L=layout(SCEN[scen]), er=defaults(L,false), drag=null, hover=null, lastMsg=null;
+
+function controls(){
+  const S=solve(L,er), out=[];
+  L.kerbs.forEach((k,x)=>{ if(k.straight) return;
+    const rg=knobRange(L,x,anarchy);
+    out.push({id:"k"+x,kind:"knob",x,pos:S.curves[x].pts[24],kerbs:[x],track:[knobAt(k,rg.lo),knobAt(k,rg.hi)]});
+  });
+  if(show==="both") L.arms.forEach((a,i)=>{
+    const sides=sidesOf(L,i); if(!sides.length) return;
+    const base=drag&&drag.c.id==="r"+i?drag.before:er, rg=roadRange(L,base,i,anarchy);
+    const at=f=>{ const t=clone(base); sides.forEach(({x,e})=>t[x][e]=base[x][e]*f); return roadStation(L,t,i); };
+    out.push({id:"r"+i,kind:"road",arm:i,pos:mul(a.d,roadStation(L,er,i)),dir:a.d,kerbs:sides.map(s=>s.x),
+      track:[mul(a.d,at(Math.max(rg.lo,1e-3))),mul(a.d,at(Math.min(rg.hi,20)))]});
+  });
+  return out;
+}
+
+function tone(x){
+  const k=L.kerbs[x], [ra,rb]=er[x];
+  if(Math.min(ra,rb)<k.rules.min-0.01) return "bad";
+  const S=solve(L,er);
+  if(S.ends[x][0]>=L.arms[k.i].cap-0.01||S.ends[x][1]>=L.arms[k.j].cap-0.01||Math.max(ra,rb)>=k.rules.max-0.01) return "warn";
+  return null;
+}
+
+function render(){
+  const hotKerbs=drag?drag.c.kerbs:hover?hover.kerbs:null;
+  drawMap(live,L,er,{pills:true,tone,hot:hotKerbs,ghost:drag?drag.before:null,labels:true,profLabels:true});
+  const cs=controls();
+  cs.forEach(c=>track(live,c.track[0],c.track[1],(drag&&drag.c.id===c.id)||(hover&&hover.id===c.id)));
+  cs.forEach(c=>{
+    const active=(drag&&drag.c.id===c.id)||(hover&&hover.id===c.id);
+    const g=c.kind==="road"?roadGlyph(live,c.pos,c.dir,active):knobGlyph(live,c.pos,active);
+    g.setAttribute("class","h"); g.setAttribute("tabindex","0"); g.dataset.h=c.id; g.setAttribute("role","slider");
+    g.setAttribute("aria-label",c.kind==="road"?`Road handle, ${NAMES[L.arms[c.arm].ang]} road`:`Kerb knob, corner ${c.x+1}`);
+    el("circle",{cx:c.pos[0],cy:c.pos[1],r:4,fill:"transparent"},g);
+    g.addEventListener("pointerdown",ev=>startDrag(ev,c));
+    g.addEventListener("pointerenter",()=>{ if(!drag&&(!hover||hover.id!==c.id)){hover=c; render();}});
+    g.addEventListener("pointerleave",()=>{ if(!drag&&hover&&hover.id===c.id){hover=null; render();}});
+    g.addEventListener("dblclick",()=>resetControl(c));
+    g.addEventListener("keydown",ev=>keyMove(ev,c));
+    g.addEventListener("focus",()=>{ if(!drag){ lastMsg=info(c); readout.innerHTML=fmt(lastMsg);} });
+  });
+  if(drag&&drag.msg){ const c=cs.find(q=>q.id===drag.c.id)||drag.c; pill(live,c.pos[0],c.pos[1]-6.5,drag.msg.text,drag.msg.tone); }
+  if(!drag&&!lastMsg) readout.innerHTML=`<b>Drag</b> a knob across its corner, or a road handle along its road &nbsp;·&nbsp; <b>double-click</b> resets it`;
+  rulesTable();
+}
+
+const fmt=m=>{ const cls=m.tone==="warn"?"w":m.tone==="bad"?"r":""; return `<b class="${cls}">${m.text}</b><br>${m.detail||""}`; };
+const radiiText=(state,ks)=>{ const S=solve(L,state); return ks.map(x=>fmtR(S.curves[x])).join(" · "); };
+function info(c){
+  return c.kind==="knob"
+    ?{text:`kerb R ${radiiText(er,c.kerbs)} m`,detail:"Drag across the corner: this kerb only, kept round."}
+    :{text:`kerbs R ${radiiText(er,c.kerbs)} m`,detail:`Drag along the ${NAMES[L.arms[c.arm].ang]} road: both kerbs beside it, at this road's end.`};
+}
+function message(c,before,limit){
+  let text=`${c.kind==="knob"?"kerb":"kerbs"} R ${radiiText(before,c.kerbs)} → ${radiiText(er,c.kerbs)} m`, tone=null, detail=info(c).detail;
+  const low=c.kerbs.some(x=>Math.min(...er[x])<L.kerbs[x].rules.min-0.01);
+  if(low){ tone="bad"; text+=` · min ${L.kerbs[c.kerbs[0]].rules.min} m · Ctrl+A allows`; detail="Below the profile minimum. Builds only with Anarchy."; }
+  else if(limit==="fit"){ tone="warn"; text+=" · most that fits"; detail="A kerb would start past the room on its road."; }
+  else if(limit==="max"){ tone="warn"; text+=` · max R ${L.kerbs[c.kerbs[0]].rules.max} m`; detail="The profile's largest kerb."; }
+  else if(limit==="flare"){ tone="warn"; text+=" · max flare"; detail="A kerb's far end can be at most 4 × its near end. Use the knob, or the other road's handle."; }
+  else if(limit==="min"){ tone="warn"; text+=" · tightest"; detail="The profile's tightest kerb (or the flare limit). Anarchy lets it go tighter."; }
+  return {text,tone,detail};
+}
+
+// Moves control c to plan point p. Returns which limit stopped it, if any.
+function apply(c,p,before){
+  if(c.kind==="knob"){
+    const k=L.kerbs[c.x], rg=knobRange(L,c.x,anarchy);
+    let R=snap(Math.max(0,dot(sub(p,k.X),k.bis))/(1/k.sinH-1)), lim=null;
+    if(R>rg.hi){R=rg.hi; lim=rg.why;} else if(R<rg.lo){R=rg.lo; lim=anarchy?null:"min";}
+    er[c.x]=[R,R]; return lim;
+  }
+  const i=c.arm, sides=sidesOf(L,i), s=dot(p,L.arms[i].d), rg=roadRange(L,before,i,anarchy);
+  // The factor that puts the outermost kerb start at s; snapped so that kerb's end radius is a whole 0.5 m.
+  const ref=sides.reduce((a,b)=>tOf(L.kerbs[a.x],a.e)+before[a.x][a.e]/L.kerbs[a.x].tanH>=tOf(L.kerbs[b.x],b.e)+before[b.x][b.e]/L.kerbs[b.x].tanH?a:b);
+  let f=Math.min(...sides.map(({x,e})=>(s-tOf(L.kerbs[x],e))*L.kerbs[x].tanH/before[x][e]));
+  const R0=before[ref.x][ref.e]; f=snap(Math.max(f,0)*R0)/R0;
+  let lim=null;
+  if(f>rg.hi){f=rg.hi; lim=rg.why;} else if(f<rg.lo){f=rg.lo; lim=anarchy?"flare":"min";}
+  sides.forEach(({x,e})=>er[x][e]=before[x][e]*f);
+  return lim;
+}
+
+function toWorld(ev){ const pt=live.createSVGPoint(); pt.x=ev.clientX; pt.y=ev.clientY; const q=pt.matrixTransform(live.getScreenCTM().inverse()); return [q.x,q.y]; }
+function startDrag(ev,c){ ev.preventDefault(); live.setPointerCapture(ev.pointerId); drag={c,before:clone(er),msg:null}; drag.msg=message(c,drag.before,null); render(); }
+live.addEventListener("pointermove",ev=>{ if(!drag) return; const lim=apply(drag.c,toWorld(ev),drag.before); drag.msg=message(drag.c,drag.before,lim); readout.innerHTML=fmt(drag.msg); render(); });
+const endDrag=()=>{ if(!drag) return; lastMsg=drag.msg; readout.innerHTML=fmt(lastMsg); drag=null; hover=null; render(); };
+live.addEventListener("pointerup",endDrag); live.addEventListener("pointercancel",endDrag);
+
+function keyMove(ev,c){
+  const dir={ArrowUp:1,ArrowRight:1,ArrowDown:-1,ArrowLeft:-1}[ev.key]; if(dir===undefined) return;
+  ev.preventDefault();
+  const before=clone(er), id=c.id; let p;
+  if(c.kind==="knob"){ const k=L.kerbs[c.x]; p=knobAt(k,Math.min(...er[c.x])+dir*SNAP); }
+  else { const i=c.arm; p=mul(L.arms[i].d,roadStation(L,er,i)+dir*SNAP/Math.min(...sidesOf(L,i).map(({x})=>L.kerbs[x].tanH))); }
+  const lim=apply(c,p,before); lastMsg=message(c,before,lim); render(); readout.innerHTML=fmt(lastMsg);
+  const g=live.querySelector(`[data-h="${id}"]`); if(g) g.focus();
+}
+function resetControl(c){
+  const d=defaults(L,false);
+  if(c.kind==="knob") er[c.x]=d[c.x].slice(); else sidesOf(L,c.arm).forEach(({x,e})=>er[x][e]=d[x][e]);
+  lastMsg={text:c.kind==="knob"?"kerb reset to the profile default":"this road's kerb ends reset to the profile default",detail:""}; render(); readout.innerHTML=fmt(lastMsg);
+}
+
+function rulesTable(){
+  const t=document.getElementById("rules"), k=L.kerbs.find(q=>!q.straight).rules, name=Object.keys(PROF).find(p=>PROF[p]===k);
+  const capRows=L.arms.filter(a=>a.len).map(a=>`<tr><td>${NAMES[a.ang]} road (${a.why})</td><td>kerbs start ≤ ${a.cap} m</td></tr>`).join("");
+  t.innerHTML=`<tr><td>Kerb rules from</td><td>${name}${L.arms.some(a=>a.prof!==name)?" (narrower)":""}</td></tr>
+    <tr><td>Default kerb</td><td>R ${k.def} m</td></tr>
+    <tr><td>Tightest</td><td>${anarchy?"R 0.5 m (Anarchy)":"R "+k.min+" m"}</td></tr>
+    <tr><td>Largest</td><td>R ${k.max} m</td></tr>
+    <tr><td>Most lopsided</td><td>4 : 1</td></tr>${capRows}`;
+}
+
+function setScen(s){ scen=s; L=layout(SCEN[s]); er=defaults(L,false); lastMsg=null; drag=null; hover=null;
+  document.querySelectorAll("#scen button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.s===s)); render(); }
+function setShow(v){ show=v; hover=null; lastMsg=null;
+  document.querySelectorAll("#show button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===v));
+  document.getElementById("show-note").textContent=v==="both"
+    ?"Knobs size one corner each; road handles move both kerbs of a road and can flare them."
+    :"The simpler option: every kerb round, one knob per corner, no flares.";
+  render(); }
+document.getElementById("scen").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) setScen(b.dataset.s); });
+document.getElementById("show").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b) setShow(b.dataset.v); });
+document.getElementById("anarchy").addEventListener("click",e=>{ anarchy=!anarchy; e.currentTarget.setAttribute("aria-pressed",anarchy);
+  if(!anarchy) L.kerbs.forEach((k,x)=>{ if(!k.straight) er[x]=er[x].map(r=>Math.max(r,k.rules.min)); });
+  render(); });
+document.getElementById("reset").addEventListener("click",()=>{ er=defaults(L,false); lastMsg=null; render(); });
+live.addEventListener("keydown",e=>{ if(e.ctrlKey&&(e.key==="a"||e.key==="A")){ e.preventDefault(); document.getElementById("anarchy").click(); }});
+setShow("both");
+})();
+</script>

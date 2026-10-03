@@ -68,7 +68,10 @@ public sealed class SplineToolView
     /// guides only leave dead ends.</summary>
     public static List<SnapCandidate> Candidates(SplineGraph graph, IReadOnlySet<int>? except = null) =>
         graph.Edges.Where(e => except?.Contains(e.Id) != true).Select(e => new SnapCandidate(e.Alignment, e.Rules.Width,
-            OpenStart: graph.Node(e.Start).Edges.Count == 1, OpenEnd: graph.Node(e.End).Edges.Count == 1)).ToList();
+            OpenStart: graph.Node(e.Start).Edges.Count == 1, OpenEnd: graph.Node(e.End).Edges.Count == 1)
+        {
+            HiddenCorners = Enumerable.Range(1, Math.Max(0, e.Alignment.Pis.Count - 2)).Where(i => !graph.ShowsRoadPoint(e, i)).ToList(),
+        }).ToList();
 
     /// <summary>Every point a road can connect to, shown as a dot in every mode as a guide: the nodes, and each
     /// corner's point on the road (<see cref="Alignment.RoadPoint"/>: a joint between chained curves, an arc's
@@ -76,9 +79,11 @@ public sealed class SplineToolView
     public static List<NumVector2> Points(SplineGraph graph) =>
         graph.Nodes.Select(n => n.Position).Concat(RoadPoints(graph)).ToList();
 
-    /// <summary>Each corner's point on the road, inside the edges.</summary>
+    /// <summary>Each corner's point on the road, inside the edges, but those a junction stands in for
+    /// (<see cref="SplineGraph.ShowsRoadPoint"/>).</summary>
     public static IEnumerable<NumVector2> RoadPoints(SplineGraph graph) =>
-        graph.Edges.SelectMany(e => Enumerable.Range(1, Math.Max(0, e.Alignment.Pis.Count - 2)).Select(e.Alignment.RoadPoint));
+        graph.Edges.SelectMany(e => Enumerable.Range(1, Math.Max(0, e.Alignment.Pis.Count - 2))
+            .Where(i => graph.ShowsRoadPoint(e, i)).Select(e.Alignment.RoadPoint));
 
     /// <summary>Converts a screen-pixel distance to plan units at <paramref name="worldHit"/>'s depth, so the catch
     /// distance feels the same at every zoom (DESIGN.md → Snapping and guides).</summary>

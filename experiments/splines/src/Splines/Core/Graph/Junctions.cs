@@ -5,8 +5,76 @@ using System.Numerics;
 
 namespace CitySim.Splines;
 
-/// <summary>A curb corner of a junction footprint: an arc from one arm's side to the next arm's side.</summary>
-public readonly record struct Curb(Vector2 Centre, float Radius, Vector2 From, Vector2 To);
+/// <summary>
+/// A curb corner of a junction footprint: an arc from one arm's side to the next arm's side. One a kerb handle
+/// moved (<see cref="Set"/>) may be lopsided: then it's a conic through <see cref="Control"/> (where the two sides'
+/// tangents meet) with <see cref="Weight"/>, and it's rated by the arc each end would make on its own (its distance
+/// from the control point as a tangent length): <see cref="Radius"/> at its tighter end, with that end's
+/// <see cref="Centre"/>, and <see cref="MaxRadius"/> at the other. The kerb rules apply to both ends, so pulling one
+/// end out reads as a bigger kerb (the conic's own sharpest bend, near the tighter end, is a little tighter still).
+/// <see cref="Rules"/>: the narrower arm's profile, whose kerb rules it follows.
+/// </summary>
+public readonly record struct Curb(Vector2 Centre, float Radius, Vector2 From, Vector2 To)
+{
+    public float MaxRadius { get; init; } = Radius;
+    public Vector2? Control { get; init; }
+    public float Weight { get; init; }
+    public bool Set { get; init; }
+    public ProfileRules? Rules { get; init; }
+}
+
+/// <summary>
+/// A road handle (the Edit tool on a selected junction; DESIGN.md → Junctions → Kerb handles): one per arm with a kerb
+/// beside it, on its centre line where the outermost of those kerbs starts (<see cref="Station"/> from the node). It
+/// scales this arm's end radius of each of those kerbs (<see cref="Sides"/>) by one factor, so a difference set with
+/// their knobs is kept, from <see cref="FactorMin"/> to <see cref="FactorMax"/>: each end within the profile's kerb
+/// radii (the minimum only without Anarchy), no more lopsided than <c>Junctions.MaxFlare</c> against its kerb's other
+/// end, and starting within what fits; <see cref="MaxLimit"/> says which stops it growing. Each kerb starts where its
+/// radius puts it for its own angle, so an arm between an acute and an obtuse kerb moves both. It slides from
+/// <see cref="Min"/> to <see cref="Max"/> (<see cref="Track"/>). <see cref="Radii"/>: its kerbs' radii now (each kerb's
+/// tighter and looser end).
+/// </summary>
+public sealed record KerbHandle(int EdgeId, bool AtStart, Vector2 Position, float Station, float Min, float Max, KerbLimit MaxLimit,
+    IReadOnlyList<Vector2> Track, IReadOnlyList<(float Min, float Max)> Radii, ProfileRules Rules, bool IsSet)
+{
+    public float FactorMin { get; init; }
+    public float FactorMax { get; init; }
+    public IReadOnlyList<KerbSide> Sides { get; init; } = Array.Empty<KerbSide>();
+
+    /// <summary>Where the handle sits with its ends scaled by <paramref name="factor"/>: the outermost kerb start.</summary>
+    public float StationOf(float factor) => Sides.Max(s => s.X + s.Radius * factor / s.TanHalf);
+
+    /// <summary>The factor that puts the handle at a station (the inverse of <see cref="StationOf"/>).</summary>
+    public float FactorAt(float station) => Sides.Min(s => (station - s.X) * s.TanHalf / s.Radius);
+
+    /// <summary>The side whose kerb starts outermost: the one the handle sits on.</summary>
+    public KerbSide Outer => Sides.MaxBy(s => s.X + s.Radius / s.TanHalf);
+}
+
+/// <summary>A road handle's kerb on one side of its arm (+1 right, −1 left, as <see cref="KerbEnds"/>): where that
+/// kerb's sides' tangents meet as a station along the arm, the tangent of half the angle there, its radius at this arm's
+/// end now, and at its other end.</summary>
+public readonly record struct KerbSide(int Side, float X, float TanHalf, float Radius, float Other, ProfileRules Rules);
+
+/// <summary>
+/// A kerb knob (the Edit tool on a selected junction): one per kerb, in its middle. Dragging it across the corner
+/// makes the kerb round at the radius whose arc's middle is under the cursor (<see cref="RadiusAt"/>), from
+/// <see cref="Min"/> to <see cref="Max"/> (the profile's kerb radii, the minimum only without Anarchy, and both ends
+/// within what fits; <see cref="MaxLimit"/>). It's arm <see cref="EdgeId"/>'s right-hand kerb (+1) and arm
+/// <see cref="OtherEdgeId"/>'s left-hand one (−1). <see cref="Radii"/>: its ends now.
+/// </summary>
+public sealed record KerbKnob(int EdgeId, bool AtStart, int OtherEdgeId, bool OtherAtStart, Vector2 Position, Vector2 Corner,
+    Vector2 Bisector, float SinHalf, float Min, float Max, KerbLimit MaxLimit, (float Min, float Max) Radii, ProfileRules Rules, bool IsSet)
+{
+    /// <summary>The middle of the round kerb of radius r: its corner point plus r (1 / sin(half angle) − 1) along the bisector.</summary>
+    public Vector2 At(float r) => Corner + Bisector * (r * (1 / SinHalf - 1));
+
+    public float RadiusAt(Vector2 p) => MathF.Max(0, Vector2.Dot(p - Corner, Bisector)) / (1 / SinHalf - 1);
+}
+
+/// <summary>What stops a kerb handle: the room on the arm, the profile's largest kerb, or a kerb's far end reaching
+/// <c>Junctions.MaxFlare</c> times its near end.</summary>
+public enum KerbLimit { Fit, Radius, Flare }
 
 /// <summary>How far an arm's edge is cut back from the node centre so the curb corners fit.</summary>
 public readonly record struct ArmCut(int EdgeId, bool AtStart, float CutBack);
@@ -46,6 +114,12 @@ public static class Junctions
     private const float TaperPerWidth = 2.5f;
     /// <summary>How far past a short arm's end its side is followed to find where a squeezed pair of arms part.</summary>
     private const float Reach = 200f;
+    /// <summary>A lopsided kerb needs each end at least this far from where the two sides' tangents meet.</summary>
+    private const float MinKerbLeg = 0.05f;
+    /// <summary>The tightest kerb a handle reaches with Anarchy on.</summary>
+    private const float AnarchyKerb = 0.5f;
+    /// <summary>A lopsided kerb's longer end (from where the sides' tangents meet) is at most this many times its shorter.</summary>
+    public const float MaxFlare = 4f;
 
     /// <summary>The strictest kind among the arms: a turnout profile makes the node a turnout, then Node, then Join.</summary>
     public static JunctionKind KindOf(IReadOnlyList<Arm> arms)
@@ -144,26 +218,62 @@ public static class Junctions
     /// <summary>
     /// The footprint of a <see cref="JunctionKind.Node"/> junction with three or more arms: between each pair of
     /// neighbouring arms, a curb arc tangent to their facing sides, with the narrower arm's
-    /// <see cref="ProfileRules.DefaultRadius"/>; each arm is cut back to where its curbs start. Arms are followed along
+    /// <see cref="ProfileRules.KerbRadius"/>; each arm is cut back to where its curbs start. Arms are followed along
     /// their real curves (not their direction at the node), so a junction on a curve meets the ribbons exactly: a
     /// cut-back is a station along the arm, and the outline runs along each arm's curved sides. A pair of arms too
     /// sharp or too short for even a sharp corner is cut back as far as their edges allow and joined straight, so an
-    /// arm never runs on across the others. For a <see cref="IsTransition"/>, the taper (<see cref="Transition"/>).
-    /// Null otherwise.
+    /// arm never runs on across the others. An arm with a kerb handle set (<see cref="GraphEdge.KerbStart"/>) starts
+    /// the curbs beside it there instead (<see cref="Layout"/>). For a <see cref="IsTransition"/>, the taper
+    /// (<see cref="Transition"/>). Null otherwise.
     /// </summary>
     public static JunctionFootprint? Footprint(SplineGraph g, int nodeId)
     {
         var arms = g.Arms(nodeId);
         if (IsTransition(arms)) return Transition(g, nodeId, arms);
+        if (Fit(g, nodeId, arms) is not { } f) return null;
+        int n = f.Sorted.Count;
+        var (paths, cut, curbs, curbAt, corner) = (f.Paths, f.Cut, f.Curbs, f.CurbAt, f.Corner);
+
+        // Round the outline: for each arm, its side toward the previous arm (from that curb out to the cut), the cut
+        // end, its side toward the next arm (back in to that curb), then the curb itself.
+        var outline = new List<Vector2>();
+        for (int i = 0; i < n; i++)
+        {
+            int prev = (i + n - 1) % n;
+            float w = f.Sorted[i].Arm.Rules.Width / 2;
+            bool prevFits = corner[prev] && Fits(prev);
+            bool nextFits = corner[i] && Fits(i);
+            outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : cut[i], cut[i]));
+            outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : cut[i]));
+            if (nextFits && curbs[i] is { } curb) outline.AddRange(ArcPoints(curb));
+
+            bool Fits(int k) => cut[k] >= curbAt[k].From - 1e-3f && cut[(k + 1) % n] >= curbAt[k].To - 1e-3f;
+        }
+        var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
+        return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline));
+    }
+
+    /// <summary>A Node junction's curbs and cut-backs, round the node: <c>Curbs[i]</c> and <c>CurbAt[i]</c> are between
+    /// arm i and arm i + 1 (the stations along each where the curb touches), <c>Corner[i]</c> says they meet there (a
+    /// curb, or a sharp corner when <c>Curbs[i]</c> is null).
+    /// <c>Legs[i]</c>: for a curb, where its two sides' tangents meet as a station along each arm, and the tangent of half
+    /// the angle there, so an end radius R starts it at <c>X + R / TanHalf</c>.</summary>
+    private sealed record Layout(List<(Arm Arm, float Gap)> Sorted, ArmPath[] Paths, float[] Cut, Curb?[] Curbs, (float From, float To)[] CurbAt, bool[] Corner,
+        (float XA, float XB, float TanHalf)?[] Legs);
+
+    /// <summary>The curbs and cut-backs of a <see cref="JunctionKind.Node"/> junction with three or more arms (see
+    /// <see cref="Footprint"/>), null for any other node.</summary>
+    private static Layout? Fit(SplineGraph g, int nodeId, IReadOnlyList<Arm> arms)
+    {
         if (arms.Count < 3 || KindOf(arms) != JunctionKind.Node) return null;
-        var centre = g.Node(nodeId).Position;
         var sorted = Sorted(arms);
         int n = sorted.Count;
         var paths = sorted.Select(x => new ArmPath(g, x.Arm)).ToArray();
         var cut = new float[n];
-        var curbs = new Curb?[n]; // curbs[i]: between arm i and arm i + 1
-        var curbAt = new (float From, float To)[n]; // the stations along arm i and arm i + 1 where curbs[i] touches them
-        var corner = new bool[n]; // arm i and arm i + 1 meet at curbAt[i]: a curb, or a sharp corner (curbs[i] null)
+        var curbs = new Curb?[n];
+        var curbAt = new (float From, float To)[n];
+        var corner = new bool[n];
+        var legs = new (float XA, float XB, float TanHalf)?[n];
 
         for (int i = 0; i < n; i++)
         {
@@ -171,8 +281,8 @@ public static class Junctions
             int j = (i + 1) % n;
             var b = sorted[j].Arm;
             if (gap >= StraightGapDegrees) continue;
-            var narrow = a.Rules.Width < b.Rules.Width || (a.Rules.Width == b.Rules.Width && a.Rules.DefaultRadius <= b.Rules.DefaultRadius) ? a.Rules : b.Rules;
-            float r = MathF.Max(narrow.DefaultRadius, 0);
+            var narrow = a.Rules.Width < b.Rules.Width || (a.Rules.Width == b.Rules.Width && a.Rules.KerbRadius <= b.Rules.KerbRadius) ? a.Rules : b.Rules;
+            float r = MathF.Max(narrow.KerbRadius, 0);
             // The curb's centre is r off both facing sides: where a's side toward b, pushed out by r, meets b's side
             // toward a, pushed out by r. The nearest such point to the node wins. The sides only run out to each arm's
             // cap, so a curb too big for a short arm or a sharp angle finds no crossing: it shrinks to the largest
@@ -208,43 +318,198 @@ public static class Junctions
                 hit = far;
                 r = 0;
             }
-            cut[i] = MathF.Max(cut[i], hit.Value.SA);
-            cut[j] = MathF.Max(cut[j], hit.Value.SB);
             curbAt[i] = (hit.Value.SA, hit.Value.SB);
             corner[i] = true;
             if (r > 0.1f)
-                curbs[i] = new Curb(hit.Value.Point, r, paths[i].SidePoint(hit.Value.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.Value.SB, -1, b.Rules.Width / 2));
+            {
+                curbs[i] = new Curb(hit.Value.Point, r, paths[i].SidePoint(hit.Value.SA, +1, a.Rules.Width / 2), paths[j].SidePoint(hit.Value.SB, -1, b.Rules.Width / 2)) { Rules = narrow };
+                // Back from the arc's ends along the sides by its tangent length (exact for straight arms).
+                float cos = Math.Clamp(Vector2.Dot(paths[i].At(hit.Value.SA).Direction, paths[j].At(hit.Value.SB).Direction), -1f, 1f);
+                float tanHalf = MathF.Sqrt((1 - cos) / MathF.Max(1 + cos, 1e-6f));
+                if (tanHalf > 1e-3f) legs[i] = (hit.Value.SA - r / tanHalf, hit.Value.SB - r / tanHalf, tanHalf);
+            }
 
             // A side pushed out further than the radius of a corner on it folds back on itself, and crosses the other
             // side somewhere bogus (a short arm into a tight corner cut back past the corner). A curb only counts where
-            // its circle clears both roads, so then it shrinks until it does.
+            // its circle clears both roads, so then it shrinks until it does. The sides also run back behind the node
+            // by the other road's width: a small kerb in a wide obtuse corner (a street leaving an avenue at 135°)
+            // touches the avenue's side before it gets to the node.
             CurveHit? CurbCentre(float radius) =>
-                FirstCross(paths[i].Side(+1, a.Rules.Width / 2 + radius, paths[i].CurbLimit), paths[j].Side(-1, b.Rules.Width / 2 + radius, paths[j].CurbLimit),
+                FirstCross(paths[i].Side(+1, a.Rules.Width / 2 + radius, paths[i].CurbLimit, back: b.Rules.Width + radius),
+                    paths[j].Side(-1, b.Rules.Width / 2 + radius, paths[j].CurbLimit, back: a.Rules.Width + radius),
                     accept: p => paths[i].Distance(p) >= a.Rules.Width / 2 + radius - CurbClearance
                         && paths[j].Distance(p) >= b.Rules.Width / 2 + radius - CurbClearance);
         }
 
-        // Keep both ends of a short edge room: cap each cut-back at a share of its edge.
-        for (int i = 0; i < n; i++)
-            cut[i] = Math.Clamp(cut[i], 0, paths[i].Cap);
-
-        // Round the outline: for each arm, its side toward the previous arm (from that curb out to the cut), the cut
-        // end, its side toward the next arm (back in to that curb), then the curb itself.
-        var outline = new List<Vector2>();
+        // Kerb knobs and road handles: a radius set at an arm's end for the curb on one side of it, each curb's other
+        // end keeping its own, so a curb with two different ends is lopsided. Each end starts where its radius puts it
+        // for the curb's own angle. A handle squeezed past what fits now (the road was edited since) is held at the arm's
+        // curb limit; one that no longer makes a curb leaves the profile's.
+        var set = sorted.Select(x => g.Edge(x.Arm.EdgeId).KerbAt(x.Arm.AtStart)).ToArray();
         for (int i = 0; i < n; i++)
         {
-            int prev = (i + n - 1) % n, j = (i + 1) % n;
-            float w = sorted[i].Arm.Rules.Width / 2;
-            bool prevFits = corner[prev] && Fits(prev);
-            bool nextFits = corner[i] && Fits(i);
-            outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : cut[i], cut[i]));
-            outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : cut[i]));
-            if (nextFits && curbs[i] is { } curb) outline.AddRange(ArcPoints(curb));
-
-            bool Fits(int k) => cut[k] >= curbAt[k].From - 1e-3f && cut[(k + 1) % n] >= curbAt[k].To - 1e-3f;
+            int j = (i + 1) % n;
+            // The curb between arm i and arm j is arm i's right-hand one and arm j's left-hand one.
+            if (curbs[i] is not { } curb || legs[i] is not { } l || (set[i].Right is null && set[j].Left is null)) continue;
+            float sa = set[i].Right is { } ri ? MathF.Min(l.XA + ri / l.TanHalf, paths[i].CurbLimit) : curbAt[i].From;
+            float sb = set[j].Left is { } rj ? MathF.Min(l.XB + rj / l.TanHalf, paths[j].CurbLimit) : curbAt[i].To;
+            if (Kerb(paths[i], paths[j], sorted[i].Arm.Rules.Width / 2, sorted[j].Arm.Rules.Width / 2, sa, sb) is not { } k) continue;
+            // Rated as the handles see it (on a curved arm the conic's own tangents meet a little elsewhere).
+            float ra = (sa - l.XA) * l.TanHalf, rb = (sb - l.XB) * l.TanHalf;
+            curbs[i] = k with { Radius = MathF.Min(ra, rb), MaxRadius = MathF.Max(ra, rb), Rules = curb.Rules, Set = true };
+            curbAt[i] = (sa, sb);
         }
-        var cuts = sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
-        return new JunctionFootprint(nodeId, centre, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline));
+
+        // Each arm is cut back to where its curbs (or sharp corners) start, keeping both ends of a short edge room.
+        for (int i = 0; i < n; i++)
+        {
+            if (!corner[i]) continue;
+            int j = (i + 1) % n;
+            cut[i] = MathF.Max(cut[i], curbAt[i].From);
+            cut[j] = MathF.Max(cut[j], curbAt[i].To);
+        }
+        for (int i = 0; i < n; i++)
+            cut[i] = Math.Clamp(cut[i], 0, paths[i].Cap);
+        return new Layout(sorted, paths, cut, curbs, curbAt, corner, legs);
+    }
+
+    /// <summary>
+    /// A curb from station <paramref name="sa"/> on arm a's side toward b to <paramref name="sb"/> on b's side toward a:
+    /// the conic tangent to both sides there, through the point where their tangents meet. With both ends the same
+    /// distance from that point it's the circular arc. Null when an end is at or behind that point (the curb would
+    /// fold back).
+    /// </summary>
+    private static Curb? Kerb(ArmPath a, ArmPath b, float wa, float wb, float sa, float sb, int samples = 24) =>
+        KerbAndFlare(a, b, wa, wb, sa, sb, samples)?.Curb;
+
+    /// <summary><see cref="Kerb"/>, and how lopsided it is: its longer end over its shorter (1 = a circular arc).</summary>
+    private static (Curb Curb, float Flare)? KerbAndFlare(ArmPath a, ArmPath b, float wa, float wb, float sa, float sb, int samples)
+    {
+        var da = a.At(sa).Direction;
+        var db = b.At(sb).Direction;
+        var p0 = a.SidePoint(sa, +1, wa);
+        var p2 = b.SidePoint(sb, -1, wb);
+        // p0 − u·da = p2 − v·db: back along each side toward the node, to where they meet.
+        var d = p2 - p0;
+        float den = SplineMath.Cross(-da, db);
+        if (MathF.Abs(den) < 1e-6f) return null;
+        float u = SplineMath.Cross(d, db) / den, v = SplineMath.Cross(-da, d) / den;
+        if (u < MinKerbLeg || v < MinKerbLeg) return null;
+        var control = p0 - da * u;
+        float cos = Math.Clamp(Vector2.Dot(da, db), -1f, 1f); // of the angle between the sides at the control point
+        float w = MathF.Sqrt((1 - cos) / 2); // its half angle's sine: a circle when both ends are as far
+        float tanHalf = MathF.Sqrt((1 - cos) / MathF.Max(1 + cos, 1e-6f));
+        // Each end rated as the arc it would make with the other end as far out: R = tangent length · tan(half angle).
+        float ra = u * tanHalf, rb = v * tanHalf;
+        var centre = ra <= rb ? p0 + TowardNext(da) * ra : p2 - TowardNext(db) * rb;
+        return (new Curb(centre, MathF.Min(ra, rb), p0, p2) { MaxRadius = MathF.Max(ra, rb), Control = control, Weight = w }, MathF.Max(u, v) / MathF.Min(u, v));
+    }
+
+    private static List<Vector2> ConicPoints(Vector2 p0, Vector2 p1, Vector2 p2, float w, int n)
+    {
+        var pts = new List<Vector2>(n + 1);
+        for (int k = 0; k <= n; k++)
+        {
+            float t = (float)k / n, a = (1 - t) * (1 - t), b = 2 * t * (1 - t) * w, c = t * t;
+            pts.Add((p0 * a + p1 * b + p2 * c) / (a + b + c));
+        }
+        return pts;
+    }
+
+    /// <summary>
+    /// The road handles of a Node junction (DESIGN.md → Junctions → Kerb handles): one per arm with a curb beside it,
+    /// on its centre line where the outermost of those curbs starts, with the range of the factor it scales this arm's
+    /// end of each of them by. The other arms are held as they are.
+    /// </summary>
+    public static List<KerbHandle> KerbHandles(SplineGraph g, int nodeId, bool anarchy)
+    {
+        var list = new List<KerbHandle>();
+        var arms = g.Arms(nodeId);
+        if (IsTransition(arms) || Fit(g, nodeId, arms) is not { } f) return list;
+        int n = f.Sorted.Count;
+        for (int i = 0; i < n; i++)
+        {
+            int prev = (i + n - 1) % n;
+            var sides = new List<KerbSide>();
+            if (EndOf(f, prev, first: false) is { } left) sides.Add(left);
+            if (EndOf(f, i, first: true) is { } right) sides.Add(right);
+            if (sides.Count == 0) continue;
+            var arm = f.Sorted[i].Arm;
+            float cap = f.Paths[i].CurbLimit;
+            // Each end within min..max, at most MaxFlare against its kerb's other end, and starting within the arm's limit.
+            float lo = 0, hi = float.PositiveInfinity;
+            var why = KerbLimit.Fit;
+            foreach (var k in sides)
+            {
+                lo = MathF.Max(lo, MathF.Max((anarchy ? AnarchyKerb : k.Rules.MinKerbRadius) / k.Radius, k.Other / (MaxFlare * k.Radius)));
+                Tighten(k.Rules.MaxKerbRadius / k.Radius, KerbLimit.Radius);
+                Tighten(MaxFlare * k.Other / k.Radius, KerbLimit.Flare);
+                Tighten((cap - k.X) * k.TanHalf / k.Radius, KerbLimit.Fit);
+            }
+            if (hi < lo) lo = hi = 1; // nothing fits both ways (an end already out of range): it stays as it is
+            float StationOf(float x) => sides.Max(k => k.X + k.Radius * x / k.TanHalf);
+            float station = StationOf(1), min = MathF.Min(StationOf(lo), station), max = MathF.Max(StationOf(MathF.Min(hi, 50)), station);
+            var radii = sides.Select(k => (MathF.Min(k.Radius, k.Other), MathF.Max(k.Radius, k.Other))).ToList();
+            list.Add(new KerbHandle(arm.EdgeId, arm.AtStart, f.Paths[i].At(station).Position, station, min, max, why,
+                Track(f.Paths[i], min, max), radii, sides[0].Rules, g.Edge(arm.EdgeId).KerbAt(arm.AtStart).IsSet)
+            { FactorMin = lo, FactorMax = hi, Sides = sides });
+
+            void Tighten(float v, KerbLimit limit)
+            {
+                if (v >= hi) return;
+                hi = v;
+                why = limit;
+            }
+        }
+        return list;
+    }
+
+    /// <summary>The kerb knobs of a Node junction: one per curb, in its middle, with the range its round radius may take.</summary>
+    public static List<KerbKnob> KerbKnobs(SplineGraph g, int nodeId, bool anarchy)
+    {
+        var list = new List<KerbKnob>();
+        var arms = g.Arms(nodeId);
+        if (IsTransition(arms) || Fit(g, nodeId, arms) is not { } f) return list;
+        int n = f.Sorted.Count;
+        for (int i = 0; i < n; i++)
+        {
+            if (f.Curbs[i] is not { } curb || f.Legs[i] is not { } l || curb.Rules is not { } rules) continue;
+            int j = (i + 1) % n;
+            var (a, b) = (f.Sorted[i].Arm, f.Sorted[j].Arm);
+            // The corner point and bisector from the legs: where the two sides' tangents meet, at the arm stations XA, XB.
+            var corner = f.Paths[i].SidePoint(l.XA, +1, a.Rules.Width / 2);
+            var bisector = Vector2.Normalize(f.Paths[i].At(l.XA).Direction + f.Paths[j].At(l.XB).Direction);
+            float sinHalf = l.TanHalf / MathF.Sqrt(1 + l.TanHalf * l.TanHalf);
+            float fit = MathF.Min((f.Paths[i].CurbLimit - l.XA) * l.TanHalf, (f.Paths[j].CurbLimit - l.XB) * l.TanHalf);
+            float min = anarchy ? AnarchyKerb : rules.MinKerbRadius, max = MathF.Max(min, MathF.Min(rules.MaxKerbRadius, fit));
+            var pts = ArcPoints(curb);
+            bool set = g.Edge(a.EdgeId).KerbAt(a.AtStart).Right is not null || g.Edge(b.EdgeId).KerbAt(b.AtStart).Left is not null;
+            list.Add(new KerbKnob(a.EdgeId, a.AtStart, b.EdgeId, b.AtStart, pts[pts.Count / 2], corner, bisector, sinHalf, min, max,
+                fit < rules.MaxKerbRadius ? KerbLimit.Fit : KerbLimit.Radius, (curb.Radius, curb.MaxRadius), rules, set));
+        }
+        return list;
+    }
+
+    /// <summary>One end of curb <paramref name="pair"/> as a road handle sees it: at its first arm (the arm's right-hand
+    /// curb) or its second (left-hand), with its radius there and at the other end.</summary>
+    private static KerbSide? EndOf(Layout f, int pair, bool first)
+    {
+        if (f.Curbs[pair] is not { Rules: { } rules } || f.Legs[pair] is not { } l) return null;
+        float ra = (f.CurbAt[pair].From - l.XA) * l.TanHalf, rb = (f.CurbAt[pair].To - l.XB) * l.TanHalf;
+        if (ra <= 0 || rb <= 0) return null;
+        return first ? new KerbSide(+1, l.XA, l.TanHalf, ra, rb, rules) : new KerbSide(-1, l.XB, l.TanHalf, rb, ra, rules);
+    }
+
+    private static List<Vector2> Track(ArmPath path, float min, float max)
+    {
+        var track = new List<Vector2>();
+        for (float s = min; ; s += 1f)
+        {
+            s = MathF.Min(s, max);
+            track.Add(path.At(s).Position);
+            if (s >= max) break;
+        }
+        return track;
     }
 
     /// <summary>An arm's edge seen from the node: station 0 at the node, growing away from it.</summary>
@@ -286,8 +551,13 @@ public static class Junctions
 
         public float Length => _curve.Length;
 
-        /// <summary>How far a point is from the arm's whole edge (its centre line).</summary>
-        public float Distance(Vector2 p) => Vector2.Distance(_curve.ClosestPoint(p).Position, p);
+        /// <summary>How far a point is from the arm's whole edge (its centre line), run on straight behind the node.</summary>
+        public float Distance(Vector2 p)
+        {
+            var (node, d) = At(0);
+            if (Vector2.Dot(p - node, d) < 0) return MathF.Abs(SplineMath.Cross(d, p - node));
+            return Vector2.Distance(_curve.ClosestPoint(p).Position, p);
+        }
 
         /// <summary>The furthest this arm can be cut back: a share of its edge, leaving room for a footprint at the
         /// other end if there is one.</summary>
@@ -317,12 +587,14 @@ public static class Junctions
 
         /// <summary>The side at <paramref name="offset"/> as a polyline of (station, point), out to
         /// <paramref name="max"/> (the cut-back cap by default). With <paramref name="reach"/>, it also runs that far
-        /// straight on behind the node and past <paramref name="max"/>.</summary>
-        public List<(float S, Vector2 P)> Side(int side, float offset, float? max = null, float reach = 0)
+        /// straight on behind the node and past <paramref name="max"/>; with <paramref name="back"/>, that far behind
+        /// the node only.</summary>
+        public List<(float S, Vector2 P)> Side(int side, float offset, float? max = null, float reach = 0, float back = 0)
         {
             float to = max ?? Cap;
             var pts = new List<(float, Vector2)>();
-            if (reach > 0) pts.Add((-reach, SidePoint(-reach, side, offset)));
+            back = MathF.Max(back, reach);
+            if (back > 0) pts.Add((-back, SidePoint(-back, side, offset)));
             for (float s = 0; ; s += Step)
             {
                 s = MathF.Min(s, to);
@@ -502,9 +774,11 @@ public static class Junctions
     public static string TurnoutRatio(float degrees) =>
         degrees > 0 ? $"1:{1f / MathF.Tan(degrees * MathF.PI / 180f):0}" : "";
 
-    /// <summary>Points along a curb arc, from its <see cref="Curb.From"/> to its <see cref="Curb.To"/> the short way.</summary>
+    /// <summary>Points along a curb arc, from its <see cref="Curb.From"/> to its <see cref="Curb.To"/> the short way (a
+    /// lopsided one along its conic).</summary>
     public static List<Vector2> ArcPoints(Curb c, int n = 12)
     {
+        if (c.Control is { } control) return ConicPoints(c.From, control, c.To, c.Weight, n * 2);
         float a0 = SplineMath.Angle(c.From - c.Centre);
         float sweep = SplineMath.Wrap(SplineMath.Angle(c.To - c.Centre) - a0);
         var pts = new List<Vector2>(n + 1);

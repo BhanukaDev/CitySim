@@ -21,7 +21,7 @@ public partial class SplineOverlay
                     outline, ThinWidth);
         int first = f.LeadIn ? 1 : 0, last = fit.Pis.Count - (f.LeadOut ? 2 : 1);
         for (int i = first + 1; i < last; i++)
-            if (ScreenOf(fit.Corner(i).Mid) is { } d) { DrawCircle(d, 4.5f, Shadow, true, -1, true); DrawCircle(d, 3.5f, Line, true, -1, true); }
+            if (ScreenOf(fit.Corner(i).Mid) is { } d) { DrawCircle(d, 4.5f, Rim, true, -1, true); DrawCircle(d, 3.5f, Line, true, -1, true); }
         GroundDisc(fit.Pis[first].Position, 6f, Line, outline: true);
         GroundDisc(fit.Pis[last].Position, 6f, Line, outline: true);
         if (f.StrokeLabel is { } label && ScreenOf(fit.Pis[last].Position) is { } at)

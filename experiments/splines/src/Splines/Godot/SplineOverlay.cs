@@ -57,7 +57,14 @@ public sealed class OverlayFrame
     /// <summary>Grid: the grid being placed (its roads are drawn by the network's trial) and its tag.</summary>
     public GridLayout? Grid { get; init; }
     public string? GridLabel { get; init; }
+    /// <summary>The cursor is on a bend's slider: its track and the ghost node.</summary>
+    public BendMark? Bend { get; init; }
 }
+
+/// <summary>A bend's slider (DESIGN.md → Junctions → Corner junctions): the track from the road point
+/// <see cref="From"/> to the corner point, red from <see cref="RedFrom"/> on (below the minimum radius; null with
+/// Anarchy or none), and the ghost node <see cref="At"/>, red when its radius is refused.</summary>
+public readonly record struct BendMark(NumVector2 From, NumVector2 Corner, NumVector2? RedFrom, NumVector2 At, bool Red);
 
 /// <summary>A tag left on screen for a moment after an action.</summary>
 public readonly record struct FlashTag(NumVector2 At, string Text, bool Bad = false);
@@ -80,14 +87,17 @@ public partial class SplineOverlay : Control
     public static readonly Color Warn = new("#E5A430");
     public static readonly Color Bad = new("#E7654F");
     public static readonly Color Line = new(1f, 1f, 1f, 0.95f);
-    private static readonly Color Shadow = new(0f, 0f, 0f, 0.3f);
-    private static readonly Color TagBg = new(0.07f, 0.08f, 0.10f, 0.86f);
-    private static readonly Color TagText = new(1f, 1f, 1f);
+    /// <summary>The thin dark rim round a node's white disc, so it reads on light ground. Lines, guides and arcs have none.</summary>
+    private static readonly Color Rim = new("#1C2629", 0.55f);
+    private static readonly Color TagBg = new("#1C2629", 0.92f);
+    private static readonly Color TagText = new("#F4F1E6");
+    private static readonly Color Ink = new("#1C2629");
+    private static readonly Color Guide = new(1f, 1f, 1f, 0.8f);
 
-    private const int FontSize = 13;
-    private const float LegWidth = 4f, LegDash = 12f, LegGap = 9f;
-    private const float GuideWidth = 3f, GuideDash = 9f, GuideGap = 7f;
-    private const float ThinWidth = 2f;
+    private const int FontSize = 12;
+    private const float LegWidth = 3f, LegDash = 10f, LegGap = 7f;
+    private const float GuideWidth = 2f, GuideDash = 8f, GuideGap = 6f;
+    private const float ThinWidth = 1.75f;
     /// <summary>Radius of a corner's angle arc, in pixels on the ground.</summary>
     private const float ArcPx = 44f;
     private const float GlyphWidth = 20f;
@@ -98,8 +108,8 @@ public partial class SplineOverlay : Control
 
     private readonly SystemFont _font = new()
     {
-        FontNames = new[] { "SF Pro Text", "Helvetica Neue", "Inter", "Segoe UI", "Noto Sans", "sans-serif" },
-        FontWeight = 600,
+        FontNames = new[] { "IBM Plex Mono", "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", "monospace" },
+        FontWeight = 500,
     };
     private readonly Dictionary<TagStyle, StyleBoxFlat> _tagBoxes = new();
     private readonly List<Rect2> _placedTags = new();
@@ -114,11 +124,11 @@ public partial class SplineOverlay : Control
         Name = "SplineOverlay";
         MouseFilter = MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        foreach (var (style, border) in new[] { (TagStyle.Plain, Colors.Transparent), (TagStyle.Snap, Accent), (TagStyle.Warn, Warn), (TagStyle.Bad, Bad) })
+        // Filled pills, as in the storyboards: dark for plain, the accent for a snap, amber and red for issues.
+        foreach (var (style, fill) in new[] { (TagStyle.Plain, TagBg), (TagStyle.Snap, Accent), (TagStyle.Warn, Warn), (TagStyle.Bad, Bad) })
         {
-            var box = new StyleBoxFlat { BgColor = TagBg, BorderColor = border, AntiAliasing = true };
-            box.SetCornerRadiusAll(5);
-            box.SetBorderWidthAll(style == TagStyle.Plain ? 0 : 1);
+            var box = new StyleBoxFlat { BgColor = fill, AntiAliasing = true };
+            box.SetCornerRadiusAll(4);
             _tagBoxes[style] = box;
         }
     }
@@ -153,13 +163,14 @@ public partial class SplineOverlay : Control
         if (f.Stroke is { } stroke) DrawStroke(f, stroke);
         if (f.Grid is { } grid) DrawGrid(f, grid);
         if (snap is not null) DrawGuides(f, snap);
-        if (snap is not null) DrawSnapMarker(snap);
+        if (f.Bend is { } bend) DrawBend(bend);
+        else if (snap is not null) DrawSnapMarker(snap);
         if (drawing || f.Stroke is not null || f.Grid is not null) DrawJunctionsAndIssues(f);
         if (drawing && f.GridLabel is { } gl && ScreenOf(f.Preview!.Pis[^1].Position) is { } ge)
             _tags.Add(new PendingTag(ge + new Vector2(16, 14), gl, TagStyle.Snap, false, null));
 
         if (snap is { Tag.Length: > 0, Kind: not (SnapKind.Angle or SnapKind.CtrlAngle) } s && ScreenOf(s.TagAt) is { } tagAt)
-            _tags.Add(new PendingTag(tagAt + new Vector2(16, -30), s.Tag, TagStyle.Snap, false, null));
+            _tags.Add(new PendingTag(tagAt + new Vector2(16, -30), s.Tag, f.Bend is { Red: true } ? TagStyle.Bad : TagStyle.Snap, false, null));
         foreach (var flash in f.Flashes)
             if (ScreenOf(flash.At) is { } fa)
                 _tags.Add(new PendingTag(fa + new Vector2(14, 14), flash.Text, flash.Bad ? TagStyle.Bad : TagStyle.Plain, false, null));
@@ -233,7 +244,7 @@ public partial class SplineOverlay : Control
                 if (ScreenOf(at) is { } sq)
                 {
                     var r = new Rect2(sq - new Vector2(4, 4), new Vector2(8, 8));
-                    DrawRect(r.Grow(1), Shadow);
+                    DrawRect(r.Grow(1), Rim);
                     DrawRect(r, Line);
                 }
                 if (i == live && ScreenOf(at) is { } hs)
@@ -268,7 +279,7 @@ public partial class SplineOverlay : Control
         GroundDisc(pis[drawnFrom].Position, 6f, Line, outline: true);
         GroundDisc(pis[cur].Position, 6f, Line, outline: true);
         for (int i = 1; i < pis.Count - 1; i++)
-            if (ScreenOf(pis[i].Position) is { } d) { DrawCircle(d, 3.5f, Shadow, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
+            if (ScreenOf(pis[i].Position) is { } d) { DrawCircle(d, 3.5f, Rim, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
 
         // Length pills in the middle of every leg; the current one says when it's whole steps or equal to another leg.
         int? steps = LegSteps(f, pis[cur].Position);
@@ -399,7 +410,7 @@ public partial class SplineOverlay : Control
     {
         foreach (var g in snap.Guides)
         {
-            DashedPolyline(g.Points, Line, GuideWidth, GuideDash, GuideGap);
+            DashedPolyline(g.Points, Guide, GuideWidth, GuideDash, GuideGap);
             if (g.Kind == GuideKind.Perpendicular) SquareMark(g.Source, g.EdgeDirection, NumVector2.Normalize(g.Points[^1] - g.Points[0]), 12f);
             if (g is { Kind: GuideKind.Parallel, Along: { } along, Gap: > 0.01f }) GapBracket(g, along, snap.Position);
         }
@@ -425,20 +436,37 @@ public partial class SplineOverlay : Control
         switch (snap.Kind)
         {
             case SnapKind.Node:
-                GroundRing(snap.Position, 13f, Line, 3f);
+                GroundRing(snap.Position, 12f, Line, 2f);
                 break;
             case SnapKind.GuideCrossing:
-                GroundRing(snap.Position, 7f, Line, 2.5f);
-                GroundRing(snap.Position, 13f, Line, 2.5f);
+                GroundRing(snap.Position, 6f, Line, 2f);
+                GroundRing(snap.Position, 12f, Line, 2f);
                 break;
             case SnapKind.PerpendicularFoot:
-                GroundRing(snap.Position, 10f, Line, 3f);
+                GroundRing(snap.Position, 10f, Line, 2f);
                 break;
             case SnapKind.Edge:
             case SnapKind.GuideSingle:
-                GroundRing(snap.Position, 8f, Line, 3f);
+                GroundRing(snap.Position, 7f, Line, 2f);
                 break;
         }
+    }
+
+    /// <summary>A bend's slider: the accent track from the dot to the corner point (red where the radius would be below
+    /// the minimum), a small disc at each end (its magnets), and the ghost node: white with an accent ring, red when
+    /// refused.</summary>
+    private void DrawBend(BendMark b)
+    {
+        var redFrom = b.RedFrom ?? b.Corner;
+        if (NumVector2.Distance(b.From, redFrom) > 1e-3f) SolidPolyline(new[] { b.From, redFrom }, Accent, 3f);
+        if (NumVector2.Distance(redFrom, b.Corner) > 1e-3f) SolidPolyline(new[] { redFrom, b.Corner }, Bad, 3f);
+        foreach (var end in new[] { b.From, b.Corner })
+        {
+            GroundDisc(end, 3.5f, Line);
+            GroundRing(end, 3.5f, Accent, 1.5f);
+        }
+        GroundDisc(b.At, 7f, Line);
+        GroundRing(b.At, 7f, b.Red ? Bad : Accent, 2.5f);
     }
 
     private void GapBracket(GuideLine g, Curve along, NumVector2 at)
@@ -449,7 +477,7 @@ public partial class SplineOverlay : Control
         var b = a + n * g.Gap;
         if (ScreenOf(a) is not { } sa || ScreenOf(b) is not { } sb) return;
         var cap = (sb - sa).Normalized().Orthogonal() * 6f;
-        foreach (var (p, q) in new[] { (sa, sb), (sa - cap, sa + cap), (sb - cap, sb + cap) }) ShadowLine(p, q, Line, ThinWidth);
+        foreach (var (p, q) in new[] { (sa, sb), (sa - cap, sa + cap), (sb - cap, sb + cap) }) ScreenLine(p, q, Line, ThinWidth);
     }
 
     private void CtrlFan(NumVector2 at, float stepDegrees)
@@ -520,7 +548,6 @@ public partial class SplineOverlay : Control
     private void GroundRing(NumVector2 centre, float px, Color color, float width)
     {
         if (GroundCircle(centre, px) is not { } pts) return;
-        DrawPolyline(pts, Shadow, width + 2f, true);
         DrawPolyline(pts, color, width, true);
     }
 
@@ -531,7 +558,7 @@ public partial class SplineOverlay : Control
         // have Godot log a failed triangulation every frame.
         var poly = pts[..^1];
         if (Geometry2D.TriangulatePolygon(poly).Length == 0) return;
-        if (outline) DrawPolyline(pts, Shadow, 2f, true);
+        if (outline) DrawPolyline(pts, Rim, 1.5f, true);
         DrawColoredPolygon(poly, color);
     }
 
@@ -545,7 +572,6 @@ public partial class SplineOverlay : Control
         for (int i = 0; i <= n; i++)
             if (ScreenOf(vertex + SplineMath.Direction(a0 + sweep * i / n) * r) is { } p) pts.Add(p);
         if (pts.Count < 2) return;
-        DrawPolyline(pts.ToArray(), Shadow, width + 2f, true);
         DrawPolyline(pts.ToArray(), color, width, true);
     }
 
@@ -558,36 +584,29 @@ public partial class SplineOverlay : Control
         var b = NumVector2.Normalize(dirB) * m;
         var pts = new[] { at + a, at + a + b, at + b }.Select(ScreenOf).ToList();
         if (pts.Any(p => p is null)) return;
-        var arr = pts.Select(p => p!.Value).ToArray();
-        DrawPolyline(arr, Shadow, ThinWidth + 2f, true);
-        DrawPolyline(arr, Line, ThinWidth, true);
+        DrawPolyline(pts.Select(p => p!.Value).ToArray(), Line, ThinWidth, true);
     }
 
     private void Tick(NumVector2 at, NumVector2 along, float halfPx, Color color, float width)
     {
         if (ScreenOf(at) is not { } p || ScreenDir(at, along) is not { } d) return;
         var n = d.Orthogonal() * halfPx;
-        ShadowLine(p - n, p + n, color, width);
+        ScreenLine(p - n, p + n, color, width);
     }
 
-    // --- Screen-space lines ---
+    // --- Screen-space lines (no outlines: the storyboards' clean white lines) ---
 
-    private void ShadowLine(Vector2 a, Vector2 b, Color color, float width)
-    {
-        DrawLine(a, b, Shadow, width + 2f, true);
-        DrawLine(a, b, color, width, true);
-    }
+    private void ScreenLine(Vector2 a, Vector2 b, Color color, float width) => DrawLine(a, b, color, width, true);
 
     private void SolidPolyline(IReadOnlyList<NumVector2> points, Color color, float width)
     {
         var pts = points.Select(ScreenOf).Where(p => p is not null).Select(p => p!.Value).ToArray();
         if (pts.Length < 2) return;
-        DrawPolyline(pts, Shadow, width + 2f, true);
         DrawPolyline(pts, color, width, true);
     }
 
     /// <summary>A dashed line through plan points, dashed in screen pixels (the phase carries across points, so a
-    /// finely sampled arc still dashes evenly), each dash with a soft shadow. <paramref name="maxPixels"/> stops it
+    /// finely sampled arc still dashes evenly). <paramref name="maxPixels"/> stops it
     /// after that many pixels.</summary>
     private void DashedPolyline(IReadOnlyList<NumVector2> points, Color color, float width, float dash, float gap, float maxPixels = float.PositiveInfinity)
     {
@@ -607,7 +626,7 @@ public partial class SplineOverlay : Control
                     float inPhase = phase % (dash + gap);
                     bool on = inPhase < dash;
                     float step = MathF.Min((on ? dash : dash + gap) - inPhase, segLen - t);
-                    if (on) ShadowLine(a + dir * t, a + dir * (t + step), color, width);
+                    if (on) ScreenLine(a + dir * t, a + dir * (t + step), color, width);
                     t += step;
                     phase += step;
                 }
@@ -637,14 +656,14 @@ public partial class SplineOverlay : Control
         _placedTags.Add(box);
         DrawStyleBox(_tagBoxes[t.Style], box);
 
-        var textColor = t.Style switch { TagStyle.Warn => Warn, TagStyle.Bad => Bad, _ => TagText };
+        var textColor = t.Style == TagStyle.Warn ? Ink : TagText;
         var pen = box.Position + new Vector2(7, FontSize + 3);
         if (t.Key is not null)
         {
             DrawString(_font, pen, t.Key, HorizontalAlignment.Left, -1, FontSize, Accent);
             pen.X += keyWidth;
         }
-        DrawText(pen, t.Text, t.Style == TagStyle.Snap ? Accent : textColor, textColor);
+        DrawText(pen, t.Text, textColor, textColor);
     }
 
     private float TextWidth(string text)

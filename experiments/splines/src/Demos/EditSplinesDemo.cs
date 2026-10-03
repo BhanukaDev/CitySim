@@ -22,10 +22,12 @@ public partial class EditSplinesDemo : Node
     private static readonly ProfileRules Street = new()
     {
         Id = "street", Width = 12, DefaultRadius = 16, MinRadius = 10, JunctionKind = JunctionKind.Node,
-        MinJunctionAngle = 30, ConnectsTo = new[] { "avenue" },
+        MinJunctionAngle = 30, ConnectsTo = new[] { "avenue" }, KerbRadius = 6, MinKerbRadius = 2, MaxKerbRadius = 16,
     };
-    private static readonly ProfileRules Avenue = Street with { Id = "avenue", Width = 24, DefaultRadius = 60, MinRadius = 40, MinJunctionAngle = 45, ConnectsTo = new[] { "street" } };
-    private static readonly ProfileRules Canal = new() { Id = "canal", Width = 14, DefaultRadius = 40, MinRadius = 25, MinJunctionAngle = 45 };
+    private static readonly ProfileRules Avenue = Street with { Id = "avenue", Width = 24, DefaultRadius = 60, MinRadius = 40, MinJunctionAngle = 45, ConnectsTo = new[] { "street" },
+        KerbRadius = 10, MinKerbRadius = 4, MaxKerbRadius = 30 };
+    private static readonly ProfileRules Canal = new() { Id = "canal", Width = 14, DefaultRadius = 40, MinRadius = 25, MinJunctionAngle = 45,
+        KerbRadius = 8, MinKerbRadius = 4, MaxKerbRadius = 20 };
 
     public override void _Ready()
     {

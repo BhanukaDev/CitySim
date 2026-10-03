@@ -15,8 +15,8 @@ public sealed record Issue(Severity Severity, string Code, string Message, Vecto
 /// The checks (DESIGN.md → Validation): a corner built below the profile's minimum radius (Invalid, whether it was
 /// asked for or clamped to fit; a clamp above the minimum isn't an issue, the corner just takes what fits), a
 /// junction angle below the minimum (Warn), a square branch off a turnout profile (Invalid), a crossing or overlap
-/// with an edge it doesn't connect to (Invalid), crossing itself (Invalid), and an edge too short for the junctions
-/// at its ends (Warn). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade comes
+/// with an edge it doesn't connect to (Invalid), crossing itself (Invalid), an edge too short for the junctions
+/// at its ends (Warn), and a kerb handle set below the profile's minimum kerb radius (Invalid). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade comes
 /// with S8. Plain loops over every edge; S11 adds a spatial index.
 /// </summary>
 public static class Validation
@@ -34,7 +34,11 @@ public static class Validation
         var issues = new List<Issue>();
         var footprints = Junctions.Footprints(g);
         foreach (int id in edges) CheckEdge(g, g.Edge(id), footprints, issues);
-        foreach (int id in nodes) CheckNode(g, id, issues);
+        foreach (int id in nodes)
+        {
+            CheckNode(g, id, issues);
+            if (footprints.TryGetValue(id, out var f)) CheckKerbs(f, issues);
+        }
         return issues;
     }
 
@@ -115,6 +119,18 @@ public static class Validation
                 foreach (var (arm, deg) in Junctions.TurnoutViolations(arms))
                     issues.Add(new Issue(Severity.Invalid, "turnout", $"{deg:0}° not allowed", at, arm.EdgeId, nodeId));
                 break;
+        }
+    }
+
+    /// <summary>A kerb only goes below its minimum from a handle (with Anarchy); one squeezed by the space is no issue.</summary>
+    private static void CheckKerbs(JunctionFootprint f, List<Issue> issues)
+    {
+        foreach (var c in f.Curbs)
+        {
+            if (!c.Set || c.Rules is not { } rules || c.Radius >= rules.MinKerbRadius - 0.05f) continue;
+            var pts = Junctions.ArcPoints(c);
+            issues.Add(new Issue(Severity.Invalid, "kerb-min", $"kerb R {c.Radius:0.#} m, min {rules.MinKerbRadius:0.#} m · Ctrl+A allows",
+                pts[pts.Count / 2], NodeId: f.NodeId));
         }
     }
 

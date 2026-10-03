@@ -57,6 +57,45 @@ public sealed class Alignment
     /// middle (where the radius knob sits).</summary>
     public Vector2 RoadPoint(int i) => _corners[i].Mid;
 
+    /// <summary>Interior PI <paramref name="i"/> is built as an arc (not sharp, hard or straight through).</summary>
+    public bool IsArc(int i) => i > 0 && i < Pis.Count - 1 && _effective[i] > 0;
+
+    /// <summary>
+    /// Where the middle of PI <paramref name="i"/>'s arc would be at radius <paramref name="radius"/>: on the corner's
+    /// line of symmetry, <c>R · (1 / sin(θ/2) − 1)</c> in from the PI (θ the angle between the legs), so the PI itself at
+    /// 0 and <see cref="RoadPoint"/> at the built radius. The bend slider's track (DESIGN.md → Junctions → Corner
+    /// junctions) runs between the two.
+    /// </summary>
+    public Vector2 BendPoint(int i, float radius)
+    {
+        var (inward, factor) = BendAxis(i);
+        return Pis[i].Position + inward * (radius * factor);
+    }
+
+    /// <summary>The radius whose arc middle is <paramref name="distance"/> in from PI <paramref name="i"/> (the
+    /// inverse of <see cref="BendPoint"/>).</summary>
+    public float BendRadiusAt(int i, float distance)
+    {
+        float factor = BendAxis(i).Factor;
+        return factor > SplineMath.Epsilon ? distance / factor : 0;
+    }
+
+    /// <summary>PI <paramref name="i"/>'s line of symmetry, pointing into the corner, and how far along it the arc's
+    /// middle moves per metre of radius.</summary>
+    public (Vector2 Inward, float Factor) BendAxis(int i)
+    {
+        var p = Pis[i].Position;
+        var toPrev = Pis[i - 1].Position - p;
+        var toNext = Pis[i + 1].Position - p;
+        if (toPrev.Length() < SplineMath.Epsilon || toNext.Length() < SplineMath.Epsilon) return (Vector2.Zero, 0);
+        toPrev = Vector2.Normalize(toPrev);
+        toNext = Vector2.Normalize(toNext);
+        var sum = toPrev + toNext;
+        if (sum.Length() < SplineMath.Epsilon) return (Vector2.Zero, 0);
+        float sinHalf = MathF.Sqrt(MathF.Max(0, (1 - Vector2.Dot(toPrev, toNext)) / 2));
+        return (Vector2.Normalize(sum), sinHalf > SplineMath.Epsilon ? 1 / sinHalf - 1 : 0);
+    }
+
     /// <summary>The station of road point <paramref name="j"/>: 0 for the start, the length for the end, else
     /// <see cref="RoadPoint"/>'s (the middle of the corner's arc).</summary>
     public float RoadStation(int j) => j <= 0 ? 0 : j >= Pis.Count - 1 ? Length : (_cornerStart[j] + _cornerEnd[j]) / 2;

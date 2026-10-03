@@ -18,7 +18,8 @@ namespace CitySim.Splines.Godot;
 /// Invalid issue and Anarchy is off: then it springs back with a red flash. Delete removes the selection.
 /// RMB on a corner point or a node opens the radial menu (Smooth · Hard · Straight · Delete), each action tried live
 /// while hovered. A drag on empty ground box-selects edges and nodes (Shift adds); dragging a selected edge or node
-/// moves the whole selection, edges with both ends in it rigidly and the rest stretching.
+/// moves the whole selection, edges with both ends in it rigidly and the rest stretching. A selected junction shows
+/// a kerb handle on each arm (<c>.Kerbs.cs</c>).
 /// </summary>
 public partial class SplineEditTool : Node
 {
@@ -35,7 +36,7 @@ public partial class SplineEditTool : Node
     private const float MenuInnerPixels = 16f;
     private const float MenuOuterPixels = 60f;
 
-    private enum HandleKind { Node, Pi, Knob, Group, Stretch }
+    private enum HandleKind { Node, Pi, Knob, Group, Stretch, Kerb, KerbKnob }
 
     /// <summary>The radial menu's actions, in the storyboard's order round the circle (top, right, bottom, left).</summary>
     private enum MenuAction { Smooth, Hard, Straighten, Delete }
@@ -62,7 +63,9 @@ public partial class SplineEditTool : Node
 
     /// <summary>Something to drag: a node (<see cref="Id"/> is the node), or interior PI <see cref="Index"/> of edge
     /// <see cref="Id"/> by its point or its radius knob. A <see cref="HandleKind.Stretch"/> (a radial menu's target) is
-    /// stretch <see cref="Index"/> of edge <see cref="Id"/>.</summary>
+    /// stretch <see cref="Index"/> of edge <see cref="Id"/>. A <see cref="HandleKind.Kerb"/> is the road handle at edge
+    /// <see cref="Id"/>'s start (<see cref="Index"/> 1) or end (0); a <see cref="HandleKind.KerbKnob"/> the knob of the
+    /// kerb on that end's right-hand side.</summary>
     private readonly record struct Handle(HandleKind Kind, int Id, int Index, NumVector2 At);
 
     /// <summary>A drag in progress: what's held, where it's going, and the tried result.</summary>
@@ -87,6 +90,11 @@ public partial class SplineEditTool : Node
         public IReadOnlyList<int> GroupEdges { get; init; } = Array.Empty<int>();
         public IReadOnlyList<Stretch> GroupStretches { get; init; } = Array.Empty<Stretch>();
         public NumVector2 Delta => Target - Handle.At;
+        /// <summary>A kerb control drag: the road handle (its factor now) or knob (its radius now) as picked up, and its junction.</summary>
+        public KerbHandle? Kerb { get; init; }
+        public KerbKnob? KerbKnob { get; init; }
+        public int KerbNode { get; init; }
+        public float KerbValue { get; set; }
     }
 
     private readonly SplineToolView _view;
@@ -208,6 +216,12 @@ public partial class SplineEditTool : Node
         }
         if (mb.ButtonIndex != MouseButton.Left) return;
         GetViewport().SetInputAsHandled();
+        if (mb.Pressed && mb.DoubleClick && _hover is { Kind: HandleKind.Kerb or HandleKind.KerbKnob } kerb)
+        {
+            ResetKerb(kerb);
+            _pressAt = null;
+            return;
+        }
         if (mb.Pressed)
         {
             _pressAt = mb.Position;
@@ -291,14 +305,16 @@ public partial class SplineEditTool : Node
 
     // --- Picking ---
 
-    /// <summary>The handle at a plan point: a selected edge's or stretch's radius knob first, then its corner points,
-    /// then any node; the nearest of each within the pick distance.</summary>
+    /// <summary>The handle at a plan point: a selected junction's kerb knob or road handle first, then a selected edge's or
+    /// stretch's radius knob, then its corner points, then any node; the nearest of each within the pick distance.</summary>
     private Handle? Pick(NumVector2 p)
     {
         var g = Network!.Graph;
         float within = _view.Cursor is { } c ? _view.PixelsToPlanUnits(PickPixels, c) : 2f;
         Handle? best = null;
         float bestDist = within;
+        foreach (var k in KerbControlsOf(g)) Consider(k);
+        if (best is not null) return best;
         var corners = SelectedCorners(g).ToList();
         foreach (var (id, i) in corners)
         {
@@ -411,6 +427,7 @@ public partial class SplineEditTool : Node
 
     private void StartDrag(Handle h, NumVector2 cursor)
     {
+        if (IsKerb(h.Kind)) { StartKerbDrag(h, cursor); return; }
         var g = Network!.Graph;
         var edges = h.Kind == HandleKind.Node ? g.Node(h.Id).Edges.Distinct().ToList() : new List<int> { h.Id };
         if (edges.Count == 0) return;
@@ -451,7 +468,8 @@ public partial class SplineEditTool : Node
         var mods = _view.Modifiers();
         var raw = cursor + d.Grab;
         var h = d.Handle;
-        if (h.Kind == HandleKind.Knob)
+        if (IsKerb(h.Kind)) d.KerbValue = KerbValueAt(built, d, raw);
+        else if (h.Kind == HandleKind.Knob)
         {
             var a = built.Edge(h.Id).Alignment;
             float min = Testbed!.Anarchy ? 1f : d.Rules.MinRadius;
@@ -536,6 +554,9 @@ public partial class SplineEditTool : Node
                 return g.Reconnect(new[] { h.Id });
             case HandleKind.Group:
                 return g.Reconnect(g.MoveGroup(d.GroupNodes, d.GroupEdges, d.Delta, d.GroupStretches), h.Index == 1 ? h.Id : null);
+            case HandleKind.Kerb or HandleKind.KerbKnob:
+                ApplyKerb(g, d);
+                return new EditResult(g.Node(d.KerbNode).Edges.Distinct().ToList(), new[] { d.KerbNode });
             default:
                 g.SetRadius(h.Id, h.Index, d.Radius);
                 return g.Reconnect(new[] { h.Id });
@@ -649,6 +670,11 @@ public partial class SplineEditTool : Node
     {
         CancelDrag();
         if (h.Kind == HandleKind.Knob) h = h with { Kind = HandleKind.Pi, At = Network!.Graph.Edge(h.Id).Alignment.Pis[h.Index].Position };
+        if (IsKerb(h.Kind)) // a kerb control opens its junction's menu
+        {
+            int n = NodeOfKerb(Network!.Graph, h);
+            h = new Handle(HandleKind.Node, n, 0, Network.Graph.Node(n).Position);
+        }
         _menu = new Menu { Target = h, Enabled = MenuItems.Select(m => Applies(Network!.Graph, h, m.Action)).ToArray() };
     }
 
@@ -660,11 +686,12 @@ public partial class SplineEditTool : Node
     }
 
     /// <summary>Whether an action does anything at the target: a straight corner has nothing to smooth, harden or
-    /// straighten; a node only smooths or straightens a joint of two edges, and never goes hard (it already is). A
-    /// stretch takes an action when one of its corners does.</summary>
+    /// straighten; a node only smooths or straightens a joint of two edges, and never goes hard (it already is); a
+    /// junction's Smooth is Reset kerbs, when a kerb handle is set. A stretch takes an action when one of its corners does.</summary>
     private static bool Applies(SplineGraph g, Handle h, MenuAction action)
     {
         if (action == MenuAction.Delete) return true;
+        if (h.Kind == HandleKind.Node && action == MenuAction.Smooth && IsKerbJunction(g, h.Id)) return KerbsSet(g, h.Id);
         if (h.Kind == HandleKind.Node) return action != MenuAction.Hard && g.JointTurn(h.Id) > 0.1f;
         if (h.Kind == HandleKind.Stretch) return CornersOf(g.Edge(h.Id).Alignment, h.Index).Any(i => AppliesAt(g, h.Id, i, action));
         return AppliesAt(g, h.Id, h.Index, action);
@@ -692,6 +719,9 @@ public partial class SplineEditTool : Node
         {
             switch (action)
             {
+                case MenuAction.Smooth when IsKerbJunction(g, h.Id):
+                    g.ResetKerbs(h.Id);
+                    return new EditResult(g.Node(h.Id).Edges.Distinct().ToList(), new[] { h.Id });
                 case MenuAction.Smooth: return g.SmoothNode(h.Id) ?? new EditResult(Array.Empty<int>(), Array.Empty<int>());
                 case MenuAction.Straighten:
                     if (g.StraightenedNode(h.Id) is { } to) return g.Reconnect(g.MoveNode(h.Id, to), h.Id);
@@ -767,6 +797,7 @@ public partial class SplineEditTool : Node
         if (menu.TriedFor != i) { _forcedMenuItem = i; UpdateMenu(menu); _forcedMenuItem = null; }
         var (action, _, verb, _) = MenuItems[i];
         var target = menu.Target;
+        if (action == MenuAction.Smooth && target.Kind == HandleKind.Node && IsKerbJunction(Network.Graph, target.Id)) verb = "reset kerbs";
         double until = Time.GetTicksMsec() / 1000.0 + FlashSeconds;
         CloseMenu();
         if (menu.Issues.FirstOrDefault(x => x.Severity == Severity.Invalid) is { } bad && Testbed?.Anarchy != true)
@@ -801,6 +832,7 @@ public partial class SplineEditTool : Node
     /// <summary>Where the held handle is now: the moved point, or the knob on the tried arc.</summary>
     private static NumVector2 DragPoint(Drag d)
     {
+        if (IsKerb(d.Handle.Kind) && d.Graph is { } g) return KerbPoint(g, d);
         if (d.Handle.Kind != HandleKind.Knob) return d.Target;
         return KnobOf(d) is { } k ? k.Alignment.Corner(k.Index).Mid : d.Handle.At;
     }
@@ -830,12 +862,12 @@ public partial class SplineEditTool : Node
         var ghosts = new List<EditEdge>();
         FlashTag? dragTag = null;
         bool warn = false;
-        NumVector2? hot = _hover?.At;
+        NumVector2? hot = _hover is { } hv && !IsKerb(hv.Kind) ? hv.At : null; // a kerb control draws its own
         bool hotKnob = _hover?.Kind == HandleKind.Knob;
 
         if (d is { Result: { } r, Graph: { } tg })
         {
-            ghosts.AddRange(d.Edges.Select(id => Edge(built, id)));
+            if (!IsKerb(d.Handle.Kind)) ghosts.AddRange(d.Edges.Select(id => Edge(built, id)));
             if (d.Handle.Kind == HandleKind.Group)
             {
                 // The selection where it moved to (the edges that only stretch aren't in it).
@@ -848,9 +880,10 @@ public partial class SplineEditTool : Node
                 if (d.Edges.Any(_selected.Contains)) selected.AddRange(r.Edges.Where(tg.HasEdge).Select(id => Edge(tg, id)));
                 selected.AddRange(_selected.Where(id => !d.Edges.Contains(id) && tg.HasEdge(id)).Select(id => Edge(tg, id)));
             }
-            hot = DragPoint(d);
+            hot = IsKerb(d.Handle.Kind) ? null : DragPoint(d);
             hotKnob = d.Handle.Kind == HandleKind.Knob;
-            if (d.Handle.Kind == HandleKind.Knob && KnobOf(d) is { } k)
+            if (IsKerb(d.Handle.Kind)) (dragTag, warn) = KerbTag(d, tg);
+            else if (d.Handle.Kind == HandleKind.Knob && KnobOf(d) is { } k)
             {
                 var corner = k.Alignment.Corner(k.Index);
                 float was = built.Edge(d.Handle.Id).Alignment.EffectiveRadius(d.Handle.Index);
@@ -910,7 +943,9 @@ public partial class SplineEditTool : Node
         {
             hot = m.Target.At;
             hotKnob = false;
-            radial = new RadialMenu(centre, MenuItems.Select((it, i) => new RadialItem(it.Label, it.Angle, m.Enabled[i], it.Action == MenuAction.Delete)).ToList(), m.Hovered);
+            bool junction = m.Target.Kind == HandleKind.Node && built.HasNode(m.Target.Id) && IsKerbJunction(built, m.Target.Id);
+            radial = new RadialMenu(centre, MenuItems.Select((it, i) => new RadialItem(junction && it.Action == MenuAction.Smooth ? "Reset kerbs" : it.Label,
+                it.Angle, m.Enabled[i], it.Action == MenuAction.Delete)).ToList(), m.Hovered);
         }
 
         return new EditFrame
@@ -930,7 +965,9 @@ public partial class SplineEditTool : Node
             HotPoint = hot,
             HotIsKnob = hotKnob,
             Ghosts = ghosts,
-            Move = d is not null && d.Handle.Kind != HandleKind.Knob ? (d.Handle.At, d.Target) : null,
+            Move = d is not null && d.Handle.Kind is not (HandleKind.Knob or HandleKind.Kerb or HandleKind.KerbKnob) ? (d.Handle.At, d.Target) : null,
+            KerbHandles = KerbMarks(built, d),
+            KerbGhosts = KerbGhosts(built, d),
             Snap = _snap,
             DragTag = dragTag,
             DragTagWarn = warn,
@@ -971,6 +1008,8 @@ public partial class SplineEditTool : Node
         switch (_hover?.Kind)
         {
             case HandleKind.Knob: hints.Add(("Drag", "Radius")); hints.Add(("RMB", "Menu")); break;
+            case HandleKind.KerbKnob: hints.Add(("Drag", "Kerb radius")); hints.Add(("Double-click", "Reset")); hints.Add(("RMB", "Junction menu")); break;
+            case HandleKind.Kerb: hints.Add(("Drag", "This road's kerbs")); hints.Add(("Double-click", "Reset")); hints.Add(("RMB", "Junction menu")); break;
             case HandleKind.Pi: hints.Add(("Drag", "Move corner")); hints.Add(("Alt+drag", "Straighten")); hints.Add(("RMB", "Menu")); break;
             case HandleKind.Node:
                 hints.Add(("Drag", _selectedNodes.Contains(_hover.Value.Id) ? "Move selection" : "Move node"));

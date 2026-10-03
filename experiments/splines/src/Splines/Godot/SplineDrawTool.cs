@@ -84,6 +84,7 @@ public partial class SplineDrawTool : Node
         _issueList = new SplineIssueList();
         layer.AddChild(_issueList);
         if (Testbed is not null) Testbed.ModeChanged += _ => EndChain();
+        if (Network is not null) Network.Changed += () => (_bendShown, _bentGraph) = (null, null);
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -163,6 +164,7 @@ public partial class SplineDrawTool : Node
         if (!Active || Testbed.Profile is not { } profile || Cursor is not { } cursor || Network is null)
         {
             ClearGridTrial();
+            ClearBends();
             Network?.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
             _renderer.SetGhost(null, 0);
@@ -177,7 +179,7 @@ public partial class SplineDrawTool : Node
         var mods = _view.Modifiers();
         _snap = SnapEngine.Evaluate(BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods));
         if (Mode == DrawMode.Freehand) { ProcessFreehand(profile, rules, _view.PlanOf(cursor)); return; }
-        if (Mode == DrawMode.Grid && _gridAlongEnd is not null) { ProcessGrid(profile, rules, _view.PlanOf(cursor)); return; }
+        if (Mode == DrawMode.Grid && _gridAlongEnd is not null) { ClearBends(); ProcessGrid(profile, rules, _view.PlanOf(cursor)); return; }
         ClearGridTrial();
         TagLoopClose(rules);
         bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
@@ -198,11 +200,13 @@ public partial class SplineDrawTool : Node
             _trial = Try(drawn, rules, Mode == DrawMode.Grid ? Ends.None : Ends.Both);
             if (Mode == DrawMode.Draw) _suggestion = TurnoutSuggestion(_trial, rules);
             (preview, leadIn, leadOut) = ShowTrialPreview(drawn, rules, profile);
+            ShowBends(drawn);
         }
         else
         {
             Network.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
+            ShowBends(null);
         }
         _renderer.SetGhost(_suggestion, profile.Width);
         _issueList?.Show(_trial?.Issues ?? new List<Issue>(), Network.Issues, Testbed.Anarchy);
@@ -236,7 +240,7 @@ public partial class SplineDrawTool : Node
             EndArm = endArm,
             EndHeading = endHeading,
             Rules = rules,
-            BuiltEnds = SplineToolView.Points(graph),
+            BuiltEnds = Dots(),
             Mouse = _view.MouseScreen(),
             CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
             HardRefused = now < _hardHintUntil,
@@ -251,6 +255,7 @@ public partial class SplineDrawTool : Node
             PlaceLabel = PlaceLabel(),
             LiveRadiusNote = BendAtFit ? "fit" : null,
             GridLabel = Mode == DrawMode.Grid ? GridWidthLabel(rules) : null,
+            Bend = BendMark(),
         });
     }
 
@@ -345,6 +350,7 @@ public partial class SplineDrawTool : Node
     {
         if (Network is null || alignment.Curve.Length < SplineGraph.NodeTolerance) return null;
         var g = Network.Graph.Clone();
+        ApplyBends(g, alignment);
         var result = g.AddSpline(alignment, rules, continueAt);
         var edges = result.Edges.Concat(result.Nodes.SelectMany(n => g.Node(n).Edges)).Distinct();
         var issues = Validation.Check(g, edges, result.Nodes)
@@ -421,6 +427,7 @@ public partial class SplineDrawTool : Node
             CtrlSteps = ctrl,
             FineSteps = ctrl && mods.HasFlag(DrawModifiers.Shift),
             Disabled = mods.HasFlag(DrawModifiers.Space),
+            BendSliders = Mode != DrawMode.Grid, // a grid's corner doesn't reshape a bend
         };
     }
 
@@ -445,6 +452,7 @@ public partial class SplineDrawTool : Node
                             NumVector2.Distance(s.Position, position) < 1e-3f ? s.EdgeTangent : null;
             _session.Place(position, allowHard);
             _session.StartIsCorner = Network.Graph.DeadEndAt(position, rules) is not null;
+            _startBend = _snap?.Bend is { } b && Near(b.Position, position) ? b : null;
             return;
         }
         if (NumVector2.Distance(position, _session.Pis[0].Position) < SplineGraph.NodeTolerance) return;
@@ -492,7 +500,11 @@ public partial class SplineDrawTool : Node
         }
         Network.RegisterProfile(profile);
         var prior = Network.Graph.Clone();
-        var result = Network.Apply(g => g.AddSpline(leg, rules));
+        var result = Network.Apply(g =>
+        {
+            ApplyBends(g, leg);
+            return g.AddSpline(leg, rules);
+        });
         foreach (int n in result.Nodes)
         {
             if (Junctions.Label(Network.Graph, n) is not { } label) continue;
@@ -546,6 +558,7 @@ public partial class SplineDrawTool : Node
         _session.Reset(Testbed?.Profile?.DefaultRadius ?? 0f);
         _sessionProfile = Testbed?.Profile;
         _startHeading = null;
+        _startBend = null;
         _bendRadius = null;
         _stroke = null;
         _gridAlongEnd = null;

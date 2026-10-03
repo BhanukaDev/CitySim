@@ -195,8 +195,8 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
   - A self-crossing is a junction now (draw-chain follow-up); only a profile that doesn't join itself shows it red.
   - The turnout ghost is offered for the first leg only; snapping still offers guides from profiles that can't connect.
   - `ConnectsTo` takes profile ids only (no tags yet).
-  - Curb radius is the narrower arm's `DefaultRadius` (per the storyboard), so street curbs are 16 m. A separate
-    `CurbRadius` profile field is easy if that looks too big.
+  - Curb radius was the narrower arm's `DefaultRadius` (16 m streets): too big. Replaced by `KerbRadius` (2026-10-03,
+    see S5 → Kerb handles).
 - Still to do: play-test in Godot (T, 4-way, the rail turnout ghost, Anarchy, Del → merge, undo).
 - **Follow-up (2026-09-30): continuing a dead end** (`docs/dead-end-joins.html`, option C). Snapping onto a node with
   one arm used to leave two butted ribbons (a notch outside, overlap inside), since 2-arm nodes had no shape or tag.
@@ -351,6 +351,66 @@ Two passes, with a play-test between them (from the user, 2026-10-02).
   the avenue stretching).
 - Answered (2026-10-02): Smooth stays "largest that fits"; a box takes only edges wholly inside.
 
+**Follow-up (2026-10-03): kerb handles** (`docs/kerb-handles.html`; v2 below is current; waiting for play-test).
+- Junction kerbs were too big (the narrower arm's `DefaultRadius`, 16 m streets / 60 m avenues). New profile fields
+  `KerbRadius` / `MinKerbRadius` / `MaxKerbRadius`: street 6 / 2 / 16, avenue 10 / 4 / 30, canal 8 / 4 / 20 (Turnout and
+  Join profiles have no kerbs). The footprint uses the narrower arm's `KerbRadius`.
+- **Kerb handles**: a selected Node junction shows a handle on each arm's centre line where its kerbs start, with a pale
+  track for its range. Drag along the arm: out = bigger, in = tighter (0.5 m steps); tag `kerbs R 6 · 6 → 6–14 · 6–14 m`,
+  amber at the end of the track (`most that fits` / `max R 16 m` / `max flare` / `tightest`), red below the minimum
+  with Anarchy. Double-click resets one; the junction's radial menu shows **Reset kerbs** in Smooth's slot. RMB on a
+  handle opens the junction's menu. One undo step each. No hover actions.
+- Model A as agreed: one handle per arm, each kerb's other end stays put, so kerbs go lopsided (a rational-quadratic
+  conic tangent to both sides; equal ends = the exact arc). **Changed from the storyboard while building**: a
+  lopsided kerb's tightest point gets tighter as it flares (geometry: any curve in that corner with unequal ends is
+  tighter than the short end's arc), so a "tightest radius" tag fell from 6 to 2 as the handle went *out*. Kerbs are
+  now rated by the arc each end would make (`R 6–14`), the limits apply to both ends, and a far end may be at most
+  4 × the near end (`Junctions.MaxFlare`). The storyboard page was updated to match.
+- Core: `GraphEdge.KerbStart`/`KerbEnd` (null = profile default; carried through `SplitEdge`, `TryMerge`, `AddSpline`
+  via `kerbs:`, `Reconnect`, `RemoveStretches`, `SmoothNode`, the other-profile dead-end split), `SetKerb`,
+  `ResetKerbs`; `Junctions.Fit` (the old footprint body) applies the handles, `Junctions.KerbHandles(g, node, anarchy)`
+  gives each handle's station, range and limit; `Curb` gained `MaxRadius`, `Control`/`Weight` (conic), `Set`, `Rules`.
+  Validation `kerb-min` (Invalid) for a handle-set kerb below the minimum (a kerb squeezed by space is no issue).
+- Edit tool: `SplineEditTool.Kerbs.cs`, `HandleKind.Kerb`; overlay `KerbMark` + `KerbGhosts` (old kerbs faint while dragging).
+- Checked: `--demo-junctions` (T/X cut-backs now 12/18; new Kerbs case: a handle per arm, range 8–22 m on a street T
+  stem (R 2–16), Anarchy to the flare limit 7.5 m, lopsided R 6–14, matched handles round R 10, below min invalid,
+  reset, kept through a junction move, a split and a merge); all other demos ok. `--storyboard=kerb-select |
+  kerb-drag | kerb-cross | kerb-menu` (kerb-cross prints the stored value through undo/redo).
+- Open: tightening a whole junction means moving each arm (each kerb follows both its arms). If that's tedious in
+  play, Shift+drag could move every handle of the junction together.
+- **Fix (2026-10-03, user's play-test: "when roads are at angle sliding not working")**: the handle stored a station
+  and put both kerbs beside its arm there, but an arm between an acute and an obtuse kerb has them starting far apart
+  (45 m vs 3 m at 30°), so the obtuse one hit the flare limit at once and the handle was locked; on a 5-way a handle
+  could also sit outside its own range and jump. The handle now stores the **end radius** (`KerbStart`/`KerbEnd` are
+  radii): each kerb starts at `X + R / tan(half angle)` for its own corner (`Layout.Legs`, `KerbHandle.StationOf` /
+  `RadiusAt`), the handle sits at the outermost start, and its range is searched in radius (0.1 m) and snapped to
+  0.5 m when dragging. A set kerb is rated with the same legs, so a curved arm can't refuse what the handle allowed.
+- **Fix: obtuse kerbs missing** (found while testing): with 6 m kerbs, the kerb in a wide obtuse corner (a street
+  leaving an avenue at 135°) touches the avenue's side behind the node, which the curb search (sides from the node
+  out) never reached: the corner went sharp. The sides now run back behind the node by the other road's width, and
+  the clearance test measures against the road's line there.
+- Checked: `--demo-junctions` KerbShapes (T at 30–150°, street × avenue at 45/60/90°, 5-way, 6-way, a crossing on a
+  curve: a kerb in every corner, every handle a range of at least 4 m of radius, and both ends of it build with no
+  issues and the cut where the handle says); `--storyboard=kerb-angled | kerb-angled-built | kerb-5way` drag handles
+  through the Edit tool and print the result (60° arm: R 6 → 13, 20.8 → 32.9 m; 5-way diagonal R 6 → 10).
+
+- **v2 (2026-10-03, storyboard v2 agreed): kerb knobs + road handles.** The user asked for per-kerb control alongside
+  the per-arm one. Each kerb now has a radius per end, stored per edge end and side (`KerbEnds(Left, Right)`, looking
+  out from the node; Right = the kerb toward the next arm clockwise). Two controls on a selected junction:
+  - **Kerb knob** (`Junctions.KerbKnobs`, `KerbKnob`, `HandleKind.KerbKnob`): in each kerb's middle; dragged across the
+    corner it makes the kerb round at the radius whose arc's middle is under the cursor (`At` / `RadiusAt` along the
+    corner's bisector), range min..max and what fits on both roads. A lopsided kerb goes round again when grabbed.
+  - **Road handle** (`Junctions.KerbHandles`, now a factor): scales this road's end of both its kerbs together
+    (`KerbSide`s), so a difference set with knobs is kept (agreed); range from min/max, 4 × flare against each kerb's
+    other end, and fit, solved directly (no search). Snapped so its outer kerb's radius is a whole 0.5 m.
+  - Overlay: `KerbMark.Knob` (dark disc with a white ring, accent when held). Hints `Drag Kerb radius` / `Drag This
+    road's kerbs`. Double-click resets one; RMB on either opens the junction's menu (Reset kerbs).
+  - Checked: `--demo-junctions` (Kerbs: knob per kerb, R 2..16, in the kerb's middle; a knob makes its kerb round R 10
+    and leaves the other at 6; the stem's road handle then sees 10 and 6 and ×1.5 gives 15 and 9; per-side values kept
+    through move/split/merge. KerbShapes: every knob and road handle on every shape has ≥ 4 m of radius and builds at
+    both ends of its range: 139 knob checks). `--storyboard=kerb-knob` (knob held at R 12) and `kerb-knob-road` (knob
+    built at 12, then the stem's road handle held: `kerbs R 12 · 6 → 12–16 · 6–8 m · max R 16 m`). All demos ok.
+
 ### ⬜ S6: Curve, Freehand and Grid modes (built 2026-10-03, waiting for the user's play-test)
 All three live in `SplineDrawTool` (partial files `.Curve.cs`, `.Freehand.cs`, `.Grid.cs`) and share Draw's
 snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`SplinesTestbed.ModeChanged`).
@@ -398,6 +458,26 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   circle is 8 stretches; a quarter deleted leaves one 3/4 road cut at its joints; a middle stretch moved keeps its
   radii and ends; an end stretch moves its node only). Storyboard `edit-stretch | edit-stretch-deleted |
   edit-stretch-move`.
+- **Follow-up (2026-10-03): corner junctions + overlay restyle** (`docs/corner-junctions.html` v2, agreed; waiting for
+  play-test). From the user: joining a road at a bend's dot cut the arc in half (a T on a curve, 4.7 m off the street's
+  line, two extra dots), and a square T at a bend needed delete-and-redraw.
+  - The dot is now a **slider** (DESIGN.md → Junctions → Corner junctions): `SnapQuery.BendSliders` (Draw, Curve,
+    Freehand; not Grid or the Edit tool) makes `SnapEngine` hold the cursor on the track from the dot to the PI and
+    return a `BendSlide` (radius, point). `Alignment.BendPoint` / `BendRadiusAt` / `BendAxis` / `IsArc` give the track.
+  - `SplineGraph.SplitBend` (pinned other corners, the bend at the slide's radius or hard at 0, split at the arc's
+    middle) and `ReshapeBend` (no split, for the hover preview). `SplineDrawTool.Bends.cs` applies them to the trial
+    and inside the build's `Network.Apply` (one undo step): the start's bend for the first leg, the cursor's for the
+    end. The hover preview is `Network.ShowTrial(reshaped, hidden: true)`; `Network.Hide` no longer redraws the built
+    graph over a trial. The overlay's dots come from the reshaped graph.
+  - `SplineGraph.ShowsRoadPoint`: a road point within a road width of a 3+ arm node at the edge's end is hidden (the
+    halves of a cut bend); snap candidates carry `HiddenCorners`. A circle's quarter into a junction keeps its dot.
+  - Overlay restyle to match the storyboard pages: no dark outline under lines, guides, arcs, rings or marks (only a
+    thin rim on node discs), thinner legs (3 px) and guides (2 px, 80 %), filled pills (accent snap, amber, red) in
+    monospace. `ShadowLine` → `ScreenLine`, `Shadow` → `Rim`.
+  - Checked: `--demo-modes` (CornerJunctions: corner point → square T with no corner left, one undo restores R 16;
+    R 12 → a node on the tightened bend, both halves R 12, no dots of their own; R 6 refused; a leg ending on the
+    corner point makes the T). Every other demo still `all ok`. `--storyboard=corner-slide | corner-red | corner-tee |
+    corner-y | corner-tee-built` (screenshots at `--cam=598,462,70,89,0`).
 - For the play-test: are 8 × 8 lots the right default block? Is a freehand stroke kept close enough (6 points for
   the storyboard's S, against its 5)?
 

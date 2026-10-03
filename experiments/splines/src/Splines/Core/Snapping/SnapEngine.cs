@@ -98,6 +98,12 @@ public static class SnapEngine
             // Each corner's point on the road (a joint between chained curves, an arc's middle) is a node to connect to.
             for (int i = 1; i < c.Alignment.Pis.Count - 1; i++)
             {
+                if (c.HiddenCorners?.Contains(i) == true) continue;
+                if (q.BendSliders && c.Alignment.IsArc(i))
+                {
+                    if (BendSnap(q, c.Alignment, i, radius, bestDist) is { } bend) (best, bestDist) = bend;
+                    continue;
+                }
                 var p = c.Alignment.RoadPoint(i);
                 float d = Vector2.Distance(q.Cursor, p);
                 if (d > radius || d >= bestDist) continue;
@@ -110,6 +116,35 @@ public static class SnapEngine
             }
         }
         return best;
+    }
+
+    /// <summary>
+    /// An arc corner's slider (DESIGN.md → Junctions → Corner junctions): the cursor's nearest point on the track from
+    /// the road point (the built radius) out to the PI (sharp), caught within <paramref name="catchRadius"/> of the
+    /// track. Both ends are magnets; in between the radius steps by 0.5 m. Null when it's not closer than
+    /// <paramref name="bestDist"/>.
+    /// </summary>
+    private static (SnapResult, float)? BendSnap(SnapQuery q, Alignment a, int i, float catchRadius, float bestDist)
+    {
+        var pi = a.Pis[i].Position;
+        var (inward, factor) = a.BendAxis(i);
+        float built = a.EffectiveRadius(i);
+        float length = built * factor;
+        float along = Math.Clamp(Vector2.Dot(q.Cursor - pi, inward), 0, length);
+        float d = Vector2.Distance(q.Cursor, pi + inward * along);
+        if (d > catchRadius || d >= bestDist) return null;
+
+        float magnet = MathF.Min(q.CatchDistance * 0.35f, length / 8);
+        float r = along <= magnet ? 0 : length - along <= magnet ? built : MathF.Min(built, MathF.Round(a.BendRadiusAt(i, along) * 2) / 2);
+        var p = a.BendPoint(i, r);
+        // The road's direction at the junction: along the arc's middle, or the leg coming in at a sharp corner.
+        var tangent = r > 0 ? SplineMath.Left(inward) : Vector2.Normalize(pi - a.Pis[i - 1].Position);
+        string tag = r == built ? "snap: node" : r == 0 ? "corner point" : $"R {built:0} → {r:0.#} m";
+        return (new SnapResult
+        {
+            Position = p, Kind = SnapKind.Node, Tag = tag, TagAt = p, EdgeTangent = tangent,
+            Bend = new BendSlide(a, i, r, p),
+        }, d);
     }
 
     /// <summary>The foot of the perpendicular from the current leg's start onto a nearby edge: landing there gives a

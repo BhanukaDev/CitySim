@@ -27,6 +27,11 @@ public sealed record ProfileRules
     public JunctionKind JunctionKind { get; init; } = JunctionKind.Node;
     public float MinJunctionAngle { get; init; }
     public float TurnoutMaxAngle { get; init; }
+    /// <summary>A <see cref="JunctionKind.Node"/> junction's kerb radius (the narrower arm's), and the range the Edit
+    /// tool's kerb handles may set (below the minimum is invalid unless Anarchy is on).</summary>
+    public float KerbRadius { get; init; }
+    public float MinKerbRadius { get; init; }
+    public float MaxKerbRadius { get; init; }
 
     /// <summary>Steepest grade; null = follows the ground with no limit.</summary>
     public float? MaxGrade { get; init; }

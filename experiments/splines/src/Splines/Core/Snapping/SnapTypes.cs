@@ -10,7 +10,20 @@ namespace CitySim.Splines;
 /// is a dead end (no other edge there), the only ends an extension guide continues from: past a junction the road
 /// already goes on.
 /// </summary>
-public readonly record struct SnapCandidate(Alignment Alignment, float Width, string Label = "", bool OpenStart = true, bool OpenEnd = true);
+public readonly record struct SnapCandidate(Alignment Alignment, float Width, string Label = "", bool OpenStart = true, bool OpenEnd = true)
+{
+    /// <summary>Corners whose road point isn't offered (<see cref="SplineGraph.ShowsRoadPoint"/>: half of a bend
+    /// cut by a junction, whose node is the point).</summary>
+    public IReadOnlyCollection<int>? HiddenCorners { get; init; }
+}
+
+/// <summary>
+/// A bend's slider (DESIGN.md → Junctions → Corner junctions): the cursor held on the track from an arc corner's road
+/// point out to its PI. <see cref="Radius"/> is the radius the bend takes so the road passes through
+/// <see cref="Position"/> (the built radius at the road point, 0 at the PI: a sharp corner). The junction is made there
+/// by <see cref="SplineGraph.SplitBend"/>.
+/// </summary>
+public readonly record struct BendSlide(Alignment Alignment, int Pi, float Radius, Vector2 Position);
 
 /// <summary>What produced a <see cref="SnapResult"/>'s position (DESIGN.md → Snapping and guides → Priority).</summary>
 public enum SnapKind
@@ -110,6 +123,10 @@ public sealed record SnapQuery
 
     /// <summary>Space held: every level is skipped, including Ctrl steps.</summary>
     public bool Disabled { get; init; }
+
+    /// <summary>An arc corner's road point is a slider (<see cref="BendSlide"/>) out to its PI, not just a point: the
+    /// Draw tool's modes. Off, it snaps to the road point only (the Edit tool).</summary>
+    public bool BendSliders { get; init; }
 }
 
 /// <summary>
@@ -130,6 +147,8 @@ public sealed record SnapResult
     public int? LengthSteps { get; init; }
     public LegMatch? EqualLength { get; init; }
     public Vector2? EdgeTangent { get; init; }
+    /// <summary>The cursor is on a bend's slider: the junction goes where it says, reshaping the bend.</summary>
+    public BendSlide? Bend { get; init; }
 
     public static SnapResult None(Vector2 cursor) => new() { Position = cursor };
 }
