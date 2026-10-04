@@ -20,6 +20,8 @@ Needs the terrain package (`citysim_terrain`) in the same project.
 - `src/Core/`: engine-agnostic (`System.Numerics` only). `ProfileRules`, enums, `IGround`, `DrawSession`,
   `GridLayout`, `Geometry/` (`Alignment`, `Curve`, segments, `FreehandFit`, `RibbonGeometry`), `Snapping/`,
   `Graph/` (`SplineGraph`, `Junctions`, `Validation`, `Vertical`, `GroundShaping`).
+- `icons/`: Tabler icons the overlay draws in place of symbols in tag text (∡ ↔ ↗ ↘ ⤓ ⤒; `SplineOverlay.Icons`). Core
+  writes the symbols, so its wording stays engine-free.
 - `src/Godot/`: `SplineProfile` (the `.tres` per network type), `SplineNetwork` (the built graph, undo, issues,
   footprints, visuals), `SplineDrawTool`, `SplineEditTool`, `RibbonRenderer` (draw previews and the placeholder
   flat-ribbon network), `SplineOverlay`, `SplineOptionsBar` (the testbed's bar), `SplineIssueList`, `TerrainGround`,
@@ -29,15 +31,18 @@ Needs the terrain package (`citysim_terrain`) in the same project.
 
 After every change `SplineNetwork` gives each node a `Height` and each edge an `EdgeHeights` line (`Vertical.Conform`):
 the ground along the centre, averaged over the profile's `GroundSmoothing`, held level over each junction's cut-back,
-limited to `MaxGrade` and rounded at crests and sags. A new node takes the ground, limited by the grade from its
-neighbours, so a road drawn up a cliff ends in a cut or on an embankment. Lines stay until their edge, nodes or
+limited to `MaxGrade` and rounded at crests and sags. A new or moved node takes the ground exactly where it was put; it
+is never moved to make a grade fit. Lines stay until their edge, nodes or
 junctions change: **splines never move with the ground**.
 
 Profiles with `Shaping = Section` then shape the ground round what changed (`GroundShaping`): level under the corridor
 and one grid cell beside it, then `CutSlope` / `FillSlope` (run per rise) back to the natural ground, and a level disc
 round each junction. It's one terrain edit, undone with the spline change. When anything else edits the ground (a terrain
 tool, a script), the ground round the splines there is shaped back once the stroke ends, as its own terrain undo step.
-`Validation` warns (`grade`) where an edge's ends are too far apart in height for its max grade. Not yet: the profile's
+`Validation` marks red (Invalid): `grade` where an edge's ends are too far apart in height for `MaxGrade`, and `cut` /
+`fill` where its line runs deeper into or higher above the ground than `MaxCut` / `MaxFill` (measured when the line was
+made). The tools call `SplineNetwork.Conform(trial)` before validating a trial so previews show these, and the Draw tool's leg
+pills show each leg's slope. Ends too far apart in height for `MaxGrade` get one even ramp between them. Not yet: the profile's
 `Section` template (canal channels), retaining walls (`Edge`), the cut/fill tag, a Shape ground toggle.
 
 ## Hooks

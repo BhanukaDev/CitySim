@@ -61,6 +61,9 @@ public sealed class OverlayFrame
     public string? GridLabel { get; init; }
     /// <summary>The cursor is on a bend's slider: its track and the ghost node.</summary>
     public BendMark? Bend { get; init; }
+    /// <summary>The height of the road being drawn at a plan point (its trial height line), for the slope in the leg
+    /// pills; null where there's none.</summary>
+    public Func<NumVector2, float?>? HeightAt { get; init; }
 }
 
 /// <summary>A bend's slider (DESIGN.md → Junctions → Corner junctions): the track from the road point
@@ -103,7 +106,7 @@ public partial class SplineOverlay : Control
     private const float ThinWidth = 1.75f;
     /// <summary>Radius of a corner's angle arc, in pixels on the ground.</summary>
     private const float ArcPx = 44f;
-    private const float GlyphWidth = 20f;
+    private const float GlyphWidth = 18f;
 
     private enum TagStyle { Plain, Snap, Warn, Bad }
 
@@ -284,7 +287,8 @@ public partial class SplineOverlay : Control
         for (int i = 1; i < pis.Count - 1; i++)
             if (ScreenOf(pis[i].Position) is { } d) { DrawCircle(d, 3.5f, Rim, true, -1, true); DrawCircle(d, 2.5f, Line, true, -1, true); }
 
-        // Length pills in the middle of every leg; the current one says when it's whole steps or equal to another leg.
+        // Length pills in the middle of every leg, with the leg's slope in the drawing direction (red past the max grade);
+        // the current one lights up on whole steps and says when it equals another leg.
         int? steps = LegSteps(f, pis[cur].Position);
         for (int j = drawnFrom; j < cur; j++)
         {
@@ -296,7 +300,13 @@ public partial class SplineOverlay : Control
             string text = $"↔ {len:0} m";
             var style = TagStyle.Plain;
             if (current && snap?.EqualLength is { } eq) { text = $"↔ = {eq.Length:0} m"; style = TagStyle.Snap; }
-            else if (current && steps is { } n && f.Rules is { } r) { text = $"↔ {len:0} m · {n} × {r.SnapLength:0.#} m"; style = TagStyle.Snap; }
+            else if (current && steps is not null) style = TagStyle.Snap;
+            if (f.HeightAt?.Invoke(a) is { } ha && f.HeightAt(b) is { } hb)
+            {
+                float grade = (hb - ha) / len;
+                text += $" · {(grade >= 0 ? '↗' : '↘')} {MathF.Abs(grade) * 100:0} %";
+                if (f.Rules?.MaxGrade is { } max && MathF.Abs(grade) > max + 0.005f) style = TagStyle.Bad;
+            }
             _tags.Add(new PendingTag(m, text, style, true, null));
         }
 
@@ -647,7 +657,7 @@ public partial class SplineOverlay : Control
 
     /// <summary>A dark rounded pill with white text, placed at (or centred on) its anchor, nudged down past any tag
     /// already placed this frame and kept on screen. A <see cref="PendingTag.Key"/> is drawn first in the accent colour
-    /// ("LMB Place"). <c>∡</c> and <c>↔</c> in the text are drawn as small symbols at text height.</summary>
+    /// ("LMB Place"). The <see cref="Icons"/> characters in the text are drawn as icons at text height.</summary>
     private void Tag(PendingTag t)
     {
         float keyWidth = t.Key is null ? 0 : _font.GetStringSize(t.Key, HorizontalAlignment.Left, -1, FontSize).X + 7;
@@ -695,13 +705,28 @@ public partial class SplineOverlay : Control
         }
     }
 
-    /// <summary>The text cut into plain runs and the symbols drawn by hand (∡, ↔).</summary>
+    /// <summary>Characters in tag text drawn as a Tabler icon from <c>icons/</c> (see its LICENSE.md). Core writes
+    /// them into its tags and issue messages, so the wording stays engine-free.</summary>
+    private static readonly Dictionary<char, string> Icons = new()
+    {
+        ['∡'] = "angle",
+        ['↔'] = "arrows-horizontal",
+        ['↗'] = "trending-up",
+        ['↘'] = "trending-down",
+        ['⤓'] = "arrow-bar-to-down",
+        ['⤒'] = "arrow-bar-to-up",
+    };
+    private const string IconDir = "res://addons/citysim_splines/icons/";
+    private const int IconPx = 14;
+    private readonly Dictionary<char, Texture2D?> _icons = new();
+
+    /// <summary>The text cut into plain runs and the icon characters (<see cref="Icons"/>).</summary>
     private static IEnumerable<(string Part, char? Glyph)> Split(string text)
     {
         int start = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            if (text[i] is not ('∡' or '↔')) continue;
+            if (!Icons.ContainsKey(text[i])) continue;
             if (i > start) yield return (text[start..i], null);
             yield return ("", text[i]);
             start = i + 1;
@@ -709,29 +734,22 @@ public partial class SplineOverlay : Control
         if (start < text.Length) yield return (text[start..], null);
     }
 
+    /// <summary>An icon at text height, tinted, its left edge at the pen.</summary>
     private void Glyph(Vector2 baseline, char glyph, Color color)
     {
-        float h = FontSize - 3;
-        var o = baseline + new Vector2(1, -1);
-        float w = GlyphWidth - 6;
-        if (glyph == '∡')
-        {
-            var arm = new Vector2(MathF.Cos(-MathF.PI / 3), MathF.Sin(-MathF.PI / 3));
-            DrawLine(o, o + new Vector2(h, 0), color, 1.5f, true);
-            DrawLine(o, o + arm * (h + 1), color, 1.5f, true);
-            DrawArc(o, h * 0.6f, -MathF.PI / 3, 0, 8, color, 1.5f, true);
-        }
-        else
-        {
-            var mid = o + new Vector2(0, -h / 2 + 1);
-            var end = mid + new Vector2(w, 0);
-            DrawLine(mid, end, color, 1.5f, true);
-            foreach (var (tip, s) in new[] { (mid, 1f), (end, -1f) })
-            {
-                DrawLine(tip, tip + new Vector2(3.5f * s, -3f), color, 1.5f, true);
-                DrawLine(tip, tip + new Vector2(3.5f * s, 3f), color, 1.5f, true);
-            }
-        }
+        if (Icon(glyph) is { } tex) DrawTextureRect(tex, new Rect2(baseline + new Vector2(0, -IconPx + 3), new Vector2(IconPx, IconPx)), false, color);
+    }
+
+    /// <summary>The icon rasterised once at its drawn size (crisper than scaling an imported 64 px texture down).</summary>
+    private Texture2D? Icon(char glyph)
+    {
+        if (_icons.TryGetValue(glyph, out var tex)) return tex;
+        string path = IconDir + Icons[glyph] + ".svg";
+        var image = new Image();
+        tex = FileAccess.FileExists(path) && image.LoadSvgFromString(FileAccess.GetFileAsString(path), IconPx / 64f) == Error.Ok
+            ? ImageTexture.CreateFromImage(image) : null;
+        if (tex is null) GD.PushWarning($"SplineOverlay: no icon {path}");
+        return _icons[glyph] = tex;
     }
 
     private Vector2? ScreenOf(NumVector2 plan) => Project?.Invoke(plan);

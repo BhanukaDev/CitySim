@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CitySim.Splines;
+using CitySim.Splines.Godot;
 using CitySim.TerrainSystem;
 using Godot;
 using NumVector2 = System.Numerics.Vector2;
@@ -10,14 +11,17 @@ namespace CitySim.Demos;
 
 public partial class RoadDemo
 {
-    private const float HillX = 600, DipX = 800, RoadZ = 500, BumpX = 900, HillHeight = 14, HillRadius = 45;
+    private const float HillX = 600, DipX = 800, RoadZ = 500, BumpX = 900, HillHeight = 14, HillRadius = 45,
+        SteepX = 300, SteepZ = 800;
 
     /// <summary>
     /// <c>--demo-shape</c>: raises a hill and digs a dip on flat ground, builds a two-lane road over both, and checks that
     /// the road is level across (ground at both edges at its height), never steeper than its max grade, cut into the hill
-    /// and on an embankment over the dip with banks at its side slope, and that far ground is untouched. Then one undo
+    /// and on an embankment over the dip with banks at its side slope, red where the cut is deeper than its max, and that far
+    /// ground is untouched. Then one undo
     /// puts the ground back, redo shapes it again, a T on the hillside gets a level junction at the road's height, and a terrain edit over the road (as a sculpt tool would make) leaves
-    /// the road where it was and the ground is shaped back round it. Prints "Demo shape: all ok".
+    /// the road where it was and the ground is shaped back round it. Last, a road straight up a steep hill keeps its nodes at
+    /// the ground where they were put and is red for its grade. Prints "Demo shape: all ok".
     /// </summary>
     private async void RunShape()
     {
@@ -41,7 +45,7 @@ public partial class RoadDemo
         var line = e.Heights!;
         float half = rules.Width / 2;
         GD.Print($"Demo shape: hill {hillTop - baseH:0.0} m, dip {dipBottom - baseH:0.0} m; road at hill {line.At(HillX - 400) - baseH:0.00} m, " +
-                 $"at dip {line.At(DipX - 400) - baseH:0.00} m, steepest {line.Steepest().Grade * 100:0.0} %");
+                 $"at dip {line.At(DipX - 400) - baseH:0.00} m, steepest {line.Steepest().Grade * 100:0.0} %, cut {line.DeepestCut.Depth:0.0} m at {400 + line.DeepestCut.S:0}, fill {line.HighestFill.Depth:0.0} m at {400 + line.HighestFill.S:0}");
 
         // Level across: the ground at both edges of the road is the road's height.
         float worstRoll = 0;
@@ -61,6 +65,12 @@ public partial class RoadDemo
         if (MathF.Abs(bank - wantBank) > 0.6f) problems.Add($"cut bank {bank:0.00} m at {d} m out, want {wantBank:0.00}");
         if (MathF.Abs(H(HillX, RoadZ + 160) - farBefore) > 1e-3f) problems.Add("ground far from the road changed");
         if (Network.Issues.Any(i => i.Code == "grade")) problems.Add("grade issue on a road within its max grade");
+        // Red exactly where the cut or fill is deeper than the road allows (this hill is steep enough for both).
+        foreach (var (code, depth, max) in new[] { ("cut", line.DeepestCut.Depth, rules.MaxCut!.Value), ("fill", line.HighestFill.Depth, rules.MaxFill!.Value) })
+        {
+            bool red = Network.Issues.Any(i => i.Code == code && i.Severity == Severity.Invalid);
+            if (red != depth > max + 0.05f) problems.Add($"{code} {depth:0.0} m, max {max} m, red {red}");
+        }
 
         float cutDepth = hillTop - H(HillX, RoadZ);
         Network.Undo();
@@ -94,8 +104,42 @@ public partial class RoadDemo
         if (MathF.Abs(H(BumpX, RoadZ) - roadAtBump) > 0.05f) problems.Add($"ground under the road not shaped back ({H(BumpX, RoadZ) - roadAtBump:0.00} m)");
         if (H(BumpX, RoadZ + 50) - baseH < 1f) problems.Add("the bump away from the road is gone");
 
+        // Straight up a steep hill: the nodes stay where they were put (at the ground) and the road is red for its grade.
+        Sculpt(terrain, (x, z) => 20f * Bell(x - SteepX, z - SteepZ, 30f));
+        await Frames(4);
+        var trial = Network.Graph.Clone();
+        NumVector2 top = new(SteepX, SteepZ), foot = new(SteepX, SteepZ + 40);
+        trial.AddSpline(new Alignment([new Pi(top), new Pi(foot)]), rules);
+        Network.Conform(trial);
+        foreach (var at in new[] { top, foot })
+            if (trial.NodeAt(at) is not { } id || trial.Node(id).Height is not { } nh || MathF.Abs(nh - H(at.X, at.Y)) > 0.01f)
+                problems.Add($"node at {at} not at the ground under it");
+        if (!Validation.Check(trial).Any(i => i is { Code: "grade", Severity: Severity.Invalid })) problems.Add("steep road not red for its grade");
+
         foreach (var p in problems) GD.PrintErr($"Demo shape: {p}");
         GD.Print(problems.Count == 0 ? "Demo shape: all ok" : $"Demo shape: {problems.Count} problem(s)");
+    }
+
+    /// <summary><c>--demo-slope</c> (with <c>--ui=open:roads,pick:two_lane</c>): raises a steep hill and leaves a two-leg
+    /// draw open up it (a gentle leg, then a steep one to the top), so a screenshot shows each leg's slope and the red
+    /// grade. Prints the issues.</summary>
+    private async void RunSlope()
+    {
+        if (Network?.Terrain is not { Map: not null } terrain || GetTree().Root.FindChild("SplineDrawTool", true, false) is not SplineDrawTool draw)
+        {
+            GD.PrintErr("Demo slope: no terrain or draw tool");
+            return;
+        }
+        Sculpt(terrain, (x, z) => 30f * Bell(x - HillX, z - RoadZ, 60f));
+        await Frames(4);
+        draw.ForcedPlanCursor = new NumVector2(HillX - 260, RoadZ);
+        draw.PlaceForTest(hard: false);
+        draw.ForcedPlanCursor = new NumVector2(HillX - 140, RoadZ);
+        draw.PlaceForTest(hard: false);
+        draw.ForcedPlanCursor = new NumVector2(HillX, RoadZ + 10);
+        await Frames(4);
+        foreach (var i in Network.Issues) GD.Print($"Demo slope: built issue {i.Message}");
+        GD.Print("Demo slope: drawing");
     }
 
     private static float Bell(float dx, float dz, float r) => MathF.Exp(-(dx * dx + dz * dz) / (r * r));

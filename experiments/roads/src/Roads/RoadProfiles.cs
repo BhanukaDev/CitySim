@@ -52,6 +52,8 @@ public static class RoadProfiles
             Shaping = ShapingMode.Section,
             CutSlope = road.SideSlope,
             FillSlope = road.SideSlope,
+            MaxCut = road.MaxCut,
+            MaxFill = road.MaxFill,
             ConnectsTo = connectsTo,
         };
     }

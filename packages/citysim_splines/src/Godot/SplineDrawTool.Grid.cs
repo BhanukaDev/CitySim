@@ -85,6 +85,7 @@ public partial class SplineDrawTool
         }
         // Later lines split the earlier ones: every edge at the nodes the grid touched is the grid's (or one it joined).
         foreach (int n in nodes.Where(g.HasNode)) edges.UnionWith(g.Node(n).Edges);
+        Network.Conform(g);
         var issues = Validation.Check(g, edges.Where(g.HasEdge), nodes.Where(g.HasNode))
             .Where(i => !Network.Issues.Any(old => old.Code == i.Code && old.Message == i.Message && NumVector2.Distance(old.Where, i.Where) < 1f))
             .ToList();

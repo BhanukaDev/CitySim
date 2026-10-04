@@ -138,6 +138,12 @@ public partial class SplineNetwork : Node
     /// <summary>The edges left out of the visuals (<see cref="Hide"/>).</summary>
     public IReadOnlyCollection<int> Hidden => _hidden;
 
+    /// <summary>Gives a changed copy of the graph (a tool's trial) its heights, so validating it sees grades and cut/fill.</summary>
+    public void Conform(SplineGraph trial)
+    {
+        if (Ground is not null) Vertical.Conform(trial, Junctions.Footprints(trial), Ground);
+    }
+
     /// <summary>Draws a changed copy of the graph in place of the built one (an Edit drag in progress, before it's
     /// built), with its footprints and issue halos; null goes back to the built graph. With <paramref name="hidden"/>
     /// the <see cref="Hidden"/> edges stay out of it too.</summary>

@@ -45,11 +45,11 @@ If the spline scheme proves better, align the terrain brush keys to it afterward
 G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 dotnet build && $G --headless --path . --import
 $G --headless --path . --quit-after 200 -- --demo-geometry   # S1+: Core self-checks, prints "Demo geometry: all ok"
-$G --headless --path . --quit-after 200 -- --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
+$G --headless --path . --quit-after 200 -- --flat --demo-draw       # S2+: draws + builds each test profile, prints "Demo draw: all ok"
 $G --headless --path . --quit-after 200 -- --demo-snap       # S3+: snap/guide priority self-checks, prints "Demo snap: all ok"
 $G --headless --path . --quit-after 200 -- --demo-junctions  # S4+: graph, junctions, validation, prints "Demo junctions: all ok"
 $G --headless --path . --quit-after 200 -- --demo-edit-splines  # S5+: Edit tool graph ops, prints "Demo edit-splines: all ok"
-$G --headless --path . --quit-after 200 -- --demo-modes      # S6+: Curve, Freehand, Grid, prints "Demo modes: all ok"
+$G --headless --path . --quit-after 200 -- --flat --demo-modes      # S6+: Curve, Freehand, Grid, prints "Demo modes: all ok"
 $G --path . -- --flat --screenshot=out.png --cam=1000,1000,300,50,30
 $G --path . -- --test-pad[=2000]   # levels a sand-painted square (metres) at the map centre; "Splines: Play" uses it
 # S3+: rebuild one storyboard frame and screenshot it, to compare with docs/spline-controls.html side by side
@@ -514,15 +514,17 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
 
 ### ⬜ S8: Vertical profile and terrain shaping
 - Started 2026-10-05 for the roads experiment (`experiments/roads` R3). Built so far: node heights and edge height lines
-  (`Vertical`: smoothed ground, level over junction cut-backs, `MaxGrade`, rounded crests and sags, new nodes limited by
-  the grade from their neighbours), ground shaping with an apron and cut/fill slopes and level junction discs
-  (`GroundShaping`, `IHeightGrid`, `TerrainHeightGrid`), one undo step with the spline change, the `grade` warning, and
+  (`Vertical`: smoothed ground, level over junction cut-backs, `MaxGrade`, rounded crests and sags; new nodes take the ground where
+  they're placed), ground shaping with an apron and cut/fill slopes and level junction discs
+  (`GroundShaping`, `IHeightGrid`, `TerrainHeightGrid`), one undo step with the spline change, red `grade` / `cut` / `fill`
+  issues (`MaxGrade`, `MaxCut`, `MaxFill`; tool trials conform first so the preview shows them), and
   the ground shaped back round splines after any other terrain edit. **Decision (user, 2026-10-05):** splines keep their
   heights when the ground changes; the ground moves, not the road. This replaces "re-conform `Ground` stations on
   `HeightsChanged`" below. Checked by the roads experiment's `--demo-shape`; the S1–S6 checks still pass. The testbed's
   profiles have `Shaping = Section`, so its ground is shaped too.
-- Still to do from the list below: stations and PgUp/PgDn, grade in the tag, the `Section` template (a canal is shaped
-  as a level corridor for now), `Edge` walls, `MaxCutFill`, the Shape ground toggle, the cut/fill tag, `CorridorOf`.
+- Grade is in the Draw tool's leg pills (`↔ 120 m · ↗ 12 %`); tag symbols are Tabler icons (`icons/`).
+- Still to do from the list below: stations and PgUp/PgDn, the `Section` template (a canal is shaped
+  as a level corridor for now), `Edge` walls, the Shape ground toggle, the cut/fill tag, `CorridorOf`.
 - Stations (`Ground` / `Absolute` / `Offset`), PgUp/PgDn steps, grade in the tag, `MaxGrade` check.
 - `Ground` height line: ground sampled along the centre, smoothed, limited to `MaxGrade`.
 - Terrain shaping (`DESIGN.md` → Terrain shaping):

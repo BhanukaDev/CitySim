@@ -34,14 +34,17 @@ public partial class RoadType : BuildItem
 
     // How the road sits on the land. Set by whoever makes the road (base game or mod); the player can't change them.
     [ExportGroup("Elevation")]
-    /// <summary>Steepest the road may climb, in percent. A road drawn up something steeper runs into a cut or out onto an
-    /// embankment instead.</summary>
+    /// <summary>Steepest the road may climb, in percent. Ends placed further apart in height than this allows are red.</summary>
     [Export(PropertyHint.Range, "1,30,0.5,suffix:%")] public float MaxGrade { get; set; } = 10f;
     /// <summary>Metres along the road the ground is averaged over for its height: short hugs the hills, long runs
     /// straight through them on cuts and embankments.</summary>
     [Export(PropertyHint.Range, "0,500,1,suffix:m")] public float GroundSmoothing { get; set; } = 30f;
     /// <summary>The bank between the road and the natural ground, as run per rise (2.5 = 1:2.5, about 22°).</summary>
     [Export(PropertyHint.Range, "0.5,6,0.1")] public float SideSlope { get; set; } = 2.5f;
+    /// <summary>Deepest the road may cut into the ground under it, in metres; deeper is red.</summary>
+    [Export(PropertyHint.Range, "0,30,0.5,suffix:m")] public float MaxCut { get; set; } = 4f;
+    /// <summary>Highest the road may be raised above the ground under it, in metres; higher is red.</summary>
+    [Export(PropertyHint.Range, "0,30,0.5,suffix:m")] public float MaxFill { get; set; } = 4f;
 
     public RoadDef ToDef() => new()
     {

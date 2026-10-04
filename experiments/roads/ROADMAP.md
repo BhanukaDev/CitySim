@@ -29,6 +29,7 @@ $G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip
 $G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
 $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
 $G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screenshots/shape_junction.png # T on the hillside
+$G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
 `--ui=` parts, applied in order: `open:<category>`, `tab:<tab>`, `pick:<item>`, `search:<text>`,
@@ -120,9 +121,11 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
 ### ⬜ R3: Roads on hills (built 2026-10-05, waiting for the user's play-test)
 - Roads don't roll: each road has a stored height line and is level across; junctions are level at their node's height.
 - Per road type, set in its `.tres` (Elevation group, not in the game's UI): `MaxGrade` (%, default 10),
-  `GroundSmoothing` (m along the road the ground is averaged over, default 30), `SideSlope` (bank run per rise, default
-  2.5 ≈ 22°). A road drawn up something steeper runs into a cut or onto an embankment; ends too far apart in height for
-  the grade get an amber `grade` warning.
+  `GroundSmoothing` (m along the road the ground is averaged over, default 30, only to take out bumps), `SideSlope`
+  (bank run per rise, default 2.5 ≈ 22°), `MaxCut` / `MaxFill` (m, default 4).
+- **Nodes go exactly where they're placed**, at the ground there (user decision, 2026-10-05). Ends too far apart in height
+  for `MaxGrade` (`grade`), or a road that would cut deeper or be raised higher than `MaxCut` / `MaxFill` (`cut`, `fill`),
+  are red in the preview and refused unless Anarchy is on.
 - The ground is shaped to the road on build and on Edit release: level under it plus a 3.5 m apron, then banks at the
   side slope until they meet the natural ground (nothing on flat ground). Same undo step as the road. Delete leaves the
   ground as it is.
@@ -132,7 +135,11 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
 - The road mesh sits 12 cm above the shaped ground (was 4 cm): the terrain renderer rounds a level junction into the
   slope beside it a few centimetres high and showed through the gutters.
 - Not yet: retaining walls (later, by request), bridges/tunnels, a Shape ground toggle, a cut/fill readout while drawing.
-- For the play-test: do the grade and banks feel right on real hills? Is 10 % right for the two-lane road?
+- While drawing, each leg's pill shows its slope in the drawing direction (`↔ 120 m · ↗ 12 %`), red past `MaxGrade`.
+  Ends too far apart in height get one even ramp, so the grade shown (and in the red issue) is the grade they need.
+  Tag symbols are Tabler icons (`packages/citysim_splines/icons/`): length, angle, slope up/down, cut, fill.
+- The draw length tag is just the length now (the `· 10 × 8 m` step count is gone; whole steps still light it up).
+- For the play-test: do the grade and banks feel right on real hills? Are 10 % and 4 m cut / fill right for the two-lane road?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking.

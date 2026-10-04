@@ -17,3 +17,5 @@ SidewalkWidth = 3.0
 MaxGrade = 10.0
 GroundSmoothing = 30.0
 SideSlope = 2.5
+MaxCut = 4.0
+MaxFill = 4.0

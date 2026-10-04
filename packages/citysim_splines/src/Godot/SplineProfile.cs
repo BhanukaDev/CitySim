@@ -63,7 +63,9 @@ public partial class SplineProfile : Resource
     [Export(PropertyHint.Range, "0,10,0.1")] public float FillSlope { get; set; } = 2f;
     [Export] public EdgeMode Edge { get; set; } = EdgeMode.Slope;
     [Export(PropertyHint.Range, "0,50,0.5")] public float WallAbove { get; set; }
-    [Export(PropertyHint.Range, "0,100,0.5")] public float MaxCutFill { get; set; }
+    /// <summary>Deepest cut and highest fill in metres; deeper or higher is red. Negative = no limit.</summary>
+    [Export(PropertyHint.Range, "-1,100,0.5")] public float MaxCut { get; set; } = -1f;
+    [Export(PropertyHint.Range, "-1,100,0.5")] public float MaxFill { get; set; } = -1f;
 
     public string Label => string.IsNullOrEmpty(DisplayName) ? Id : DisplayName;
 
@@ -95,7 +97,8 @@ public partial class SplineProfile : Resource
         GroundSmoothing = GroundSmoothing < 0 ? float.PositiveInfinity : GroundSmoothing,
         Edge = Edge,
         WallAbove = WallAbove,
-        MaxCutFill = MaxCutFill,
+        MaxCut = MaxCut < 0 ? null : MaxCut,
+        MaxFill = MaxFill < 0 ? null : MaxFill,
         SnapProviders = SnapProviders,
         ConnectsTo = ConnectsTo.ToArray(),
     };

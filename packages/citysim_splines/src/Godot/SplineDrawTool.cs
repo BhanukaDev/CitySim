@@ -253,6 +253,7 @@ public partial class SplineDrawTool : Node
             CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
             CtrlFanFrom = SnapEngine.CtrlReference(query)?.Direction ?? NumVector2.UnitX,
             HardRefused = now < _hardHintUntil,
+            HeightAt = _trial is { } th ? HeightOf(th) : null,
             Flashes = _flashes.Select(f => f.Tag).ToList(),
             Junctions = _trial is { } t ? JunctionMarks(t) : Array.Empty<JunctionMark>(),
             Issues = _trial?.Issues ?? (IReadOnlyList<Issue>)Array.Empty<Issue>(),
@@ -361,11 +362,30 @@ public partial class SplineDrawTool : Node
         var g = Network.Graph.Clone();
         ApplyBends(g, alignment);
         var result = g.AddSpline(alignment, rules, continueAt);
+        Network.Conform(g);
         var edges = result.Edges.Concat(result.Nodes.SelectMany(n => g.Node(n).Edges)).Distinct();
         var issues = Validation.Check(g, edges, result.Nodes)
             .Where(i => !Network.Issues.Any(old => old.Code == i.Code && old.Message == i.Message && NumVector2.Distance(old.Where, i.Where) < 1f))
             .ToList();
         return new Trial(g, result, issues);
+    }
+
+    /// <summary>The trial road's height at a plan point: the height line of its nearest new edge there.</summary>
+    private static Func<NumVector2, float?> HeightOf(Trial t)
+    {
+        var edges = t.Result.Edges.Where(t.Graph.HasEdge).Select(t.Graph.Edge).Where(e => e.Heights is not null).ToList();
+        return p =>
+        {
+            float? h = null;
+            float best = float.MaxValue;
+            foreach (var e in edges)
+            {
+                var cp = e.Alignment.Curve.ClosestPoint(p);
+                float d = NumVector2.DistanceSquared(cp.Position, p);
+                if (d < best) (best, h) = (d, e.Heights!.At(cp.S));
+            }
+            return h;
+        };
     }
 
     /// <summary>The junctions the draw makes or changes; one already built as it is (say the T the chain started

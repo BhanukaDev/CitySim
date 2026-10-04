@@ -33,7 +33,7 @@ public sealed record ProfileRules
     public float MinKerbRadius { get; init; }
     public float MaxKerbRadius { get; init; }
 
-    /// <summary>Steepest grade; null = follows the ground with no limit.</summary>
+    /// <summary>Steepest grade; steeper is Invalid. Null = follows the ground with no limit.</summary>
     public float? MaxGrade { get; init; }
     public float SnapLength { get; init; } = 8f;
     /// <summary>What one <see cref="SnapLength"/> step is called in tags ("5 lots"), so the wording stays data.</summary>
@@ -60,8 +60,10 @@ public sealed record ProfileRules
     public EdgeMode Edge { get; init; } = EdgeMode.Slope;
     /// <summary>For <see cref="EdgeMode.Auto"/>: walls where the cut or fill is higher than this.</summary>
     public float WallAbove { get; init; }
-    /// <summary>Above this cut or fill depth the edge turns amber.</summary>
-    public float MaxCutFill { get; init; }
+    /// <summary>Deepest cut (natural ground above the line) allowed, in metres; deeper is Invalid. Null = no limit.</summary>
+    public float? MaxCut { get; init; }
+    /// <summary>Highest fill (natural ground below the line) allowed, in metres; higher is Invalid. Null = no limit.</summary>
+    public float? MaxFill { get; init; }
 
     public SnapProviders SnapProviders { get; init; } = SnapProviders.All;
     /// <summary>Profile ids (or tags) this profile joins at junctions. Empty = only itself.</summary>

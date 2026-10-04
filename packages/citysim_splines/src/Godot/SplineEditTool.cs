@@ -825,6 +825,7 @@ public partial class SplineEditTool : Node
     /// show again nor block it.</summary>
     private List<Issue> NewIssues(SplineGraph g, EditResult result)
     {
+        Network!.Conform(g);
         var touched = result.Edges.Concat(result.Nodes.SelectMany(n => g.Node(n).Edges)).Distinct();
         return Validation.Check(g, touched, result.Nodes)
             .Where(i => !Network!.Issues.Any(old => old.Code == i.Code && old.Message == i.Message && NumVector2.Distance(old.Where, i.Where) < 1f))

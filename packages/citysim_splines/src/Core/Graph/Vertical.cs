@@ -15,6 +15,11 @@ public sealed record EdgeHeights(Alignment Alignment, ProfileRules Rules, float 
 {
     public float Spacing => Heights.Length > 1 ? Alignment.Length / (Heights.Length - 1) : 1f;
 
+    /// <summary>The deepest cut (natural ground above the line) when the line was made, in metres, and where it is.</summary>
+    public (float Depth, float S) DeepestCut { get; init; }
+    /// <summary>The highest fill (natural ground below the line) when the line was made, in metres, and where it is.</summary>
+    public (float Depth, float S) HighestFill { get; init; }
+
     /// <summary>The height at a distance along the edge.</summary>
     public float At(float s)
     {
@@ -45,11 +50,11 @@ public sealed record EdgeHeights(Alignment Alignment, ProfileRules Rules, float 
 
 /// <summary>
 /// Gives every node a height and every edge a height line, keeping the ones still valid (DESIGN.md → Vertical profile,
-/// <c>Ground</c> stations). A new node takes the ground under it, limited by <see cref="ProfileRules.MaxGrade"/> from its
-/// neighbours that already have one (so a road drawn up a cliff ends in a cut or on an embankment instead of being too
-/// steep). An edge's line is the ground along its centre averaged over <see cref="ProfileRules.GroundSmoothing"/>, bent
-/// to meet its nodes' heights, held level over each junction's cut-back (junctions are flat plates), then limited to the
-/// max grade and rounded at crests and sags. Ground under existing roads has been shaped to them, so a road split or met by a new one keeps its height.
+/// <c>Ground</c> stations). A new or moved node takes the ground under it, exactly where it was put: the line never moves
+/// a node to make a grade fit, validation marks it red instead. An edge's line is the ground along its centre averaged
+/// over <see cref="ProfileRules.GroundSmoothing"/> (to take out bumps), bent to meet its nodes' heights, held level over
+/// each junction's cut-back (junctions are flat plates), then limited to the max grade and rounded at crests and sags.
+/// Ground under existing roads has been shaped to them, so a road split or met by a new one keeps its height.
 /// </summary>
 public static class Vertical
 {
@@ -61,19 +66,11 @@ public static class Vertical
     public static (List<int> Edges, List<int> Nodes) Conform(SplineGraph g, IReadOnlyDictionary<int, JunctionFootprint> footprints, IGround ground)
     {
         var nodes = new HashSet<int>();
-        var pending = g.Nodes.Where(n => n.Height is null).Select(n => n.Id).ToHashSet();
-        while (pending.Count > 0)
+        foreach (var node in g.Nodes)
         {
-            // Next to a node with a height first, so the grade limit reaches along the network; else the oldest.
-            int id = pending.Where(n => Neighbours(g, n).Any(x => g.Node(x.Node).Height is not null)).DefaultIfEmpty(pending.Min()).Min();
-            var node = g.Node(id);
-            float h = ground.GetHeight(node.Position);
-            foreach (var (other, length, grade) in Neighbours(g, id))
-                if (g.Node(other).Height is { } ho && grade is { } gr)
-                    h = Math.Clamp(h, ho - gr * length, ho + gr * length);
-            node.Level = new NodeLevel(node.Position, h);
-            pending.Remove(id);
-            nodes.Add(id);
+            if (node.Height is not null) continue;
+            node.Level = new NodeLevel(node.Position, ground.GetHeight(node.Position));
+            nodes.Add(node.Id);
         }
 
         var edges = new List<int>();
@@ -88,16 +85,6 @@ public static class Vertical
             nodes.Add(e.End);
         }
         return (edges, nodes.ToList());
-    }
-
-    private static IEnumerable<(int Node, float Length, float? Grade)> Neighbours(SplineGraph g, int id)
-    {
-        foreach (int eid in g.Node(id).Edges)
-        {
-            var e = g.Edge(eid);
-            if (e.Start == e.End) continue;
-            yield return (e.Start == id ? e.End : e.Start, e.Alignment.Length, e.Rules.MaxGrade);
-        }
     }
 
     private static EdgeHeights Line(GraphEdge e, float h0, float h1, float cutStart, float cutEnd, IGround ground)
@@ -130,11 +117,18 @@ public static class Vertical
         var pinned = new bool[n + 1];
         for (int i = 0; i <= n; i++)
         {
-                        if (i <= ia) (h[i], pinned[i]) = (h0, true);
+            if (i <= ia) (h[i], pinned[i]) = (h0, true);
             else if (i >= ib) (h[i], pinned[i]) = (h1, true);
             else h[i] = smooth[i] + d0 + (d1 - d0) * (i - ia) / (float)(ib - ia);
         }
 
+        // Ends too far apart in height for the max grade: one even ramp between them, so the line shows the grade they
+        // need (and a road built anyway with Anarchy has no step in it).
+        if (e.Rules.MaxGrade is { } maxGrade && MathF.Abs(h1 - h0) > maxGrade * (ib - ia) * ds + 1e-3f)
+        {
+            for (int i = ia + 1; i < ib; i++) h[i] = h0 + (h1 - h0) * (i - ia) / (ib - ia);
+            return Measured(e, h0, h1, cutStart, cutEnd, h, raw, ds);
+        }
         LimitGrade(e.Rules.MaxGrade, h, pinned, ds);
         // The limit leaves sharp crests and sags where it meets the ground; averaging rounds them into vertical curves
         // (an average of a line within the grade stays within it), then the limit again for the joins to the pins.
@@ -155,11 +149,25 @@ public static class Vertical
             }
             LimitGrade(e.Rules.MaxGrade, h, pinned, ds);
         }
-        return new EdgeHeights(e.Alignment, e.Rules, h0, h1, cutStart, cutEnd, h);
+        return Measured(e, h0, h1, cutStart, cutEnd, h, raw, ds);
     }
 
-    /// <summary>No steeper than the max grade, leaving the pinned stations. Pinned ends too far apart in height for it
-    /// stay steep (validation flags it).</summary>
+    /// <summary>The line, with its deepest cut and highest fill against the natural ground.</summary>
+    private static EdgeHeights Measured(GraphEdge e, float h0, float h1, float cutStart, float cutEnd, float[] h, float[] raw, float ds)
+    {
+        int n = h.Length - 1;
+        (float, float) cut = (0, 0), fill = (0, 0);
+        for (int i = 0; i <= n; i++)
+        {
+            float d = raw[i] - h[i];
+            if (d > cut.Item1) cut = (d, i * ds);
+            if (-d > fill.Item1) fill = (-d, i * ds);
+        }
+        return new EdgeHeights(e.Alignment, e.Rules, h0, h1, cutStart, cutEnd, h) { DeepestCut = cut, HighestFill = fill };
+    }
+
+    /// <summary>No steeper than the max grade, leaving the pinned stations (close enough in height for it; ends too far
+    /// apart get an even ramp instead).</summary>
     private static void LimitGrade(float? maxGrade, float[] h, bool[] pinned, float ds)
     {
         if (maxGrade is not { } grade) return;

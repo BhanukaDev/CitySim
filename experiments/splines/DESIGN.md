@@ -66,7 +66,9 @@ changes the station at the current point.
 
 `Ground` doesn't mean "copy every bump". The spline's height line is the ground sampled along the centre, then
 **averaged over `GroundSmoothing` and limited to `MaxGrade`**. A street (20 m) hugs the hills. A rail line (400 m)
-runs straight through them on cuts and embankments, like Transport Fever 2. This answers the top CS1 complaint that
+runs straight through them on cuts and embankments, like Transport Fever 2. **Nodes go exactly where they're placed**, at
+the ground there (user decision, 2026-10-05): the line never moves a node to fit `MaxGrade`; ends too far apart in height
+for it, or a line needing a cut or fill past `MaxCut` / `MaxFill`, are red. This answers the top CS1 complaint that
 roads build "masses of ground" instead of climbing hills. The terrain is then shaped to meet that line (below). The spline height is
 the top of the section: the road surface, or a canal's bank top.
 
@@ -141,7 +143,7 @@ numbers are game feel, not engineering standards.
 | `CutSlope` / `FillSlope` | blend angle back to natural ground | 1:2 / 1:2 | 1:2 / 1:3 | 1:1.5 / 1:2 | 1:2 / 1:2 | – |
 | `GroundSmoothing` | how far along the line the ground is averaged for `Ground` stations (short = hugs hills) | 20 m | 250 m | 400 m | level | 0 (exact) |
 | `Edge` | how the section meets the ground: `Slope`, `Wall`, or `Auto` (walls above `WallAbove`) | Auto, 3 m | Slope | Auto, 4 m | Auto, 2 m | – |
-| `MaxCutFill` | above this the edge turns amber ("consider a bridge or tunnel") | 8 m | 15 m | 15 m | 6 m | – |
+| `MaxCut` / `MaxFill` | deepest cut / highest fill under the line; deeper or higher is red (Invalid) | 8 m | 15 m | 15 m | 6 m | – |
 | `SnapProviders` | which snaps and guides this profile offers | all | all | all | all | no parallel |
 
 Profiles can also restrict which other profiles they connect to (a canal doesn't join a road; a road crosses a canal

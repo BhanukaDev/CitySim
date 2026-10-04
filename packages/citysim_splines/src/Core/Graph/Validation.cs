@@ -8,7 +8,8 @@ namespace CitySim.Splines;
 /// <summary>Warn: amber, still builds. Invalid: red, builds only with Anarchy (and stays red once built).</summary>
 public enum Severity { Warn, Invalid }
 
-/// <summary>One validation result, in plain words with the fix (DESIGN.md → Validation), and where it is.</summary>
+/// <summary>One validation result, in plain words with the fix (DESIGN.md → Validation), and where it is. The message may
+/// start with a symbol the overlay draws as an icon (↗ grade, ⤓ cut, ⤒ fill).</summary>
 public sealed record Issue(Severity Severity, string Code, string Message, Vector2 Where, int? EdgeId = null, int? NodeId = null);
 
 /// <summary>
@@ -17,7 +18,7 @@ public sealed record Issue(Severity Severity, string Code, string Message, Vecto
 /// junction angle below the minimum (Warn), a square branch off a turnout profile (Invalid), a crossing or overlap
 /// with an edge it doesn't connect to (Invalid), crossing itself (Invalid), an edge too short for the junctions
 /// at its ends (Warn), and a kerb handle set below the profile's minimum kerb radius (Invalid). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade: an edge whose
-/// height line is steeper than the profile's max grade (Warn). Plain loops over every edge; S11 adds a spatial index.
+/// height line is steeper than the profile's max grade (Invalid), and cut or fill deeper than its max (Invalid). Plain loops over every edge; S11 adds a spatial index.
 /// </summary>
 public static class Validation
 {
@@ -81,8 +82,16 @@ public static class Validation
             issues.Add(new Issue(Severity.Warn, "short", "too short for its junctions", a.Curve.Sample(a.Length / 2).Position, e.Id));
 
         // Its height line only goes steeper than the max grade where its two ends are too far apart in height.
-        if (rules.MaxGrade is { } maxGrade && e.Heights is { } line && line.Steepest() is var (grade, gs) && grade > maxGrade + 0.005f)
-            issues.Add(new Issue(Severity.Warn, "grade", $"grade {grade * 100:0} %, max {maxGrade * 100:0} %", a.Curve.Sample(gs).Position, e.Id));
+        if (e.Heights is { } line)
+        {
+            if (rules.MaxGrade is { } maxGrade && line.Steepest() is var (grade, gs) && grade > maxGrade + 0.005f)
+                issues.Add(new Issue(Severity.Invalid, "grade", $"↗ {grade * 100:0} %, max {maxGrade * 100:0} % · Ctrl+A allows",
+                    a.Curve.Sample(gs).Position, e.Id));
+            if (rules.MaxCut is { } maxCut && line.DeepestCut is var (cut, cs) && cut > maxCut + 0.05f)
+                issues.Add(new Issue(Severity.Invalid, "cut", $"⤓ cut {cut:0.#} m, max {maxCut:0.#} m · Ctrl+A allows", a.Curve.Sample(cs).Position, e.Id));
+            if (rules.MaxFill is { } maxFill && line.HighestFill is var (fill, fs) && fill > maxFill + 0.05f)
+                issues.Add(new Issue(Severity.Invalid, "fill", $"⤒ fill {fill:0.#} m, max {maxFill:0.#} m · Ctrl+A allows", a.Curve.Sample(fs).Position, e.Id));
+        }
 
         foreach (var other in g.Edges)
         {
