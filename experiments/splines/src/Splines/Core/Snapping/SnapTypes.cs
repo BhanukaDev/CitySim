@@ -66,7 +66,7 @@ public sealed record GuideLine(IReadOnlyList<Vector2> Points, GuideKind Kind, st
 /// <summary>What a soft angle lock is measured against.</summary>
 public enum AngleReference
 {
-    /// <summary>Ctrl steps: absolute headings.</summary>
+    /// <summary>Ctrl steps with no leg or start edge to count from: absolute headings.</summary>
     Absolute,
     /// <summary>The edge the draw started on.</summary>
     StartEdge,
@@ -78,10 +78,12 @@ public enum AngleReference
 /// A direction lock on the current leg. <see cref="Vertex"/> is where the ∡ is drawn, between
 /// <see cref="ReferenceDirection"/> and <see cref="Direction"/>. <see cref="Degrees"/> is the angle between the two
 /// edges (90 = square, 180 = straight on); for Ctrl steps it's the absolute heading (counter-clockwise from east, seen
-/// from above). <see cref="Meaning"/> is the plain word: "square", "diagonal", "straight on".
+/// from above). <see cref="Meaning"/> is the plain word: "square", "diagonal", "straight on". <see cref="Stepped"/>:
+/// Ctrl's steps, counted from the previous leg or the start edge (or absolute, with neither).
 /// </summary>
 public readonly record struct AngleLock(
-    Vector2 Vertex, Vector2 ReferenceDirection, Vector2 Direction, float Degrees, AngleReference Against, string Meaning);
+    Vector2 Vertex, Vector2 ReferenceDirection, Vector2 Direction, float Degrees, AngleReference Against, string Meaning,
+    bool Stepped = false);
 
 /// <summary>The leg the current leg matched in length: its two ends, and the length.</summary>
 public readonly record struct LegMatch(Vector2 A, Vector2 B, float Length);
@@ -115,7 +117,8 @@ public sealed record SnapQuery
     /// <summary>How far away (plan units) a guide source is still considered.</summary>
     public float GuideSearchRadius { get; init; } = 400f;
 
-    /// <summary>Ctrl held: absolute angle steps instead of the soft angle.</summary>
+    /// <summary>Ctrl held: angle steps (from the previous leg or start edge, else absolute) instead of the soft angle,
+    /// and the length always in whole <see cref="ProfileRules.SnapLength"/> steps.</summary>
     public bool CtrlSteps { get; init; }
 
     /// <summary>Ctrl+Shift: 5° steps instead of 15°.</summary>

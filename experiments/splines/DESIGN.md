@@ -159,7 +159,7 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 | Esc | stop, as RMB; again leaves the tool |
 | Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
 | Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy). Curve mode with a bend placed: the bend's radius (up to the fit). Grid mode: block lots along the first edge; Shift+`[` `]` or Ctrl+Shift+wheel: lots across |
-| Ctrl (hold) | absolute 15° angle steps; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start) |
+| Ctrl (hold) | 15° angle steps counted from the previous leg (or the road the draw started on; absolute on a free first leg), and the length in whole lots; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start). On macOS Ctrl+click is still a left click |
 | Space (hold) | all snapping off |
 | `1`–`4` | Draw · Curve · Freehand · Grid |
 | `P` | Parallel on/off; wheel changes the offset, Alt flips the side |
@@ -289,12 +289,13 @@ point where two guides meet is where a planned grid wants the next corner.
 The soft angle snaps to **square (90°), diagonal (45°) and straight on** against two references: the road the draw
 started on (if the first click snapped to a node or edge) and the previous leg. Whichever target is closer wins. The
 tag names the angle *between the roads* and what it means: `∡ 90° · square to edge`, `∡ 135° · diagonal to leg`,
-`∡ 180° · straight on`. Ctrl replaces it with absolute 15° steps (5° with Shift): `30.0° · Ctrl`.
+`∡ 180° · straight on`. Ctrl replaces it with 15° steps (5° with Shift) from the previous leg or start road, `∡ 165° · Ctrl`, or absolute
+headings when there's neither, `30.0° · Ctrl`; the length then always steps in whole lots.
 
 ### Priority
 1. Existing node (radius ~ half the profile width)
 2. The perpendicular foot from the leg's start, then an existing edge (T-junction point, closest point on the alignment)
-3. **Direction lock**: Ctrl's absolute steps, else the soft angle above
+3. **Direction lock**: Ctrl's steps, else the soft angle above
 4. With a lock, a guide (or guide crossing) only picks **where along the locked direction** the point lands
    (`extension · ∡ 90°`); failing that, the length snaps (6). A guide never pulls a leg off its angle.
 5. With no lock: guide crossing, then a single guide (extension, node alignment, parallel, perpendicular)

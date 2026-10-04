@@ -91,7 +91,12 @@ public partial class SplineDrawTool : Node
     {
         if (!Active) return;
         if (@event is InputEventKey { Pressed: true } key) HandleKey(key);
-        else if (@event is InputEventMouseButton mb) HandleMouseButton(mb);
+        else if (@event is InputEventMouseButton mb)
+        {
+            // macOS turns Ctrl+click into a right click, which would stop the draw; here Ctrl means angle steps.
+            if (mb.ButtonIndex == MouseButton.Right && mb.CtrlPressed && OS.GetName() == "macOS") mb.ButtonIndex = MouseButton.Left;
+            HandleMouseButton(mb);
+        }
     }
 
     private void HandleKey(InputEventKey key)
@@ -177,7 +182,8 @@ public partial class SplineDrawTool : Node
 
         var rules = profile.ToRules();
         var mods = _view.Modifiers();
-        _snap = SnapEngine.Evaluate(BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods));
+        var query = BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods);
+        _snap = SnapEngine.Evaluate(query);
         if (Mode == DrawMode.Freehand) { ProcessFreehand(profile, rules, _view.PlanOf(cursor)); return; }
         if (Mode == DrawMode.Grid && _gridAlongEnd is not null) { ClearBends(); ProcessGrid(profile, rules, _view.PlanOf(cursor)); return; }
         ClearGridTrial();
@@ -243,6 +249,7 @@ public partial class SplineDrawTool : Node
             BuiltEnds = Dots(),
             Mouse = _view.MouseScreen(),
             CtrlStepDegrees = ctrl && !_session.IsEmpty ? (mods.HasFlag(DrawModifiers.Shift) ? 5f : 15f) : 0f,
+            CtrlFanFrom = SnapEngine.CtrlReference(query)?.Direction ?? NumVector2.UnitX,
             HardRefused = now < _hardHintUntil,
             Flashes = _flashes.Select(f => f.Tag).ToList(),
             Junctions = _trial is { } t ? JunctionMarks(t) : Array.Empty<JunctionMark>(),

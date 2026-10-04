@@ -9,7 +9,8 @@ namespace CitySim.Splines;
 /// Resolves one frame's snapped cursor position (DESIGN.md → Snapping and guides → Priority):
 /// <list type="number">
 /// <item>an existing node, then the perpendicular foot from the leg's start, then an existing edge;</item>
-/// <item>a direction lock: Ctrl's absolute 15°/5° steps, or a soft square/diagonal/straight-on angle against the edge
+/// <item>a direction lock: Ctrl's 15°/5° steps (from the previous leg or start edge, else absolute; the length then
+///   always steps in whole lots), or a soft square/diagonal/straight-on angle against the edge
 ///   the draw started on or the previous leg (whichever is closer);</item>
 /// <item>with a lock, a guide (or guide crossing) only picks <i>where along</i> the locked direction the point lands
 ///   ("extension · ∡ 90°"), else a length step or equal length does; a guide never pulls a leg off its angle;</item>
@@ -210,11 +211,21 @@ public static class SnapEngine
         if (q.CtrlSteps)
         {
             float step = (q.FineSteps ? 5f : 15f) * (MathF.PI / 180f);
-            float snapped = MathF.Round(SplineMath.Angle(to) / step) * step;
-            // Plan angles grow clockwise seen from above (z points south); players read headings counter-clockwise.
-            float heading = -snapped * 180f / MathF.PI;
-            heading = (heading % 360f + 360f) % 360f;
-            return new AngleLock(last, Vector2.UnitX, SplineMath.Direction(snapped), heading, AngleReference.Absolute, "Ctrl");
+            if (CtrlReference(q) is not { } r)
+            {
+                float snapped = MathF.Round(SplineMath.Angle(to) / step) * step;
+                // Plan angles grow clockwise seen from above (z points south); players read headings counter-clockwise.
+                float heading = -snapped * 180f / MathF.PI;
+                heading = (heading % 360f + 360f) % 360f;
+                return new AngleLock(last, Vector2.UnitX, SplineMath.Direction(snapped), heading, AngleReference.Absolute, "Ctrl", Stepped: true);
+            }
+            // Counted from the road it carries on from, so straight on stays exactly straight on whatever its heading.
+            var from = r.Against == AngleReference.StartEdge && Vector2.Dot(r.Direction, to) < 0 ? -r.Direction : r.Direction;
+            float turn = MathF.Round(SplineMath.Turn(from, to) / step) * step;
+            float deg = MathF.Abs(turn) * 180f / MathF.PI;
+            return r.Against == AngleReference.Leg
+                ? new AngleLock(last, -from, Rotate(from, turn), 180f - deg, AngleReference.Leg, "Ctrl", Stepped: true)
+                : new AngleLock(last, from, Rotate(from, turn), deg, AngleReference.StartEdge, "Ctrl", Stepped: true);
         }
 
         AngleLock? best = null;
@@ -260,12 +271,25 @@ public static class SnapEngine
         return best;
     }
 
+    /// <summary>What Ctrl's steps count from: the previous leg, else the edge the draw started on; null (absolute
+    /// headings) with neither. The overlay's step fan turns with it.</summary>
+    public static (Vector2 Direction, AngleReference Against)? CtrlReference(SnapQuery q)
+    {
+        if (q.SessionPis.Count >= 2)
+        {
+            var leg = q.SessionPis[^1].Position - q.SessionPis[^2].Position;
+            if (leg.Length() > SplineMath.Epsilon) return (Vector2.Normalize(leg), AngleReference.Leg);
+        }
+        if (q.StartHeading is { } h && h.LengthSquared() > SplineMath.Epsilon) return (Vector2.Normalize(h), AngleReference.StartEdge);
+        return null;
+    }
+
     /// <summary>With the direction locked, a guide picks the point where the locked ray meets it; otherwise the length
     /// snaps along the ray.</summary>
     private static SnapResult Locked(SnapQuery q, SnapProviders providers, AngleLock angle, List<(GuideLine Guide, float Dist)> guides)
     {
         var origin = angle.Vertex;
-        var kind = angle.Against == AngleReference.Absolute ? SnapKind.CtrlAngle : SnapKind.Angle;
+        var kind = angle.Stepped ? SnapKind.CtrlAngle : SnapKind.Angle;
 
         GuideLine? hitGuide = null;
         Vector2 hit = default;
@@ -289,7 +313,7 @@ public static class SnapEngine
         }
 
         float along = MathF.Max(Vector2.Dot(q.Cursor - origin, angle.Direction), 0f);
-        var length = MatchLength(q, providers, along);
+        var length = MatchLength(q, providers, along, wholeSteps: angle.Stepped);
         return new SnapResult
         {
             Position = origin + angle.Direction * length.Length, Kind = kind, Tag = AngleTag(angle), TagAt = origin,
@@ -313,6 +337,7 @@ public static class SnapEngine
     public static string AngleTag(AngleLock a) => a.Against switch
     {
         AngleReference.Absolute => $"{a.Degrees:0.0}° · Ctrl",
+        _ when a.Stepped => $"∡ {a.Degrees:0}° · Ctrl",
         _ when a.Meaning == "straight on" => $"∡ {a.Degrees:0}° · straight on",
         _ when a.Meaning == "tangent" => "tangent",
         AngleReference.StartEdge => $"∡ {a.Degrees:0}° · {a.Meaning} to edge",
@@ -500,8 +525,9 @@ public static class SnapEngine
     private readonly record struct LengthMatch(float Length, SnapKind Kind, int? Steps, LegMatch? Match);
 
     /// <summary>A leg of <paramref name="rawLen"/> metres snapped to equal length (a nearby leg, if within catch and
-    /// closer than the step) or to whole <see cref="ProfileRules.SnapLength"/> steps.</summary>
-    private static LengthMatch MatchLength(SnapQuery q, SnapProviders providers, float rawLen)
+    /// closer than the step) or to whole <see cref="ProfileRules.SnapLength"/> steps. <paramref name="wholeSteps"/>
+    /// (Ctrl): always a whole step, at least one, however far the cursor is from it.</summary>
+    private static LengthMatch MatchLength(SnapQuery q, SnapProviders providers, float rawLen, bool wholeSteps = false)
     {
         LegMatch? equal = null;
         float equalDist = q.CatchDistance;
@@ -516,11 +542,12 @@ public static class SnapEngine
 
         int? steps = null;
         float stepDist = float.PositiveInfinity;
-        if (providers.HasFlag(SnapProviders.Length) && q.Rules.SnapLength > SplineMath.Epsilon)
+        if ((wholeSteps || providers.HasFlag(SnapProviders.Length)) && q.Rules.SnapLength > SplineMath.Epsilon)
         {
             int n = (int)MathF.Round(rawLen / q.Rules.SnapLength);
+            if (wholeSteps) n = Math.Max(n, 1);
             float d = MathF.Abs(n * q.Rules.SnapLength - rawLen);
-            if (n > 0 && d <= q.CatchDistance) { steps = n; stepDist = d; }
+            if (n > 0 && (wholeSteps || d <= q.CatchDistance)) { steps = n; stepDist = d; }
         }
 
         if (equal is { } e && equalDist <= stepDist)

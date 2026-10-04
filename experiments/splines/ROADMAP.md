@@ -478,6 +478,13 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
     R 12 → a node on the tightened bend, both halves R 12, no dots of their own; R 6 refused; a leg ending on the
     corner point makes the T). Every other demo still `all ok`. `--storyboard=corner-slide | corner-red | corner-tee |
     corner-y | corner-tee-built` (screenshots at `--cam=598,462,70,89,0`).
+- **Fix (2026-10-04): chords where arms run on** (user's play-test: a block corner straightened with the radial menu
+  left odd shapes at the two Ts; a T on a circle had the circle's far side drawn straight). Two neighbouring arms with
+  no curb between them (straight through, or the outside of a gap over 180°) were joined in the footprint outline by a
+  straight line between their cut ends: a chord across a curve, and a chamfer across the outside of a wide gap. The
+  outline now runs along both arms' sides in to the node and round its outside (`Junctions.RoundOutside`, shared
+  with `BendFill`). `--demo-junctions` (Runs on: T on a circle, a 225° gap), `--storyboard=edit-straight-corner |
+  circle-arms`.
 - For the play-test: are 8 × 8 lots the right default block? Is a freehand stroke kept close enough (6 points for
   the storyboard's S, against its 5)?
 

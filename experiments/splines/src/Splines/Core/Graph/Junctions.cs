@@ -235,7 +235,10 @@ public static class Junctions
         var (paths, cut, curbs, curbAt, corner) = (f.Paths, f.Cut, f.Curbs, f.CurbAt, f.Corner);
 
         // Round the outline: for each arm, its side toward the previous arm (from that curb out to the cut), the cut
-        // end, its side toward the next arm (back in to that curb), then the curb itself.
+        // end, its side toward the next arm (back in to that curb), then the curb itself. Two arms with no curb between
+        // them because they run on (straight through, or the outside of a gap wider than that) are joined along their
+        // own sides in to the node and round the outside of it, so a junction on a curve keeps the curve on its far
+        // side and the outside of a wide gap isn't cut off by a chord between the cut ends.
         var outline = new List<Vector2>();
         for (int i = 0; i < n; i++)
         {
@@ -243,11 +246,15 @@ public static class Junctions
             float w = f.Sorted[i].Arm.Rules.Width / 2;
             bool prevFits = corner[prev] && Fits(prev);
             bool nextFits = corner[i] && Fits(i);
-            outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : cut[i], cut[i]));
-            outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : cut[i]));
+            outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : RunsOn(prev) ? 0 : cut[i], cut[i]));
+            outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : RunsOn(i) ? 0 : cut[i]));
             if (nextFits && curbs[i] is { } curb) outline.AddRange(ArcPoints(curb));
+            else if (RunsOn(i))
+                outline.AddRange(RoundOutside(g.Node(nodeId).Position, paths[i].At(0).Direction, f.Sorted[i].Gap,
+                    w, f.Sorted[(i + 1) % n].Arm.Rules.Width / 2));
 
             bool Fits(int k) => cut[k] >= curbAt[k].From - 1e-3f && cut[(k + 1) % n] >= curbAt[k].To - 1e-3f;
+            bool RunsOn(int k) => !corner[k] && f.Sorted[k].Gap >= StraightGapDegrees;
         }
         var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
         return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline));
@@ -704,10 +711,19 @@ public static class Junctions
         var (a, gap) = sorted[i];
         var b = sorted[1 - i].Arm;
         if (gap < 360f - StraightGapDegrees) return null;
-        var centre = g.Node(nodeId).Position;
-        float from = SplineMath.Angle(a.Direction) + MathF.PI / 2, sweep = (gap - 180f) * MathF.PI / 180f;
         float ra = a.Rules.Width / 2, rb = b.Rules.Width / 2;
         if (IsTransition(arms)) ra = rb = MathF.Min(ra, rb); // the wider arm has tapered down to the narrower by here
+        return RoundOutside(g.Node(nodeId).Position, a.Direction, gap, ra, rb, n);
+    }
+
+    /// <summary>The outside of two arms meeting at a node with <paramref name="gap"/> degrees (≥ 180) between them: an
+    /// arc round the node from the first arm's side toward the next (<paramref name="ra"/> off its centre line) to the
+    /// next arm's side (<paramref name="rb"/>), its radius going from one to the other. Just the two side points when
+    /// they run straight through.</summary>
+    private static List<Vector2> RoundOutside(Vector2 centre, Vector2 direction, float gap, float ra, float rb, int n = 12)
+    {
+        float from = SplineMath.Angle(direction) + MathF.PI / 2, sweep = MathF.Max(0, gap - 180f) * MathF.PI / 180f;
+        if (sweep < 1e-3f) n = 1;
         var pts = new List<Vector2>(n + 1);
         for (int k = 0; k <= n; k++)
         {

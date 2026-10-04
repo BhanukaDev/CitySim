@@ -41,6 +41,7 @@ public partial class JunctionDemo : Node
         TJunction();
         FourWay();
         OnCurve();
+        RunsOn();
         TooSharp();
         RailBranch();
         ThroughJunction();
@@ -125,6 +126,32 @@ public partial class JunctionDemo : Node
             var l = at + SplineMath.Left(e.Alignment.Curve.Sample(k.AtStart ? k.CutBack : e.Alignment.Length - k.CutBack).Tangent) * (e.Rules.Width / 2);
             Check($"Curve: outline has edge {k.EdgeId}'s cut corner", f.Outline.Any(o => Vector2.Distance(o, l) < 0.05f));
         }
+    }
+
+    /// <summary>Two arms with no curb between them are joined along their own sides round the node, not by a chord
+    /// between their cut ends: a T on a circle keeps the circle's far side, and the outside of a gap wider than 180°
+    /// (a corner straightened into a T) goes round the node.</summary>
+    private void RunsOn()
+    {
+        var g = new SplineGraph();
+        var circle = new Alignment(new[] { new Pi(V(0, -80)), new Pi(V(80, -80), 80), new Pi(V(80, 0)), new Pi(V(80, 80), 80), new Pi(V(0, 80)) });
+        g.AddSpline(circle, Street);
+        var r = g.AddSpline(Line(V(160, 0), V(80, 0)), Street);
+        int node = r.Nodes.Single(n => g.Arms(n).Count == 3);
+        var f = Junctions.Footprint(g, node)!;
+        Check("Runs on: far side at the node", f.Outline.Any(o => Vector2.Distance(o, V(74, 0)) < 0.05f));
+        // Every outline point on the far side sits on the circle's inner side (R 74), none on a chord inside it.
+        var far = f.Outline.Where(o => o.X < 77).ToList();
+        Check("Runs on: far side follows the curve", far.Count > 2 && far.All(o => MathF.Abs(o.Length() - 74) < 0.05f));
+
+        g = new SplineGraph();
+        g.AddSpline(Line(V(0, 100), V(0, -100)), Street);
+        g.AddSpline(Line(V(0, 0), V(100, 0)), Street);
+        g.RemoveEdge(g.Edges.Single(e => e.Alignment.Pis.Any(p => p.Position.Y < -1)).Id);
+        g.AddSpline(Line(V(0, 0), V(70, -70)), Street);
+        f = Junctions.Footprint(g, g.Nodes.Single(n => g.Arms(n.Id).Count == 3).Id)!;
+        var mid = 6 * SplineMath.Direction((90 + 225 / 2f) * MathF.PI / 180);
+        Check("Runs on: round outside of a 225° gap", f.Outline.Any(o => Vector2.Distance(o, mid) < 0.05f));
     }
 
     private void TooSharp()

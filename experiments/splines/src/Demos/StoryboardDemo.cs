@@ -103,6 +103,8 @@ public partial class StoryboardDemo : Node
             ["corner-tee"] = () => CornerJunction(slide: 0, branch: (200, 5), build: false),
             ["corner-y"] = () => CornerJunction(slide: 12, branch: (250, 15), build: false),
             ["corner-tee-built"] = () => CornerJunction(slide: 0, branch: (200, 5), build: true),
+            ["edit-straight-corner"] = EditStraightCorner,
+            ["circle-arms"] = CircleArms,
         };
     }
 
@@ -923,6 +925,32 @@ public partial class StoryboardDemo : Node
         SnapClick(cursor);
         if (build) { Click(b); DrawTool!.FinishForTest(); }
         else Hover(b);
+    }
+
+    /// <summary>A block's corner (R 16) between two Ts straightened from the radial menu: the edge runs diagonally
+    /// into both Ts, each with a wide (reflex) gap on its outside.</summary>
+    private void EditStraightCorner()
+    {
+        BuildCurve("street", 16, (20, 250), (20, 20), (280, 20));
+        Build("street", (20, 180), (280, 180));
+        Build("street", (200, 20), (200, 250));
+        Testbed!.SetTool(SplineTool.Edit);
+        EditTool!.SelectForTest(P((20, 100)));
+        EditTool.MenuForTest(P((20, 20)), 2, choose: true);
+        EditTool.ForcedPlanCursor = P((280, 250));
+    }
+
+    /// <summary>A street circle (R 80) with arms off it, outside and inside: the circle's far side of each T must
+    /// follow the curve.</summary>
+    private void CircleArms()
+    {
+        ModeCurveCircle(close: true);
+        DrawTool!.FinishForTest();
+        Testbed!.SetMode(DrawMode.Draw);
+        Click((160, -40)); SnapClick((160, 20)); DrawTool.FinishForTest();
+        Click((300, 140)); SnapClick((231, 140)); DrawTool.FinishForTest();
+        Click((160, 100)); SnapClick((90, 140)); DrawTool.FinishForTest();
+        Hover((300, 260));
     }
 
     private static NumVector2 P((float X, float Y) svg) => Origin + new NumVector2(svg.X, svg.Y);

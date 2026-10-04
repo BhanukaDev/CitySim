@@ -83,26 +83,42 @@ public partial class SnapDemo : Node
         Check("soft 90 kind", soft.Kind == SnapKind.Angle);
         Check("soft 90 direction", soft.Position, last + SplineMath.Direction(Rad(targetDeg)) * 20f, tol: 0.05f);
 
+        // Ctrl counts its steps from the previous leg (20° off the plan axes here), not from east: 68° off the leg is
+        // between soft targets, steps to 75° off it (absolute steps would give 90°), and the length to whole lots.
+        var cursor68 = last + SplineMath.Direction(Rad(refDeg + 68f)) * 20f;
         var ctrl = SnapEngine.Evaluate(new SnapQuery
         {
-            Cursor = cursor90, SessionPis = pis, Rules = Rules(), CatchDistance = 1f,
+            Cursor = cursor68, SessionPis = pis, Rules = Rules(), CatchDistance = 1f,
             EnabledProviders = SnapProviders.Angle, CtrlSteps = true,
         });
-        float nearest15 = MathF.Round(targetDeg / 15f) * 15f;
         Check("ctrl overrides soft angle", ctrl.Kind == SnapKind.CtrlAngle);
-        Check("ctrl 15deg differs from soft target", MathF.Abs(nearest15 - targetDeg) > 0.5f);
-        // The locked point is the cursor projected onto the locked ray.
-        float along15 = 20f * MathF.Cos(Rad(nearest15 - targetDeg));
-        Check("ctrl 15deg direction", ctrl.Position, last + SplineMath.Direction(Rad(nearest15)) * along15, tol: 0.05f);
+        Check("ctrl steps from the leg", ctrl.Position, last + SplineMath.Direction(Rad(refDeg + 75f)) * 16f, tol: 0.05f);
+        Check("ctrl whole lots", ctrl.LengthSteps ?? 0, 2);
+        Check("ctrl degrees between roads", ctrl.Angle?.Degrees ?? 0, 105f, tol: 0.01f);
 
         var fine = SnapEngine.Evaluate(new SnapQuery
         {
-            Cursor = cursor90, SessionPis = pis, Rules = Rules(), CatchDistance = 1f,
+            Cursor = cursor68, SessionPis = pis, Rules = Rules(), CatchDistance = 1f,
             EnabledProviders = SnapProviders.Angle, CtrlSteps = true, FineSteps = true,
         });
-        float nearest5 = MathF.Round(targetDeg / 5f) * 5f;
         Check("ctrl fine steps kind", fine.Kind == SnapKind.CtrlAngle);
-        Check("ctrl fine steps direction", fine.Position, last + SplineMath.Direction(Rad(nearest5)) * 20f, tol: 0.05f);
+        Check("ctrl fine steps direction", fine.Position, last + SplineMath.Direction(Rad(refDeg + 70f)) * 16f, tol: 0.05f);
+
+        // Nearly straight on stays exactly on the leg's line, and a short pull is still one whole lot.
+        var straight = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = last + SplineMath.Direction(Rad(refDeg + 4f)) * 3f, SessionPis = pis, Rules = Rules(),
+            CatchDistance = 1f, EnabledProviders = SnapProviders.Angle, CtrlSteps = true,
+        });
+        Check("ctrl straight on", straight.Position, last + SplineMath.Direction(Rad(refDeg)) * 8f, tol: 1e-3f);
+
+        // With no leg or start edge to count from, the steps are absolute headings.
+        var first = SnapEngine.Evaluate(new SnapQuery
+        {
+            Cursor = start + SplineMath.Direction(Rad(refDeg)) * 20f, SessionPis = new List<Pi> { new(start) },
+            Rules = Rules(), CatchDistance = 1f, EnabledProviders = SnapProviders.Angle, CtrlSteps = true,
+        });
+        Check("ctrl absolute on a first leg", first.Position, start + SplineMath.Direction(Rad(15f)) * 16f, tol: 0.05f);
 
         // 45°, a separate soft target, confirmed by the same construction.
         float target45 = refDeg + 45f;

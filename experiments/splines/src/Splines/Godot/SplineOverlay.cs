@@ -32,6 +32,8 @@ public sealed class OverlayFrame
     public Vector2 Mouse { get; init; }
     /// <summary>Ctrl steps are on: the fan of step spokes is drawn around the leg's start.</summary>
     public float CtrlStepDegrees { get; init; }
+    /// <summary>The fan's zero spoke: the road the steps count from (<see cref="SnapEngine.CtrlReference"/>), or east.</summary>
+    public NumVector2 CtrlFanFrom { get; init; } = NumVector2.UnitX;
     public bool HardRefused { get; init; }
     /// <summary>Tags that stay a moment after an action ("Total 334 m" and the junctions made, after a finish; a red
     /// refusal).</summary>
@@ -158,7 +160,7 @@ public partial class SplineOverlay : Control
 
         var snap = f.Snap;
         bool drawing = f.Preview is not null && f.SessionPis.Count > 0;
-        if (drawing && f.CtrlStepDegrees > 0) CtrlFan(f.SessionPis[^1].Position, f.CtrlStepDegrees);
+        if (drawing && f.CtrlStepDegrees > 0) CtrlFan(f.SessionPis[^1].Position, f.CtrlFanFrom, f.CtrlStepDegrees);
         if (drawing) DrawPreview(f, f.Preview!, snap);
         if (f.Stroke is { } stroke) DrawStroke(f, stroke);
         if (f.Grid is { } grid) DrawGrid(f, grid);
@@ -417,7 +419,7 @@ public partial class SplineOverlay : Control
 
         // A lock the corner arcs don't already show: against the start edge on a later leg, or Ctrl's steps.
         if (snap.Angle is not { } lk || f.SessionPis.Count == 0) return;
-        if (lk.Against == AngleReference.Absolute)
+        if (lk.Stepped)
         {
             if (ScreenOf(lk.Vertex) is { } v)
                 _tags.Add(new PendingTag(v + new Vector2(18, 16), SnapEngine.AngleTag(lk), TagStyle.Snap, false, null));
@@ -480,14 +482,17 @@ public partial class SplineOverlay : Control
         foreach (var (p, q) in new[] { (sa, sb), (sa - cap, sa + cap), (sb - cap, sb + cap) }) ScreenLine(p, q, Line, ThinWidth);
     }
 
-    private void CtrlFan(NumVector2 at, float stepDegrees)
+    /// <summary>Ctrl's step spokes round the leg's start, in plan space (so they turn with the camera), the zero spoke
+    /// along <paramref name="from"/>.</summary>
+    private void CtrlFan(NumVector2 at, NumVector2 from, float stepDegrees)
     {
         if (ScreenOf(at) is not { } c) return;
+        float zero = SplineMath.Angle(from);
         for (float d = 0; d < 360f; d += stepDegrees)
         {
             bool major = MathF.Abs(d % 45f) < 0.01f;
-            float rad = -d * MathF.PI / 180f; // screen y points down: counter-clockwise headings go up
-            DrawLine(c, c + new Vector2(MathF.Cos(rad), MathF.Sin(rad)) * (major ? 80f : 60f), Line with { A = major ? 0.55f : 0.25f }, major ? 1.5f : 1f, true);
+            if (ScreenOf(at + SplineMath.Direction(zero + d * MathF.PI / 180f)) is not { } tip || (tip - c).LengthSquared() < 1e-6f) continue;
+            DrawLine(c, c + (tip - c).Normalized() * (major ? 80f : 60f), Line with { A = major ? 0.55f : 0.25f }, major ? 1.5f : 1f, true);
         }
     }
 
