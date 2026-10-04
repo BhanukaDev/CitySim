@@ -22,6 +22,11 @@ public partial class GameHud : CanvasLayer
     public RoadOptionsPanel RoadOptions { get; private set; } = null!;
     public Control Root { get; private set; } = null!;
 
+    /// <summary>Whether the Roads tray is open (the road tools only work while it is).</summary>
+    public bool RoadsOpen => _dock.Visible && Tray.Category?.Id == "roads";
+    /// <summary>A category's tray was opened, or the tray closed (null).</summary>
+    public event System.Action<BuildCategory?>? CategoryOpened;
+
     public override void _Ready()
     {
         Library = ContentLibrary.Load();
@@ -61,6 +66,7 @@ public partial class GameHud : CanvasLayer
     {
         _bar.SetActive(category);
         _dock.Visible = category is not null;
+        CategoryOpened?.Invoke(category);
         if (category is null) return;
         foreach (var (id, panel) in _optionPanels) panel.Visible = id == category.Id;
         Tray.Open(category);

@@ -31,6 +31,7 @@ $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshot
 $G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screenshots/shape_junction.png # T on the hillside
 $G --path . -- --flat --demo-road --road-age=0.6 --cam=700,505,10,75,20 --screenshot=screenshots/road_age.png  # cracks close up
 $G --headless --path . -- --flat --bake-road-textures              # only after changing RoadTextureBaker; then --import
+$G --path . -- --flat --bake-road-thumbnails[=<id>]                # card pictures, after a road or its look changes; imports itself
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
@@ -160,7 +161,8 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
 - Paint: frayed sides and dash ends, worn-through patches (alpha scissor, so the asphalt shows), stones showing
   through, dirt.
 - **Cracks come from the road's age** (`RoadVisual.AgeOf`, 0..1, vertex `COLOR.r`): the game raises it as roads get
-  old or damaged (disasters), never the player. New roads have none; at 0.3 a few, at 1 most of the road. The age also
+  old or damaged (disasters), never the player. Every road has a few light cracks from the start (the asphalt
+  material's `base_age`, 0.45); age adds on from there to most of the road at 1. The age also
   greys the asphalt and wears the paint. A junction takes its oldest arm. `--road-age=` previews it.
 - Traffic wear is per vertex too (`UV2.y`, 1 for every road until traffic is simulated).
 - Performance (the map is 28 × 28 km): noise is baked once into three tiling 1024² textures (BPTC, mipmapped, about
@@ -184,8 +186,22 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   lanes coming in, every line ending at the stop line, and the centre line and lines between lanes coming in solid for
   the last 15 m. All numbers in `RoadStyle` (Markings group). Paint UVs fixed, so the sides of lines fray now, and a wide
   line follows the crown.
+- Straight is the default draw mode. Closing the Roads tray turns the road tools off (Draw gets no road, Edit goes back
+  to Draw, `M` only works with the tray open); before, the picked road kept drawing after the tray closed.
 - **Colours**: asphalt to measured values (worn ≈ albedo 0.12, sRGB ~90, slightly warm), concrete a touch warmer; the
   terrain package's default theme less lime (grass, dry grass, grass & dirt and dirt tints, and its height tints).
+
+### ✅ Road thumbnails (built 2026-10-05, play-tested 2026-10-05)
+- Dev tool, not game code: `--bake-road-thumbnails[=<id>]` (`RoadThumbnailBaker`) renders every road type in
+  `content/roads/types/` (hidden ones too) as a straight piece of real road (`RoadVisual`, the style's materials) on
+  flat grass, three-quarter view, framed to the road's width, 240 × 140 (2× the card picture). The PNG goes to
+  `content/roads/thumbnails/<id>.png` and the road's `.tres` gets `Icon` pointing at it (a text edit; a road with a
+  hand-made Icon keeps it). Needs a window; runs `--import` itself at the end, because a road type linked to a PNG
+  Godot hasn't imported yet doesn't load.
+- Re-bake after changing a road's layout, the road style or its materials. Gravel shows as plain grey because its
+  material still is.
+- For the play-test: is the angle/zoom right? Should the thumbnail show a junction (crossing, stop line) instead of
+  a straight piece?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking.

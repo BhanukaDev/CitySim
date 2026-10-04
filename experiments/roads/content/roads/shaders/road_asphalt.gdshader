@@ -47,6 +47,8 @@ group_uniforms;
 group_uniforms Cracks;
 /// How readily roads crack as they age (1 = a road at age 1 is cracked over most of it). Age itself comes from the game.
 uniform float crack_amount : hint_range(0.0, 2.0) = 1.0;
+/// Cracks every road has however new (a road in use for a while); the game's age adds to it.
+uniform float base_age : hint_range(0.0, 1.0) = 0.45;
 /// Crack width in metres.
 uniform float crack_width : hint_range(0.001, 0.05) = 0.01;
 uniform vec3 crack_colour : source_color = vec3(0.09, 0.088, 0.085);
@@ -130,9 +132,9 @@ void fragment() {
 
 	// Cracks: where the crack mask and the wear say so; a dark halo of dirt round each.
 	float crack_near = near_fade(dist, crack_far);
-	if (crack_near > 0.0 && road_age > 0.0) {
+	if (crack_near > 0.0 && base_age + road_age > 0.0) {
 		// Where cracks start is fixed by the textures; age spreads them out from there (wheel tracks first).
-		float grow = road_age * crack_amount;
+		float grow = (base_age + road_age * (1.0 - base_age)) * crack_amount;
 		// The crack-prone noise (about 0.5 on average) must beat a bar that falls from 1 to 0.15 as the road ages.
 		float prone = macro.g * 0.55 + region.g * 0.45 + track * grow * 0.15;
 		float area = smoothstep(0.0, 0.12, prone - (1.0 - grow * 0.85));

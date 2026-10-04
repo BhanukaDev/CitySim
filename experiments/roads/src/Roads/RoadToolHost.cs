@@ -11,7 +11,8 @@ namespace CitySim.Roads;
 /// <summary>
 /// Connects the build UI to the splines addon's tools (<see cref="ISplineToolHost"/>): the road picked in the tray is
 /// the profile drawn with, the options panel gives the mode, snaps, grid blocks and Anarchy. Registers a profile per
-/// road type with the network and hands it the <see cref="RoadVisual"/>. <c>M</c> switches between Draw and Edit.
+/// road type with the network and hands it the <see cref="RoadVisual"/>. <c>M</c> switches between Draw and Edit. The
+/// tools only work while the Roads tray is open: closing it leaves Edit and gives Draw no profile, so both idle.
 /// </summary>
 public partial class RoadToolHost : Node, ISplineToolHost
 {
@@ -26,9 +27,9 @@ public partial class RoadToolHost : Node, ISplineToolHost
     /// <summary>The profile a road type draws with (null for an unknown id).</summary>
     public SplineProfile? ProfileFor(string roadId) => _profiles.GetValueOrDefault(roadId);
 
-    public SplineProfile? Profile => Hud?.Tray.Picked is RoadType r ? _profiles.GetValueOrDefault(r.Id) : null;
+    public SplineProfile? Profile => Hud is { RoadsOpen: true, Tray.Picked: RoadType r } ? _profiles.GetValueOrDefault(r.Id) : null;
     public SplineTool Tool { get; private set; } = SplineTool.Draw;
-    public DrawMode Mode => ToDrawMode(Options?.Mode ?? RoadDrawMode.Curve);
+    public DrawMode Mode => ToDrawMode(Options?.Mode ?? RoadDrawMode.Straight);
     public SnapProviders EnabledSnaps => Options is { Snapping: true } o ? ToProviders(o.Snaps) : SnapProviders.None;
     public bool Anarchy => Options?.Anarchy == true;
     public (int Cols, int Rows) GridBlocks => Options is { } o ? (o.GridCols, o.GridRows) : (GridLayout.DefaultCols, GridLayout.DefaultRows);
@@ -55,6 +56,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
             Network.Visual = Visual;
         }
 
+        Hud.CategoryOpened += c => { if (c?.Id != "roads" && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
         _mode = Options!.Mode;
         Hud.RoadOptions.OptionsChanged += o =>
         {
@@ -67,6 +69,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.M } key || key.IsCommandOrControlPressed()) return;
+        if (Hud?.RoadsOpen != true) return;
         SetTool(Tool == SplineTool.Edit ? SplineTool.Draw : SplineTool.Edit);
         GetViewport().SetInputAsHandled();
     }

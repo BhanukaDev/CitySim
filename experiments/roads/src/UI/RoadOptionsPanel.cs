@@ -26,7 +26,7 @@ public enum RoadSnaps
 /// <summary>What the options panel holds. The road tool reads it (wired in the road addon step).</summary>
 public sealed class RoadToolOptions
 {
-    public RoadDrawMode Mode { get; set; } = RoadDrawMode.Curve;
+    public RoadDrawMode Mode { get; set; } = RoadDrawMode.Straight;
     public int GridCols { get; set; } = 3;
     public int GridRows { get; set; } = 2;
     public RoadGridFit GridFit { get; set; } = RoadGridFit.Even;

@@ -1,9 +1,11 @@
 [gd_resource type="Resource" script_class="RoadType" format=3]
 
 [ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+[ext_resource type="Texture2D" path="res://content/roads/thumbnails/highway_three_lane_two_way.png" id="thumbnail"]
 
 [resource]
 script = ExtResource("1_script")
+Icon = ExtResource("thumbnail")
 Id = "highway_three_lane_two_way"
 DisplayName = "Three-lane two-way highway"
 Description = "Two lanes one way, one lane back. No sidewalks."

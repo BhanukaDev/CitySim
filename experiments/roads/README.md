@@ -27,7 +27,9 @@ Rules:
   The log prints `Content: <mod> replaces item "<id>" from Base`.
 - A tab with an unknown category, or an item with an unknown tab, is skipped with a warning.
 - A category only shows on the bar once one of its tabs has an item.
-- A road with no `Icon` gets a thumbnail drawn from its layout (`RoadThumbnail`).
+- Base roads' `Icon`s are renders of the real road, made by the dev command `--bake-road-thumbnails` into
+  `content/roads/thumbnails/` (see ROADMAP). A road with no `Icon` (a mod's) gets a picture drawn from its layout
+  (`RoadThumbnail`); a hand-made `Icon` is never replaced by the bake.
 - A road type holds the **base layout** only: lanes, sidewalks and median. Looks (trees, grass median, lights,
   paving) will be upgrades, a separate content type.
 
@@ -47,7 +49,8 @@ loaded and checks it.
   tools' host: tray pick + options panel; `M` toggles Draw / Edit).
 - `src/Roads/Geometry/RoadSection.cs`: the cross-section (bands, painted lines, outline) from a `RoadDef`, plain C#.
 - `src/Roads/Rendering/`: `RoadVisual` (the splines addon's `INetworkVisual`: segments, markings, dead ends, halos;
-  `.Junctions.cs`: footprints and hard corners) and `RoadMesh` (triangles per surface kind).
+  `.Junctions.cs`: footprints and hard corners), `RoadMesh` (triangles per surface kind), and the dev bakers
+  `RoadTextureBaker` and `RoadThumbnailBaker`.
 - `src/UI/`: `GameHud` (wires it up), `BuildBar`, `BuildTray`, `ItemCard`, `DetailCard` (hover card),
   `RoadOptionsPanel`, `UiTheme`.
 - `src/Demos/UiDemo.cs`: `--demo-content` and `--ui=` for screenshots.
