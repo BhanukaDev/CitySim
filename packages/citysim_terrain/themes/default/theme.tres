@@ -27,7 +27,7 @@ DisplayName = "Grass"
 Albedo = "res://addons/citysim_terrain/assets/textures/terrain/grass/Grass005_Color.jpg"
 Height = "res://addons/citysim_terrain/assets/textures/terrain/grass/Grass005_Displacement.jpg"
 Normal = "res://addons/citysim_terrain/assets/textures/terrain/grass/Grass005_NormalGL.jpg"
-Tint = Color(0.4, 0.62, 0.2, 1)
+Tint = Color(0.38, 0.5, 0.22, 1)
 
 [sub_resource type="Resource" id="mat_grass_dry"]
 script = ExtResource("2_material")
@@ -36,7 +36,7 @@ DisplayName = "Dry Grass"
 Albedo = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_Color.jpg"
 Height = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_Displacement.jpg"
 Normal = "res://addons/citysim_terrain/assets/textures/terrain/grass_dry/Grass004_NormalGL.jpg"
-Tint = Color(0.68, 0.66, 0.26, 1)
+Tint = Color(0.58, 0.55, 0.32, 1)
 
 [sub_resource type="Resource" id="mat_grass_dirt"]
 script = ExtResource("2_material")
@@ -45,7 +45,7 @@ DisplayName = "Grass & Dirt"
 Albedo = "res://addons/citysim_terrain/assets/textures/terrain/grass_dirt/Ground037_Color.jpg"
 Height = "res://addons/citysim_terrain/assets/textures/terrain/grass_dirt/Ground037_Displacement.jpg"
 Normal = "res://addons/citysim_terrain/assets/textures/terrain/grass_dirt/Ground037_NormalGL.jpg"
-Tint = Color(0.5, 0.55, 0.24, 1)
+Tint = Color(0.47, 0.47, 0.29, 1)
 
 [sub_resource type="Resource" id="mat_dirt"]
 script = ExtResource("2_material")
@@ -54,7 +54,7 @@ DisplayName = "Dirt"
 Albedo = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_Color.jpg"
 Height = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_Displacement.jpg"
 Normal = "res://addons/citysim_terrain/assets/textures/terrain/dirt/Ground103_NormalGL.jpg"
-Tint = Color(0.6, 0.43, 0.28, 1)
+Tint = Color(0.52, 0.42, 0.31, 1)
 
 [sub_resource type="Resource" id="mat_gravel"]
 script = ExtResource("2_material")

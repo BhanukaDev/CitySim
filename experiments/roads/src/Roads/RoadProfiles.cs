@@ -49,6 +49,7 @@ public static class RoadProfiles
             MaxKerbRadius = Corner(MaxKerbRadius),
             MaxGradePercent = road.MaxGrade,
             GroundSmoothing = road.GroundSmoothing,
+            JunctionCurve = road.JunctionCurve,
             Shaping = ShapingMode.Section,
             CutSlope = road.SideSlope,
             FillSlope = road.SideSlope,

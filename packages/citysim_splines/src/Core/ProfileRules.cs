@@ -57,6 +57,10 @@ public sealed record ProfileRules
     /// <summary>Distance along the line over which <see cref="VerticalMode.Ground"/> averages the ground; 0 = exact,
     /// infinity = level.</summary>
     public float GroundSmoothing { get; init; }
+    /// <summary>Length of the vertical curve that eases a line from level at a junction plate to its grade, in metres
+    /// (the allowed grade rises from 0 at the cut-back to <see cref="MaxGrade"/> over it, so the line bends as a
+    /// parabola); 0 = a sharp break. Needs a <see cref="MaxGrade"/>.</summary>
+    public float JunctionCurve { get; init; }
     public EdgeMode Edge { get; init; } = EdgeMode.Slope;
     /// <summary>For <see cref="EdgeMode.Auto"/>: walls where the cut or fill is higher than this.</summary>
     public float WallAbove { get; init; }

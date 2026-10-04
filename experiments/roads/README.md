@@ -31,6 +31,11 @@ Rules:
 - A road type holds the **base layout** only: lanes, sidewalks and median. Looks (trees, grass median, lights,
   paving) will be upgrades, a separate content type.
 
+Road materials (`content/roads/materials/`) are `ShaderMaterial`s over three shaders in `content/roads/shaders/`
+(`road_asphalt`, `road_concrete` for sidewalk, kerb and gutter, `road_paint`); colours, wear, crack and joint
+settings are shader parameters, so a mod tunes them in the inspector or swaps in its own shader. They read
+`content/roads/textures/` (tiling noise made by `--bake-road-textures`; a mod can replace them with photo textures).
+
 To add a road: copy a file in `content/roads/types/`, change `Id` and the fields, done. `--demo-content` lists what
 loaded and checks it.
 

@@ -25,6 +25,8 @@ public sealed partial class RoadVisual : INetworkVisual
     private const float PaintLift = 0.012f; // a line above the surface it's painted on
     private const float Step = 2f;          // metres between cross-sections
     private const float CrownTaper = 4f;    // the crown fades out over this before a junction's flat asphalt
+    // How worn every road is (UV2.y) until traffic is simulated; the shaders vary it by place on their own.
+    private const float DefaultWear = 1f;
 
     private readonly Node3D _parent;
     private readonly IGround _ground;
@@ -47,6 +49,10 @@ public sealed partial class RoadVisual : INetworkVisual
         _sectionStyle = style.ToSection();
     }
 
+    /// <summary>How old a road is, 0 (new, no cracks) to 1 (falling apart): set by the game from the road's age and
+    /// damage (disasters, neglect), never by the player. A junction takes its oldest arm. Read on every rebuild.</summary>
+    public Func<GraphEdge, float> AgeOf { get; set; } = _ => 0f;
+
     /// <summary>Triangles in the last build, per surface kind (for the demo's checks).</summary>
     public IReadOnlyDictionary<SurfaceKind, int> Counts { get; private set; } = new Dictionary<SurfaceKind, int>();
 
@@ -55,13 +61,25 @@ public sealed partial class RoadVisual : INetworkVisual
     {
         _node?.QueueFree();
         _node = null;
-        var rm = new RoadMesh();
+        var rm = new RoadMesh { Wear = DefaultWear };
         foreach (var e in graph.Edges)
-            if (hidden?.Contains(e.Id) != true) Segment(rm, graph, e, footprints);
+            if (hidden?.Contains(e.Id) != true)
+            {
+                rm.Age = Age(e);
+                Segment(rm, graph, e, footprints);
+            }
         foreach (var f in footprints.Values)
-            if (!f.Cuts.Any(c => hidden?.Contains(c.EdgeId) == true)) Junction(rm, graph, f);
+            if (!f.Cuts.Any(c => hidden?.Contains(c.EdgeId) == true))
+            {
+                rm.Age = f.Cuts.Max(c => Age(graph.Edge(c.EdgeId)));
+                Junction(rm, graph, f);
+            }
         foreach (var n in graph.Nodes)
-            if (!n.Edges.Any(e => hidden?.Contains(e) == true)) BendFill(rm, graph, n);
+            if (!n.Edges.Any(e => hidden?.Contains(e) == true))
+            {
+                rm.Age = n.Edges.Select(id => Age(graph.Edge(id))).DefaultIfEmpty(0).Max();
+                BendFill(rm, graph, n);
+            }
 
         var mesh = new ArrayMesh();
         rm.CommitTo(mesh, MaterialOf);
@@ -71,6 +89,8 @@ public sealed partial class RoadVisual : INetworkVisual
         _node = new MeshInstance3D { Name = "Roads", Mesh = mesh };
         _parent.AddChild(_node);
     }
+
+    private float Age(GraphEdge e) => Math.Clamp(AgeOf(e), 0, 1);
 
     /// <summary>The section an edge is drawn with: its road's, or a plain two-lane ribbon of its width for a profile that
     /// isn't a road.</summary>
@@ -91,14 +111,26 @@ public sealed partial class RoadVisual : INetworkVisual
         float Crown(float s) => MathF.Min(
             atStart ? Math.Clamp((s - s0) / CrownTaper, 0, 1) : 1,
             atEnd ? Math.Clamp((s1 - s) / CrownTaper, 0, 1) : 1);
+        // Junction mouths on a paved road get a crossing, a stop line and solid approach lines (European), and the
+        // lanes coming in are stained where cars queue for the stop line.
+        var st = _sectionStyle;
+        bool paved = sec.Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt);
+        float uStop = sec.HasSidewalks ? st.CrossingSetback + st.CrossingWidth + st.StopLineGap : st.CrossingSetback;
+        float uLines = uStop + st.StopLineWidth;
+        float split = RoadMesh.SplitCode(sec.Split);
+        Vector3 QueueAt(float s) => paved
+            ? new Vector3(atEnd ? Queue(s1 - s - uLines) : 0, atStart ? Queue(s - s0 - uLines) : 0, split)
+            : new Vector3(0, 0, split);
 
         if (s1 - s0 > 1e-3f)
         {
             Vector3[]? prev = null;
-            List<SectionPoint>? outline = null;
+            float prevS = 0;
+            Vector3 prevQ = default;
             foreach (float s in Stations(s0, s1))
             {
-                outline = sec.Outline(Crown(s));
+                var q = QueueAt(s);
+                var outline = sec.Outline(Crown(s));
                 var sample = curve.Sample(s);
                 _level = LevelAt(e, s);
                 var left = SplineMath.Left(sample.Tangent);
@@ -106,8 +138,17 @@ public sealed partial class RoadVisual : INetworkVisual
                 if (prev is not null)
                     for (int i = 0; i + 1 < outline.Count; i++)
                         if (ProfileNormal(outline[i], outline[i + 1], left) is { } n)
-                            rm.Quad(outline[i].Surface, prev[i], prev[i + 1], ring[i + 1], ring[i], n);
+                        {
+                            // Both ends of a span take its lane data, so a strip next to a lane stays unworn.
+                            var (pa, pb, lanes) = (outline[i], outline[i + 1], outline[i].Lanes);
+                            rm.Quad(pa.Surface, V(prev[i], prevS, pa.Offset, prevQ), V(prev[i + 1], prevS, pb.Offset, prevQ),
+                                V(ring[i + 1], s, pb.Offset, q), V(ring[i], s, pa.Offset, q), n);
+                            RoadMesh.Vertex V(Vector3 pos, float along, float offset, Vector3 queue) => new(pos, new Vector2(along, offset),
+                                new Vector2(lanes ? sec.LaneCoord(offset) : RoadMesh.NoLane, rm.Wear), queue);
+                        }
                 prev = ring;
+                prevS = s;
+                prevQ = q;
             }
             // A dead end closes the road with an end face; at a junction only a raised median needs one.
             if (g.Node(e.Start).Edges.Count == 1) Cap(rm, sec, e, s0, -1);
@@ -121,34 +162,122 @@ public sealed partial class RoadVisual : INetworkVisual
             // The centre line runs on through a width transition to the node, into the next road.
             float a = line.Centre && Junctions.RunsOn(e, true, footprints) ? 0 : s0;
             float b = line.Centre && Junctions.RunsOn(e, false, footprints) ? curve.Length : s1;
-            if (b - a <= 1e-3f) continue;
-            if (line.Dash <= 0) { Paint(rm, sec, e, a, b, line, Crown); continue; }
-            float period = line.Dash + line.Gap;
-            int n = Math.Max(1, (int)MathF.Round((b - a) / period));
-            float p = (b - a) / n, on = p * line.Dash / period;
-            // Stretched to whole dashes with half a gap at each end, so two pieces meeting end to end read as one line.
-            for (int k = 0; k < n; k++)
+            // At a junction every line stops at the stop line; the centre line and lines between lanes coming in are
+            // solid on the approach (no overtaking or lane changes just before a junction).
+            float solidA = 0, solidB = 0;
+            if (paved && atStart)
             {
-                float d = a + k * p + (p - on) / 2;
-                Paint(rm, sec, e, d, d + on, line, Crown);
+                a = s0 + uLines;
+                if (Approach(sec, line, forward: false)) solidA = st.SolidApproach;
             }
+            if (paved && atEnd)
+            {
+                b = s1 - uLines;
+                if (Approach(sec, line, forward: true)) solidB = st.SolidApproach;
+            }
+            if (b - a <= 1e-3f) continue;
+            if (line.Dash <= 0 || solidA + solidB >= b - a) { Paint(rm, sec, e, a, b, line, Crown); continue; }
+            if (solidA > 0) Paint(rm, sec, e, a, a + solidA, line, Crown);
+            if (solidB > 0) Paint(rm, sec, e, b - solidB, b, line, Crown);
+            Dashes(rm, sec, e, a + solidA, b - solidB, line, Crown);
+        }
+
+        if (!paved) return;
+        if (atStart && s1 - s0 > uLines) Mouth(rm, sec, e, s0, +1, forward: false, Crown);
+        if (atEnd && s1 - s0 > uLines) Mouth(rm, sec, e, s1, -1, forward: true, Crown);
+    }
+
+    /// <summary>How much cars stand at a distance past the stop line: most right behind it, fading over a queue's length.</summary>
+    private static float Queue(float u) => u < 0 ? 0 : Math.Clamp(u / 1.5f, 0, 1) * (1 - SmoothStep(0, 45, u));
+
+    private static float SmoothStep(float a, float b, float x)
+    {
+        float t = Math.Clamp((x - a) / (b - a), 0, 1);
+        return t * t * (3 - 2 * t);
+    }
+
+    /// <summary>Whether a line is solid on the approach to a junction that the <paramref name="forward"/> lanes run into:
+    /// the centre line, or a line between two lanes both coming in.</summary>
+    private static bool Approach(RoadSection sec, SectionLine line, bool forward)
+    {
+        if (line.Centre) return true;
+        if (line.Dash <= 0) return false;
+        float h = sec.LaneWidth / 2 + 0.05f;
+        var near = sec.Lanes.Where(l => MathF.Abs(l.Offset - line.Offset) < h).ToList();
+        return near.Count == 2 && near.All(l => l.Forward == forward);
+    }
+
+    /// <summary>Dashes from <paramref name="a"/> to <paramref name="b"/>, stretched to whole dashes with half a gap at
+    /// each end, so two pieces meeting end to end read as one line.</summary>
+    private void Dashes(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown)
+    {
+        if (b - a <= 1e-3f) return;
+        float period = line.Dash + line.Gap;
+        int n = Math.Max(1, (int)MathF.Round((b - a) / period));
+        float p = (b - a) / n, on = p * line.Dash / period;
+        for (int k = 0; k < n; k++)
+        {
+            float d = a + k * p + (p - on) / 2;
+            Paint(rm, sec, e, d, d + on, line, crown);
         }
     }
 
-    /// <summary>A painted strip along the curve from <paramref name="a"/> to <paramref name="b"/>.</summary>
+    /// <summary>
+    /// The markings where a road meets a junction at <paramref name="cut"/> (<paramref name="inward"/> +1 = the road runs
+    /// on along the curve from there): a zebra crossing between the sidewalks, bars along the road across the whole
+    /// carriageway, and a stop line behind it across the lanes coming in (those running <paramref name="forward"/>).
+    /// </summary>
+    private void Mouth(RoadMesh rm, RoadSection sec, GraphEdge e, float cut, int inward, bool forward, Func<float, float> crown)
+    {
+        var st = _sectionStyle;
+        float At(float u) => cut + inward * u;
+        (float, float) Span(float u0, float u1) => inward > 0 ? (At(u0), At(u1)) : (At(u1), At(u0));
+        float uStop = st.CrossingSetback;
+        if (sec.HasSidewalks)
+        {
+            float reach = sec.HalfCarriageway - sec.GutterWidth - 0.2f, pitch = st.CrossingBar + st.CrossingGap;
+            int bars = (int)((2 * reach + st.CrossingGap) / pitch);
+            float first = (bars * pitch - st.CrossingGap) / 2 - st.CrossingBar / 2;
+            var (a, b) = Span(st.CrossingSetback, st.CrossingSetback + st.CrossingWidth);
+            for (int k = 0; k < bars; k++)
+                Paint(rm, sec, e, a, b, new SectionLine(first - k * pitch, st.CrossingBar, 0, 0), crown);
+            uStop += st.CrossingWidth + st.StopLineGap;
+        }
+        var lanes = sec.Lanes.Where(l => l.Forward == forward).ToList();
+        if (lanes.Count == 0) return;
+        float hw = sec.LaneWidth / 2;
+        float left = lanes.Max(l => l.Offset) + hw, right = lanes.Min(l => l.Offset) - hw;
+        // From the centre line's middle to the edge line (or the kerb's gutter with none).
+        bool lineLeft = sec.Lines.Any(l => MathF.Abs(l.Offset - left) < 0.2f), lineRight = sec.Lines.Any(l => MathF.Abs(l.Offset - right) < 0.2f);
+        if (!lineLeft) left = MathF.Min(left, sec.HalfCarriageway - sec.GutterWidth);
+        if (!lineRight) right = MathF.Max(right, -(sec.HalfCarriageway - sec.GutterWidth));
+        var (s0, s1) = Span(uStop, uStop + st.StopLineWidth);
+        Paint(rm, sec, e, s0, s1, new SectionLine((left + right) / 2, left - right, 0, 0), crown);
+    }
+
+    /// <summary>A painted strip along the curve from <paramref name="a"/> to <paramref name="b"/>. Its UV is its half
+    /// width and metres across it from its middle; UV2 is metres from the strip's start and to its end, so the paint
+    /// shader can fray the sides and the ends.</summary>
     private void Paint(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown)
     {
-        Vector3? l0 = null, r0 = null;
+        float half = line.Width / 2;
+        // Columns across the strip: its sides, and the crown's ridge if it crosses it, so a wide line follows the crown.
+        var across = new List<float> { half };
+        if (line.Offset + half > 0 && line.Offset - half < 0) across.Add(-line.Offset);
+        across.Add(-half);
+        RoadMesh.Vertex[]? prev = null;
         foreach (float s in Stations(a, b))
         {
             var sample = e.Alignment.Curve.Sample(s);
             _level = LevelAt(e, s);
             var left = SplineMath.Left(sample.Tangent);
-            float h = sec.CarriagewayHeight(line.Offset, crown(s)) + PaintLift;
-            var l1 = Point(sample.Position + left * (line.Offset + line.Width / 2), h);
-            var r1 = Point(sample.Position + left * (line.Offset - line.Width / 2), h);
-            if (l0 is { } pl && r0 is { } pr) rm.Quad(SurfaceKind.Paint, pl, pr, r1, l1, Vector3.Up);
-            (l0, r0) = (l1, r1);
+            var ends = new Vector2(s - a, b - s);
+            var row = across.Select(x => new RoadMesh.Vertex(
+                Point(sample.Position + left * (line.Offset + x), sec.CarriagewayHeight(line.Offset + x, crown(s)) + PaintLift),
+                new Vector2(half, x), ends)).ToArray();
+            if (prev is not null)
+                for (int i = 0; i + 1 < row.Length; i++) rm.Quad(SurfaceKind.Paint, prev[i], prev[i + 1], row[i + 1], row[i], Vector3.Up);
+            prev = row;
         }
     }
 
@@ -211,9 +340,10 @@ public sealed partial class RoadVisual : INetworkVisual
 
     private Vector3 Point(Vector2 plan, float height) => Point(new NumVector2(plan.X, plan.Y), height);
 
-    private Material MaterialOf(SurfaceKind kind)
+    private Material? MaterialOf(SurfaceKind kind)
     {
         if (_style.MaterialOf(kind) is { } m) return m;
+        if (kind == SurfaceKind.Wear) return null;
         if (_fallbacks.TryGetValue(kind, out var f)) return f;
         return _fallbacks[kind] = new StandardMaterial3D { AlbedoColor = kind == SurfaceKind.Paint ? Colors.White : new Color(0.4f, 0.4f, 0.4f) };
     }

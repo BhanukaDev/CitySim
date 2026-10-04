@@ -7,6 +7,7 @@
 [ext_resource type="Material" path="res://content/roads/materials/kerb.tres" id="5_kerb"]
 [ext_resource type="Material" path="res://content/roads/materials/sidewalk.tres" id="6_sidewalk"]
 [ext_resource type="Material" path="res://content/roads/materials/paint.tres" id="7_paint"]
+[ext_resource type="Material" path="res://content/roads/materials/wear.tres" id="8_wear"]
 
 [resource]
 script = ExtResource("1_script")
@@ -17,3 +18,4 @@ Gutter = ExtResource("4_gutter")
 Kerb = ExtResource("5_kerb")
 Sidewalk = ExtResource("6_sidewalk")
 Paint = ExtResource("7_paint")
+Wear = ExtResource("8_wear")

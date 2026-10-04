@@ -36,6 +36,21 @@ public partial class RoadStyle : Resource
     /// <summary>Lines between lanes going the same way.</summary>
     [Export(PropertyHint.Range, "0.5,20,0.5")] public float LaneDash { get; set; } = 3f;
     [Export(PropertyHint.Range, "0.5,30,0.5")] public float LaneGap { get; set; } = 6f;
+    // Junction mouths (Vienna Convention protocol on road markings): a zebra crossing between the sidewalks, a stop line
+    // behind it across the lanes coming in, and the lines between those lanes solid on the approach.
+    /// <summary>Stop line across the lanes coming in (0.2 to 0.6 m).</summary>
+    [Export(PropertyHint.Range, "0.1,0.6,0.01")] public float StopLineWidth { get; set; } = 0.3f;
+    /// <summary>From where the road meets the junction to the zebra crossing.</summary>
+    [Export(PropertyHint.Range, "0,5,0.1")] public float CrossingSetback { get; set; } = 0.5f;
+    /// <summary>Length of the zebra bars, along the road (at least 2.5 m up to 60 km/h).</summary>
+    [Export(PropertyHint.Range, "1,8,0.1")] public float CrossingWidth { get; set; } = 3f;
+    /// <summary>Zebra bar and the gap after it, across the road (bar + gap 0.8 to 1.4 m, gap 1 to 2 bars).</summary>
+    [Export(PropertyHint.Range, "0.2,1,0.05")] public float CrossingBar { get; set; } = 0.5f;
+    [Export(PropertyHint.Range, "0.2,1,0.05")] public float CrossingGap { get; set; } = 0.5f;
+    /// <summary>From the crossing back to the stop line.</summary>
+    [Export(PropertyHint.Range, "0,5,0.1")] public float StopLineGap { get; set; } = 1f;
+    /// <summary>How far before the stop line the centre line and lines between lanes coming in are solid.</summary>
+    [Export(PropertyHint.Range, "0,60,1")] public float SolidApproach { get; set; } = 15f;
 
     [ExportGroup("Materials")]
     [Export] public Material? Asphalt { get; set; }
@@ -44,6 +59,8 @@ public partial class RoadStyle : Resource
     [Export] public Material? Kerb { get; set; }
     [Export] public Material? Sidewalk { get; set; }
     [Export] public Material? Paint { get; set; }
+    /// <summary>Tyre wear laid over junctions along the paths cars take (blended over the asphalt).</summary>
+    [Export] public Material? Wear { get; set; }
 
     public string Source { get; internal set; } = "Base";
 
@@ -59,6 +76,13 @@ public partial class RoadStyle : Resource
         CentreGap = CentreGap,
         LaneDash = LaneDash,
         LaneGap = LaneGap,
+        StopLineWidth = StopLineWidth,
+        CrossingSetback = CrossingSetback,
+        CrossingWidth = CrossingWidth,
+        CrossingBar = CrossingBar,
+        CrossingGap = CrossingGap,
+        StopLineGap = StopLineGap,
+        SolidApproach = SolidApproach,
     };
 
     /// <summary>The material for a surface kind (null = left to the renderer's fallback).</summary>
@@ -70,6 +94,7 @@ public partial class RoadStyle : Resource
         SurfaceKind.Kerb => Kerb,
         SurfaceKind.Sidewalk => Sidewalk,
         SurfaceKind.Paint => Paint,
+        SurfaceKind.Wear => Wear,
         _ => null,
     };
 }

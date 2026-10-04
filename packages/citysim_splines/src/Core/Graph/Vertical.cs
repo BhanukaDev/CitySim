@@ -122,14 +122,17 @@ public static class Vertical
             else h[i] = smooth[i] + d0 + (d1 - d0) * (i - ia) / (float)(ib - ia);
         }
 
+        // The grade allowed on each span: rising from level at a junction plate to the max over the junction curve, so
+        // the line leaves the plate on a parabola instead of a hard break.
+        var steps = Steps(e.Rules, n, ds, ia, ib, cutStart > 0, cutEnd > 0);
         // Ends too far apart in height for the max grade: one even ramp between them, so the line shows the grade they
         // need (and a road built anyway with Anarchy has no step in it).
-        if (e.Rules.MaxGrade is { } maxGrade && MathF.Abs(h1 - h0) > maxGrade * (ib - ia) * ds + 1e-3f)
+        if (steps is not null && MathF.Abs(h1 - h0) > Reach(steps, ia, ib) + 1e-3f)
         {
             for (int i = ia + 1; i < ib; i++) h[i] = h0 + (h1 - h0) * (i - ia) / (ib - ia);
             return Measured(e, h0, h1, cutStart, cutEnd, h, raw, ds);
         }
-        LimitGrade(e.Rules.MaxGrade, h, pinned, ds);
+        LimitGrade(steps, h, pinned);
         // The limit leaves sharp crests and sags where it meets the ground; averaging rounds them into vertical curves
         // (an average of a line within the grade stays within it), then the limit again for the joins to the pins.
         if (k > 0)
@@ -147,7 +150,7 @@ public static class Vertical
                 }
                 Array.Copy(round, h, n + 1);
             }
-            LimitGrade(e.Rules.MaxGrade, h, pinned, ds);
+            LimitGrade(steps, h, pinned);
         }
         return Measured(e, h0, h1, cutStart, cutEnd, h, raw, ds);
     }
@@ -166,18 +169,46 @@ public static class Vertical
         return new EdgeHeights(e.Alignment, e.Rules, h0, h1, cutStart, cutEnd, h) { DeepestCut = cut, HighestFill = fill };
     }
 
-    /// <summary>No steeper than the max grade, leaving the pinned stations (close enough in height for it; ends too far
-    /// apart get an even ramp instead).</summary>
-    private static void LimitGrade(float? maxGrade, float[] h, bool[] pinned, float ds)
+    /// <summary>The most each span (station i − 1 to i, at index i) may rise or fall: the max grade, eased in from 0
+    /// over <see cref="ProfileRules.JunctionCurve"/> past a junction's level stretch. Null with no max grade.</summary>
+    private static float[]? Steps(ProfileRules rules, int n, float ds, int ia, int ib, bool curveStart, bool curveEnd)
     {
-        if (maxGrade is not { } grade) return;
-        float step = grade * ds;
+        if (rules.MaxGrade is not { } grade) return null;
+        float curve = rules.JunctionCurve;
+        var steps = new float[n + 1];
+        for (int i = 1; i <= n; i++)
+        {
+            float f = 1;
+            if (curve > 0)
+            {
+                // Each span's middle, in metres past the level stretch.
+                if (curveStart) f = MathF.Min(f, (i - 0.5f - ia) * ds / curve);
+                if (curveEnd) f = MathF.Min(f, (ib - i + 0.5f) * ds / curve);
+            }
+            steps[i] = grade * ds * Math.Clamp(f, 0, 1);
+        }
+        return steps;
+    }
+
+    /// <summary>The most the line can climb between two stations within its steps.</summary>
+    private static float Reach(float[] steps, int ia, int ib)
+    {
+        float total = 0;
+        for (int i = ia + 1; i <= ib; i++) total += steps[i];
+        return total;
+    }
+
+    /// <summary>No steeper than each span's step, leaving the pinned stations (close enough in height for it; ends too
+    /// far apart get an even ramp instead).</summary>
+    private static void LimitGrade(float[]? steps, float[] h, bool[] pinned)
+    {
+        if (steps is null) return;
         for (int pass = 0; pass < 2; pass++)
         {
             for (int i = 1; i < h.Length; i++)
-                if (!pinned[i]) h[i] = Math.Clamp(h[i], h[i - 1] - step, h[i - 1] + step);
+                if (!pinned[i]) h[i] = Math.Clamp(h[i], h[i - 1] - steps[i], h[i - 1] + steps[i]);
             for (int i = h.Length - 2; i >= 0; i--)
-                if (!pinned[i]) h[i] = Math.Clamp(h[i], h[i + 1] - step, h[i + 1] + step);
+                if (!pinned[i]) h[i] = Math.Clamp(h[i], h[i + 1] - steps[i + 1], h[i + 1] + steps[i + 1]);
         }
     }
 }

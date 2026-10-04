@@ -7,8 +7,8 @@ shader_type spatial;
 
 group_uniforms Theme;
 // Grass drifts from cool green down low to gold-green up high (multiplies the grass materials' tints).
-uniform vec3 grass_low_tint : source_color = vec3(0.86, 1.0, 0.92);
-uniform vec3 grass_high_tint : source_color = vec3(1.12, 1.02, 0.78);
+uniform vec3 grass_low_tint : source_color = vec3(0.92, 1.0, 0.94);
+uniform vec3 grass_high_tint : source_color = vec3(1.06, 1.0, 0.86);
 // Rock: warm mossy tops, cool violet faces.
 uniform vec3 rock_top_tint : source_color = vec3(1.10, 1.08, 0.80);
 uniform vec3 rock_face_tint : source_color = vec3(0.88, 0.90, 1.0);

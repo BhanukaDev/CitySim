@@ -41,6 +41,9 @@ public partial class RoadType : BuildItem
     [Export(PropertyHint.Range, "0,500,1,suffix:m")] public float GroundSmoothing { get; set; } = 30f;
     /// <summary>The bank between the road and the natural ground, as run per rise (2.5 = 1:2.5, about 22°).</summary>
     [Export(PropertyHint.Range, "0.5,6,0.1")] public float SideSlope { get; set; } = 2.5f;
+    /// <summary>Metres over which the road eases from a level junction to its grade (a vertical curve), so a junction on
+    /// a hillside has no hard break. Longer is smoother but cuts or raises the road more near the junction.</summary>
+    [Export(PropertyHint.Range, "0,100,1,suffix:m")] public float JunctionCurve { get; set; } = 20f;
     /// <summary>Deepest the road may cut into the ground under it, in metres; deeper is red.</summary>
     [Export(PropertyHint.Range, "0,30,0.5,suffix:m")] public float MaxCut { get; set; } = 4f;
     /// <summary>Highest the road may be raised above the ground under it, in metres; higher is red.</summary>

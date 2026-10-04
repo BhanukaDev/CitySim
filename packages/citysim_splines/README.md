@@ -31,6 +31,7 @@ Needs the terrain package (`citysim_terrain`) in the same project.
 
 After every change `SplineNetwork` gives each node a `Height` and each edge an `EdgeHeights` line (`Vertical.Conform`):
 the ground along the centre, averaged over the profile's `GroundSmoothing`, held level over each junction's cut-back,
+eased from level to its grade over `JunctionCurve` metres past it (a vertical curve: the allowed grade rises from 0),
 limited to `MaxGrade` and rounded at crests and sags. A new or moved node takes the ground exactly where it was put; it
 is never moved to make a grade fit. Lines stay until their edge, nodes or
 junctions change: **splines never move with the ground**.

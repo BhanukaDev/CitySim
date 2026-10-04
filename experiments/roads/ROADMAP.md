@@ -29,6 +29,8 @@ $G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip
 $G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
 $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
 $G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screenshots/shape_junction.png # T on the hillside
+$G --path . -- --flat --demo-road --road-age=0.6 --cam=700,505,10,75,20 --screenshot=screenshots/road_age.png  # cracks close up
+$G --headless --path . -- --flat --bake-road-textures              # only after changing RoadTextureBaker; then --import
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
@@ -115,8 +117,8 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   the corner, kerb stone and sidewalk. Hard corners: a fan. Issue halos under anything with a problem.
 - Every road type draws with this; the others have no strips yet, and medians are a raised kerbed band. All but
   `two_lane` are hidden (`BuildItem.Hidden`) and come back one at a time through the road checklist above.
-- Next: stop lines and crosswalks at junctions (then lane arrows), textures and normal maps, LOD in the
-  performance milestone.
+- Next: stop lines and crosswalks at junctions (then lane arrows), LOD in the performance milestone. Textures and
+  normal maps: done in R4.
 
 ### ⬜ R3: Roads on hills (built 2026-10-05, waiting for the user's play-test)
 - Roads don't roll: each road has a stored height line and is level across; junctions are level at their node's height.
@@ -140,6 +142,50 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   Tag symbols are Tabler icons (`packages/citysim_splines/icons/`): length, angle, slope up/down, cut, fill.
 - The draw length tag is just the length now (the `· 10 × 8 m` step count is gone; whole steps still light it up).
 - For the play-test: do the grade and banks feel right on real hills? Are 10 % and 4 m cut / fill right for the two-lane road?
+- Junctions on a slope: the road eases from the level junction to its grade over `JunctionCurve` (Elevation group,
+  default 20 m) instead of breaking hard at the junction's edge (the "bumps"). It's the splines addon's
+  `ProfileRules.JunctionCurve`: the allowed grade rises from 0 at the cut-back to `MaxGrade` over it, so the line
+  leaves the plate on a parabola. Longer is smoother but needs more cut / fill near the junction (24 m pushed the
+  demo's hillside T to 4.1 m of fill, red).
+
+### ⬜ R4: Road materials (built 2026-10-05, waiting for the user's play-test)
+- Real-looking surfaces for asphalt, sidewalk, kerb, gutter and paint: three shaders in `content/roads/shaders/`
+  (`road_asphalt`, `road_concrete`, `road_paint`, sharing `road_common.gdshaderinc`), with the `.tres` materials as
+  `ShaderMaterial`s whose parameters are the knobs.
+- Asphalt: weathered grey binder with ~1.5 cm stones and a normal map, patches, **wheel tracks polished lighter and an
+  oil stripe down the middle of every lane**, oil spots near it, scuffing across junctions. The tracks follow a lane
+  coordinate the mesh carries (`UV2.x`, `RoadSection.LaneCoord`), so any lane count works; strips and gutters stay clean.
+- Concrete: grain, stains, small dark spots, joints along the road (sidewalk 1.5 m, kerb stones 1 m, gutter 3 m) with
+  a tone per slab and the odd cracked slab. Junction paving has no joints (no road direction there).
+- Paint: frayed sides and dash ends, worn-through patches (alpha scissor, so the asphalt shows), stones showing
+  through, dirt.
+- **Cracks come from the road's age** (`RoadVisual.AgeOf`, 0..1, vertex `COLOR.r`): the game raises it as roads get
+  old or damaged (disasters), never the player. New roads have none; at 0.3 a few, at 1 most of the road. The age also
+  greys the asphalt and wears the paint. A junction takes its oldest arm. `--road-age=` previews it.
+- Traffic wear is per vertex too (`UV2.y`, 1 for every road until traffic is simulated).
+- Performance (the map is 28 × 28 km): noise is baked once into three tiling 1024² textures (BPTC, mipmapped, about
+  4 MB of VRAM together), not computed per pixel, and sampled in world metres so it's seamless across roads and
+  junctions. Stones, normals and fraying fade out by 150 m, cracks by 350 m, and those texture reads are skipped
+  beyond that. Wheel tracks and joints fade to their average once they're under a pixel, so distant roads don't
+  shimmer. All per-road data is in the vertices, so every road shares one material per surface: still a handful of
+  draw calls for the whole network. Chunking the network mesh and LOD stay in the performance milestone.
+- For the play-test: do the greys look right in daylight? Are the wear stripes too strong or too weak up close? Do
+  the cracks at `--road-age=0.3`, `0.6` and `1` feel right?
+- **Junction wear**: tyre wear ribbons over every junction along the paths cars take (`RoadVisual.Tracks`): straight on
+  from every lane, right turns kerbside to kerbside, left turns inside to inside, as cubic curves square to the cuts.
+  They carry the lanes' wheel tracks and oil stripe on across the junction (`road_wear.gdshader`, blended over the
+  asphalt as `SurfaceKind.Wear`), so wear no longer stops hard at the junction's edge, and turns add black rubber. Each
+  ribbon's strength is its lane's traffic share (straight 55 %, right 25 %, left 20 %, normalised per lane). The
+  junction's blanket scuffing is down to 0.15.
+- **Queuing stains**: the lanes leading into a junction get oil and drips down their middle for ~45 m behind the stop
+  line (per direction, in vertex `COLOR.gba`).
+- **Junction markings** (Vienna Convention protocol on road markings): a zebra crossing across each mouth with
+  sidewalks (bars 0.5 m, gaps 0.5 m, 3 m long, 0.5 m from the junction), a 0.3 m stop line 1 m behind it across the
+  lanes coming in, every line ending at the stop line, and the centre line and lines between lanes coming in solid for
+  the last 15 m. All numbers in `RoadStyle` (Markings group). Paint UVs fixed, so the sides of lines fray now, and a wide
+  line follows the crown.
+- **Colours**: asphalt to measured values (worn ≈ albedo 0.12, sRGB ~90, slightly warm), concrete a touch warmer; the
+  terrain package's default theme less lime (grass, dry grass, grass & dirt and dirt tints, and its height tints).
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking.

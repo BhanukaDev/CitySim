@@ -51,6 +51,8 @@ public partial class SplineProfile : Resource
     [Export(PropertyHint.Range, "-1,100,0.1")] public float MaxGradePercent { get; set; } = 12f;
     /// <summary>Metres along the line the ground is averaged over; 0 = exact, negative = level.</summary>
     [Export(PropertyHint.Range, "-1,2000,1")] public float GroundSmoothing { get; set; } = 20f;
+    /// <summary>Metres over which a line eases from level at a junction to its grade; 0 = a sharp break.</summary>
+    [Export(PropertyHint.Range, "0,200,1")] public float JunctionCurve { get; set; } = 20f;
     [Export] public bool SpeedFromRadius { get; set; }
     [Export(PropertyHint.Range, "0.1,10,0.1")] public float LateralAccel { get; set; } = 2f;
 
@@ -95,6 +97,7 @@ public partial class SplineProfile : Resource
         CutSlope = CutSlope,
         FillSlope = FillSlope,
         GroundSmoothing = GroundSmoothing < 0 ? float.PositiveInfinity : GroundSmoothing,
+        JunctionCurve = JunctionCurve,
         Edge = Edge,
         WallAbove = WallAbove,
         MaxCut = MaxCut < 0 ? null : MaxCut,

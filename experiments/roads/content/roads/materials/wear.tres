@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" format=3]
 
-[ext_resource type="Shader" path="res://content/roads/shaders/road_asphalt.gdshader" id="1_shader"]
+[ext_resource type="Shader" path="res://content/roads/shaders/road_wear.gdshader" id="1_shader"]
 [ext_resource type="Texture2D" path="res://content/roads/textures/road_detail.png" id="2_detail"]
 [ext_resource type="Texture2D" path="res://content/roads/textures/road_detail_normal.png" id="3_normal"]
 [ext_resource type="Texture2D" path="res://content/roads/textures/road_macro.png" id="4_macro"]

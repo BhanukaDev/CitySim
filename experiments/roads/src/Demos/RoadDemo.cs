@@ -17,6 +17,8 @@ namespace CitySim.Demos;
 /// <c>--cam</c> to look at it; run headless with <c>--quit-after</c> for the checks alone.
 /// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>). <c>--demo-slope</c>: a draw left open up a
 /// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>).
+/// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
+/// <c>--bake-road-textures</c>: rewrites the road shaders' noise textures (<see cref="RoadTextureBaker"/>) and quits.
 /// </summary>
 public partial class RoadDemo : Node
 {
@@ -25,6 +27,13 @@ public partial class RoadDemo : Node
 
     public override void _Ready()
     {
+        // Queued first, so the demos below build their roads at this age.
+        foreach (string arg in OS.GetCmdlineUserArgs())
+            if (arg.StartsWith("--road-age="))
+            {
+                float age = float.Parse(arg[(arg.IndexOf('=') + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+                Callable.From(() => { if (Host?.Visual is { } v) v.AgeOf = _ => age; }).CallDeferred();
+            }
         foreach (string arg in OS.GetCmdlineUserArgs())
             if (arg == "--demo-road" || arg.StartsWith("--demo-road="))
             {
@@ -33,6 +42,11 @@ public partial class RoadDemo : Node
             }
             else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
             else if (arg == "--demo-slope") Callable.From(RunSlope).CallDeferred();
+            else if (arg == "--bake-road-textures")
+            {
+                RoadTextureBaker.Bake();
+                GetTree().Quit();
+            }
     }
 
     private void Run(string roadId)
