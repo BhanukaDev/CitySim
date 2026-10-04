@@ -15,11 +15,12 @@ public sealed partial class RoadVisual
     /// mouth). The kerb line is that outline inset by the sidewalk width, with each mouth kept open: the outline is first
     /// extended past every cut, then inset, then clipped back to the outline. Inside the kerb line is flat asphalt; between
     /// it and the outline a kerb stone and the sidewalk at kerb height, a kerb face along the kerb line and a skirt round
-    /// the back. Junctions take the widest arm's section; markings stop at the cuts.
+    /// the back. Junctions take the widest arm's section and sit level at the node's height; markings stop at the cuts.
     /// </summary>
     private void Junction(RoadMesh rm, SplineGraph g, JunctionFootprint f)
     {
         var sec = f.Cuts.Select(c => SectionOf(g.Edge(c.EdgeId))).MaxBy(s => s.HalfWidth)!;
+        _level = LevelOf(g.Node(f.NodeId));
         var outline = f.Outline.Select(p => new Vector2(p.X, p.Y)).ToArray();
         var mouths = f.Cuts.Select(c => MouthCentre(g, c)).ToList();
         float sw = sec.HasSidewalks ? sec.HalfWidth - sec.HalfCarriageway : 0f;
@@ -89,6 +90,7 @@ public sealed partial class RoadVisual
     {
         if (Junctions.BendFill(g, n.Id) is not { } bend || bend.Count < 2) return;
         var sec = n.Edges.Select(id => SectionOf(g.Edge(id))).MaxBy(s => s.HalfWidth)!;
+        _level = LevelOf(n);
         var c = new Vector2(n.Position.X, n.Position.Y);
         float sw = sec.HasSidewalks ? sec.HalfWidth - sec.HalfCarriageway : 0f;
         float kerbTop = MathF.Min(_sectionStyle.KerbTopWidth, sw), kh = _sectionStyle.KerbHeight;
@@ -116,7 +118,7 @@ public sealed partial class RoadVisual
         }
     }
 
-    /// <summary>A flat polygon (draped on the ground) at a height, facing up.</summary>
+    /// <summary>A flat polygon at a height above the junction's level, facing up.</summary>
     private void Fill(RoadMesh rm, SurfaceKind kind, Vector2[] poly, float height)
     {
         if (poly.Length < 3) return;

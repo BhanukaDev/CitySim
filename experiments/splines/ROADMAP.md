@@ -513,6 +513,16 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   (`R 191 m` · `≈ 97 km/h`, the storyboard's rail frame), and a curvature strip in the HUD for the selected edge.
 
 ### ⬜ S8: Vertical profile and terrain shaping
+- Started 2026-10-05 for the roads experiment (`experiments/roads` R3). Built so far: node heights and edge height lines
+  (`Vertical`: smoothed ground, level over junction cut-backs, `MaxGrade`, rounded crests and sags, new nodes limited by
+  the grade from their neighbours), ground shaping with an apron and cut/fill slopes and level junction discs
+  (`GroundShaping`, `IHeightGrid`, `TerrainHeightGrid`), one undo step with the spline change, the `grade` warning, and
+  the ground shaped back round splines after any other terrain edit. **Decision (user, 2026-10-05):** splines keep their
+  heights when the ground changes; the ground moves, not the road. This replaces "re-conform `Ground` stations on
+  `HeightsChanged`" below. Checked by the roads experiment's `--demo-shape`; the S1–S6 checks still pass. The testbed's
+  profiles have `Shaping = Section`, so its ground is shaped too.
+- Still to do from the list below: stations and PgUp/PgDn, grade in the tag, the `Section` template (a canal is shaped
+  as a level corridor for now), `Edge` walls, `MaxCutFill`, the Shape ground toggle, the cut/fill tag, `CorridorOf`.
 - Stations (`Ground` / `Absolute` / `Offset`), PgUp/PgDn steps, grade in the tag, `MaxGrade` check.
 - `Ground` height line: ground sampled along the centre, smoothed, limited to `MaxGrade`.
 - Terrain shaping (`DESIGN.md` → Terrain shaping):
@@ -523,9 +533,8 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   - junction footprints flattened as plates
   - ground stays shaped on delete
   - a cut/fill tag in the HUD
-- Core math on `IHeightEdit`. The Godot side passes `terrain.BeginEdit().Heights`.
-- Re-conform `Ground` stations on terrain `HeightsChanged` (from other edits; shaping by the spline itself doesn't
-  loop).
+- Core math on `IHeightGrid` (built as `IHeightGrid`). The Godot side wraps `terrain.BeginEdit()`.
+- ~~Re-conform `Ground` stations on terrain `HeightsChanged`~~: replaced by shaping the ground back (see above).
 - `CorridorOf(edge)` for consumers.
 - `--demo-shape`: a road over a hill (cut) and a dip (fill) keeps its section flat and meets the ground at the set
   slope; a canal cut is 3 m deep; one undo restores both the spline and the ground; delete leaves the ground; a

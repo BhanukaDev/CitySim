@@ -32,6 +32,17 @@ public partial class RoadType : BuildItem
     [Export(PropertyHint.Range, "1,8,0.25")] public float SidewalkWidth { get; set; } = 2.5f;
     [Export(PropertyHint.Range, "0.5,20,0.25")] public float MedianWidth { get; set; } = 2f;
 
+    // How the road sits on the land. Set by whoever makes the road (base game or mod); the player can't change them.
+    [ExportGroup("Elevation")]
+    /// <summary>Steepest the road may climb, in percent. A road drawn up something steeper runs into a cut or out onto an
+    /// embankment instead.</summary>
+    [Export(PropertyHint.Range, "1,30,0.5,suffix:%")] public float MaxGrade { get; set; } = 10f;
+    /// <summary>Metres along the road the ground is averaged over for its height: short hugs the hills, long runs
+    /// straight through them on cuts and embankments.</summary>
+    [Export(PropertyHint.Range, "0,500,1,suffix:m")] public float GroundSmoothing { get; set; } = 30f;
+    /// <summary>The bank between the road and the natural ground, as run per rise (2.5 = 1:2.5, about 22°).</summary>
+    [Export(PropertyHint.Range, "0.5,6,0.1")] public float SideSlope { get; set; } = 2.5f;
+
     public RoadDef ToDef() => new()
     {
         Id = Id,

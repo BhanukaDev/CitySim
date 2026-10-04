@@ -14,3 +14,6 @@ OneWay = false
 LaneWidth = 3.0
 StripWidth = 2.0
 SidewalkWidth = 3.0
+MaxGrade = 10.0
+GroundSmoothing = 30.0
+SideSlope = 2.5

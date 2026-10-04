@@ -11,6 +11,10 @@ namespace CitySim.Splines.Godot;
 /// <see cref="Apply"/> as one undo step (DESIGN.md → Undo: one stack, one command per tool action). The history keeps
 /// whole graph snapshots, which is simple and cheap while alignments are shared between them (S11 can revisit).
 /// The Draw and Edit tools share this node.
+/// <para>After every change each node and edge gets its height (<see cref="Vertical.Conform"/>), and the ground round the
+/// new and changed ones is shaped to them (<see cref="GroundShaping"/>) in one terrain edit; undoing the change undoes
+/// that edit too. The splines never move with the ground: when something else changes it (a terrain tool, a script),
+/// the ground round the splines there is shaped back once the stroke is over, as its own terrain undo step.</para>
 /// </summary>
 public partial class SplineNetwork : Node
 {
@@ -18,8 +22,17 @@ public partial class SplineNetwork : Node
 
     [Export] public Terrain? Terrain { get; set; }
 
-    private readonly Stack<SplineGraph> _undo = new();
-    private readonly Stack<SplineGraph> _redo = new();
+    /// <summary>A graph to go back to, and whether going there also undoes (or redoes) one terrain edit.</summary>
+    private sealed class Step(SplineGraph graph)
+    {
+        public SplineGraph Graph { get; } = graph;
+        public bool Shaped { get; set; }
+    }
+
+    private readonly Stack<Step> _undo = new();
+    private readonly Stack<Step> _redo = new();
+    private bool _ownTerrainChange;
+    private VertexRect _groundChanged = VertexRect.Empty;
     private readonly Dictionary<string, SplineProfile> _profiles = new();
     private RibbonRenderer? _renderer;
     private INetworkVisual? _visual;
@@ -39,6 +52,29 @@ public partial class SplineNetwork : Node
         if (Terrain is null) { GD.PushError("SplineNetwork needs a Terrain"); return; }
         Ground = new TerrainGround(Terrain);
         _renderer = new RibbonRenderer(Terrain, Ground);
+        Terrain.HeightsChanged += OnHeightsChanged;
+    }
+
+    public override void _ExitTree()
+    {
+        if (Terrain is not null) Terrain.HeightsChanged -= OnHeightsChanged;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_groundChanged.IsEmpty || Terrain is null || Terrain.History.InStroke) return;
+        var rect = _groundChanged;
+        _groundChanged = VertexRect.Empty;
+        float cs = Terrain.Map?.CellSize ?? 1f;
+        ShapeGround(grid => GroundShaping.ShapeArea(grid, Graph, Footprints,
+            new System.Numerics.Vector2(rect.MinX * cs, rect.MinZ * cs), new System.Numerics.Vector2(rect.MaxX * cs, rect.MaxZ * cs)));
+    }
+
+    private void OnHeightsChanged(VertexRect rect)
+    {
+        // Our own shaping (or its undo) is the ground the splines want; anything else gets shaped back round them.
+        if (_ownTerrainChange) { _ownTerrainChange = false; return; }
+        _groundChanged = _groundChanged.IsEmpty ? rect : _groundChanged.Union(rect);
     }
 
     /// <summary>Remembers a profile so its edges get its colour (edges only carry the Core rules).</summary>
@@ -49,29 +85,42 @@ public partial class SplineNetwork : Node
     /// <summary>One undoable change to the graph.</summary>
     public T Apply<T>(Func<SplineGraph, T> change)
     {
-        _undo.Push(Graph.Clone());
+        var step = new Step(Graph.Clone());
+        _undo.Push(step);
         if (_undo.Count > MaxHistory) TrimHistory();
         _redo.Clear();
         var result = change(Graph);
-        Refresh();
+        step.Shaped = Refresh(shape: true);
         return result;
     }
 
     public bool Undo()
     {
         if (_undo.Count == 0) return false;
-        _redo.Push(Graph);
-        Graph = _undo.Pop();
-        Refresh();
+        var step = _undo.Pop();
+        _redo.Push(new Step(Graph) { Shaped = step.Shaped });
+        Graph = step.Graph;
+        if (step.Shaped && Terrain is { History.CanUndo: true })
+        {
+            _ownTerrainChange = true;
+            Terrain.Undo();
+        }
+        Refresh(shape: false);
         return true;
     }
 
     public bool Redo()
     {
         if (_redo.Count == 0) return false;
-        _undo.Push(Graph);
-        Graph = _redo.Pop();
-        Refresh();
+        var step = _redo.Pop();
+        _undo.Push(new Step(Graph) { Shaped = step.Shaped });
+        Graph = step.Graph;
+        if (step.Shaped && Terrain is { History.CanRedo: true })
+        {
+            _ownTerrainChange = true;
+            Terrain.Redo();
+        }
+        Refresh(shape: false);
         return true;
     }
 
@@ -102,17 +151,44 @@ public partial class SplineNetwork : Node
             return;
         }
         _showingTrial = true;
-        Draw(trial, Junctions.Footprints(trial), issues ?? Validation.Check(trial), hidden ? _hidden : null);
+        var footprints = Junctions.Footprints(trial);
+        if (Ground is not null) Vertical.Conform(trial, footprints, Ground);
+        Draw(trial, footprints, issues ?? Validation.Check(trial), hidden ? _hidden : null);
     }
 
-    private void Refresh()
+    /// <summary>Heights, footprints, issues and visuals for the current graph; with <paramref name="shape"/> the ground
+    /// round what changed is shaped too. True if the ground was changed (one terrain undo step).</summary>
+    private bool Refresh(bool shape)
     {
         _showingTrial = false;
         Footprints = Junctions.Footprints(Graph);
+        bool shaped = false;
+        if (Ground is not null)
+        {
+            var (edges, nodes) = Vertical.Conform(Graph, Footprints, Ground);
+            if (shape) shaped = ShapeGround(grid => GroundShaping.Shape(grid, Graph, Footprints, edges, nodes));
+        }
         Issues = Validation.Check(Graph);
         _hidden.RemoveWhere(id => !Graph.HasEdge(id));
         Draw(Graph, Footprints, Issues, _hidden);
         Changed?.Invoke();
+        return shaped;
+    }
+
+    /// <summary>One terrain edit running <paramref name="shape"/>; nothing is recorded if it wrote nothing. False when the
+    /// terrain is busy (another edit or a tool stroke is open) or there's no map.</summary>
+    private bool ShapeGround(Func<IHeightGrid, bool> shape)
+    {
+        if (Terrain is not { Map: not null } terrain || terrain.History.InStroke) return false;
+        var edit = terrain.BeginEdit();
+        if (!shape(new TerrainHeightGrid(edit, terrain)))
+        {
+            edit.Cancel();
+            return false;
+        }
+        edit.Commit();
+        _ownTerrainChange = true;
+        return true;
     }
 
     /// <summary>The consumer's visuals for the built network, in place of the flat ribbons (null = ribbons). Setting it
@@ -137,7 +213,7 @@ public partial class SplineNetwork : Node
 
     private void TrimHistory()
     {
-        var keep = new List<SplineGraph>(_undo);
+        var keep = new List<Step>(_undo);
         keep.RemoveAt(keep.Count - 1); // the oldest
         _undo.Clear();
         for (int i = keep.Count - 1; i >= 0; i--) _undo.Push(keep[i]);

@@ -6,7 +6,6 @@ using CitySim.Splines;
 using CitySim.Splines.Godot;
 using Godot;
 using NumVector2 = System.Numerics.Vector2;
-using Curve = CitySim.Splines.Curve;
 
 namespace CitySim.Roads;
 
@@ -14,12 +13,15 @@ namespace CitySim.Roads;
 /// The built road network as real road meshes (the splines addon's <see cref="INetworkVisual"/>): each edge extruded
 /// from its <see cref="RoadSection"/> (crowned carriageway, gutters, kerb faces, raised sidewalks, a skirt into the
 /// ground) with its painted lines, each junction footprint filled with asphalt inside a kerb and sidewalk that follow
-/// its corners (<see cref="Junction"/>), and a halo under anything with an issue. Every vertex sits on the ground plus
-/// its section height. Simple full rebuilds, like the addon's ribbons.
+/// its corners (<see cref="Junction"/>), and a halo under anything with an issue. Every vertex sits on the edge's height
+/// line at its station (<see cref="GraphEdge.Heights"/>, level across, so the road never rolls with the ground) or a
+/// junction's node height, plus its section height. Simple full rebuilds, like the addon's ribbons.
 /// </summary>
 public sealed partial class RoadVisual : INetworkVisual
 {
-    private const float Lift = 0.04f;       // the road above the terrain, so they don't z-fight
+    // The road above the ground shaped under it: clear of z-fighting and of the terrain renderer's smoothing, which
+    // rounds a level junction into the slope beyond it a few centimetres high. The skirts hide the gap.
+    private const float Lift = 0.12f;
     private const float PaintLift = 0.012f; // a line above the surface it's painted on
     private const float Step = 2f;          // metres between cross-sections
     private const float CrownTaper = 4f;    // the crown fades out over this before a junction's flat asphalt
@@ -32,6 +34,9 @@ public sealed partial class RoadVisual : INetworkVisual
     private readonly Dictionary<string, RoadSection> _sections = new();
     private readonly Dictionary<SurfaceKind, Material> _fallbacks = new();
     private MeshInstance3D? _node;
+    /// <summary>The height <see cref="Point"/> builds on: the height line at the station being drawn, or the junction's
+    /// node. NaN drapes on the ground (an edge or node with no height yet).</summary>
+    private float _level = float.NaN;
 
     public RoadVisual(Node3D parent, IGround ground, RoadStyle style, Func<string, RoadDef?> defOf)
     {
@@ -95,6 +100,7 @@ public sealed partial class RoadVisual : INetworkVisual
             {
                 outline = sec.Outline(Crown(s));
                 var sample = curve.Sample(s);
+                _level = LevelAt(e, s);
                 var left = SplineMath.Left(sample.Tangent);
                 var ring = outline.Select(p => Point(sample.Position + left * p.Offset, p.Height)).ToArray();
                 if (prev is not null)
@@ -104,10 +110,10 @@ public sealed partial class RoadVisual : INetworkVisual
                 prev = ring;
             }
             // A dead end closes the road with an end face; at a junction only a raised median needs one.
-            if (g.Node(e.Start).Edges.Count == 1) Cap(rm, sec, curve, s0, -1);
-            else if (atStart) MedianEnds(rm, sec, curve, s0, -1);
-            if (g.Node(e.End).Edges.Count == 1) Cap(rm, sec, curve, s1, +1);
-            else if (atEnd) MedianEnds(rm, sec, curve, s1, +1);
+            if (g.Node(e.Start).Edges.Count == 1) Cap(rm, sec, e, s0, -1);
+            else if (atStart) MedianEnds(rm, sec, e, s0, -1);
+            if (g.Node(e.End).Edges.Count == 1) Cap(rm, sec, e, s1, +1);
+            else if (atEnd) MedianEnds(rm, sec, e, s1, +1);
         }
 
         foreach (var line in sec.Lines)
@@ -116,7 +122,7 @@ public sealed partial class RoadVisual : INetworkVisual
             float a = line.Centre && Junctions.RunsOn(e, true, footprints) ? 0 : s0;
             float b = line.Centre && Junctions.RunsOn(e, false, footprints) ? curve.Length : s1;
             if (b - a <= 1e-3f) continue;
-            if (line.Dash <= 0) { Paint(rm, sec, curve, a, b, line, Crown); continue; }
+            if (line.Dash <= 0) { Paint(rm, sec, e, a, b, line, Crown); continue; }
             float period = line.Dash + line.Gap;
             int n = Math.Max(1, (int)MathF.Round((b - a) / period));
             float p = (b - a) / n, on = p * line.Dash / period;
@@ -124,18 +130,19 @@ public sealed partial class RoadVisual : INetworkVisual
             for (int k = 0; k < n; k++)
             {
                 float d = a + k * p + (p - on) / 2;
-                Paint(rm, sec, curve, d, d + on, line, Crown);
+                Paint(rm, sec, e, d, d + on, line, Crown);
             }
         }
     }
 
     /// <summary>A painted strip along the curve from <paramref name="a"/> to <paramref name="b"/>.</summary>
-    private void Paint(RoadMesh rm, RoadSection sec, Curve curve, float a, float b, SectionLine line, Func<float, float> crown)
+    private void Paint(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown)
     {
         Vector3? l0 = null, r0 = null;
         foreach (float s in Stations(a, b))
         {
-            var sample = curve.Sample(s);
+            var sample = e.Alignment.Curve.Sample(s);
+            _level = LevelAt(e, s);
             var left = SplineMath.Left(sample.Tangent);
             float h = sec.CarriagewayHeight(line.Offset, crown(s)) + PaintLift;
             var l1 = Point(sample.Position + left * (line.Offset + line.Width / 2), h);
@@ -146,10 +153,11 @@ public sealed partial class RoadVisual : INetworkVisual
     }
 
     /// <summary>An end face across the road at <paramref name="s"/>, facing along (+1) or against (−1) the curve.</summary>
-    private void Cap(RoadMesh rm, RoadSection sec, Curve curve, float s, int facing)
+    private void Cap(RoadMesh rm, RoadSection sec, GraphEdge e, float s, int facing)
     {
         var outline = sec.Outline();
-        var sample = curve.Sample(s);
+        var sample = e.Alignment.Curve.Sample(s);
+        _level = LevelAt(e, s);
         var left = SplineMath.Left(sample.Tangent);
         var normal = new Vector3(sample.Tangent.X, 0, sample.Tangent.Y) * facing;
         var poly = outline.Select(p => new Vector2(p.Offset, p.Height)).ToArray();
@@ -162,9 +170,10 @@ public sealed partial class RoadVisual : INetworkVisual
     }
 
     /// <summary>End faces for the raised bands inside the carriageway (a median) where the road meets a junction.</summary>
-    private void MedianEnds(RoadMesh rm, RoadSection sec, Curve curve, float s, int facing)
+    private void MedianEnds(RoadMesh rm, RoadSection sec, GraphEdge e, float s, int facing)
     {
-        var sample = curve.Sample(s);
+        var sample = e.Alignment.Curve.Sample(s);
+        _level = LevelAt(e, s);
         var left = SplineMath.Left(sample.Tangent);
         var normal = new Vector3(sample.Tangent.X, 0, sample.Tangent.Y) * facing;
         float kh = sec.Style.KerbHeight;
@@ -192,8 +201,13 @@ public sealed partial class RoadVisual : INetworkVisual
         for (int k = 0; k <= n; k++) yield return a + (b - a) * k / n;
     }
 
-    /// <summary>A plan point at a height above the ground.</summary>
-    private Vector3 Point(NumVector2 plan, float height) => new(plan.X, _ground.GetHeight(plan) + Lift + height, plan.Y);
+    /// <summary>A plan point at a height above <see cref="_level"/> (or the ground, with no level).</summary>
+    private Vector3 Point(NumVector2 plan, float height) =>
+        new(plan.X, (float.IsNaN(_level) ? _ground.GetHeight(plan) : _level) + Lift + height, plan.Y);
+
+    private static float LevelAt(GraphEdge e, float s) => e.Heights?.At(s) ?? float.NaN;
+
+    private static float LevelOf(CitySim.Splines.GraphNode n) => n.Height ?? float.NaN;
 
     private Vector3 Point(Vector2 plan, float height) => Point(new NumVector2(plan.X, plan.Y), height);
 
@@ -227,6 +241,7 @@ public sealed partial class RoadVisual : INetworkVisual
                 foreach (float s in Stations(0, e.Alignment.Length))
                 {
                     var sample = e.Alignment.Curve.Sample(s);
+                    _level = LevelAt(e, s);
                     var left = SplineMath.Left(sample.Tangent) * half;
                     var l1 = Point(sample.Position + left, -Lift / 2);
                     var r1 = Point(sample.Position - left, -Lift / 2);
@@ -243,6 +258,7 @@ public sealed partial class RoadVisual : INetworkVisual
             {
                 if (!nodeWorst.TryGetValue(n.Id, out var w) || w != sev) continue;
                 float r = n.Edges.Select(id => graph.Edge(id).Rules.Width).DefaultIfEmpty(0).Max() / 2 + 6f;
+                _level = LevelOf(n);
                 const int k = 24;
                 for (int i = 0; i < k; i++)
                 {

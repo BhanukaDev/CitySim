@@ -16,8 +16,8 @@ public sealed record Issue(Severity Severity, string Code, string Message, Vecto
 /// asked for or clamped to fit; a clamp above the minimum isn't an issue, the corner just takes what fits), a
 /// junction angle below the minimum (Warn), a square branch off a turnout profile (Invalid), a crossing or overlap
 /// with an edge it doesn't connect to (Invalid), crossing itself (Invalid), an edge too short for the junctions
-/// at its ends (Warn), and a kerb handle set below the profile's minimum kerb radius (Invalid). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade comes
-/// with S8. Plain loops over every edge; S11 adds a spatial index.
+/// at its ends (Warn), and a kerb handle set below the profile's minimum kerb radius (Invalid). Severity is the same with or without Anarchy: Anarchy only lets Invalid build. Grade: an edge whose
+/// height line is steeper than the profile's max grade (Warn). Plain loops over every edge; S11 adds a spatial index.
 /// </summary>
 public static class Validation
 {
@@ -79,6 +79,10 @@ public static class Validation
         var (cutStart, cutEnd) = Junctions.CutBacks(e, footprints);
         if (cutStart + cutEnd > 0 && a.Length < cutStart + cutEnd + 1f)
             issues.Add(new Issue(Severity.Warn, "short", "too short for its junctions", a.Curve.Sample(a.Length / 2).Position, e.Id));
+
+        // Its height line only goes steeper than the max grade where its two ends are too far apart in height.
+        if (rules.MaxGrade is { } maxGrade && e.Heights is { } line && line.Steepest() is var (grade, gs) && grade > maxGrade + 0.005f)
+            issues.Add(new Issue(Severity.Warn, "grade", $"grade {grade * 100:0} %, max {maxGrade * 100:0} %", a.Curve.Sample(gs).Position, e.Id));
 
         foreach (var other in g.Edges)
         {

@@ -13,7 +13,14 @@ public sealed class GraphNode
     public int Id { get; }
     public Vector2 Position { get; internal set; }
     public List<int> Edges { get; } = new();
+    /// <summary>The height <see cref="Vertical.Conform"/> gave the node, and where it stood then.</summary>
+    public NodeLevel? Level { get; internal set; }
+    /// <summary>The node's height (world metres), kept while it stays where it was; null until it's conformed.</summary>
+    public float? Height => Level is { } l && l.At == Position ? l.Height : null;
 }
+
+/// <summary>A node's height and the position it was set at (moving the node makes it stale).</summary>
+public readonly record struct NodeLevel(Vector2 At, float Height);
 
 /// <summary>
 /// An edge between two nodes: its alignment (treated as immutable once in the graph: operations replace it), the
@@ -27,6 +34,8 @@ public sealed record GraphEdge(int Id, ProfileRules Rules, Alignment Alignment, 
     public object? CustomData { get; init; }
     public KerbEnds KerbStart { get; init; }
     public KerbEnds KerbEnd { get; init; }
+    /// <summary>The height line (<see cref="Vertical.Conform"/>); stale or null once the edge changes.</summary>
+    public EdgeHeights? Heights { get; init; }
 
     public KerbEnds KerbAt(bool atStart) => atStart ? KerbStart : KerbEnd;
 }
@@ -95,13 +104,15 @@ public sealed partial class SplineGraph
         var g = new SplineGraph { _nextNode = _nextNode, _nextEdge = _nextEdge };
         foreach (var (id, n) in _nodes)
         {
-            var copy = new GraphNode(id, n.Position);
+            var copy = new GraphNode(id, n.Position) { Level = n.Level };
             copy.Edges.AddRange(n.Edges);
             g._nodes[id] = copy;
         }
         foreach (var (id, e) in _edges) g._edges[id] = e;
         return g;
     }
+
+    internal void SetHeights(int edgeId, EdgeHeights heights) => _edges[edgeId] = _edges[edgeId] with { Heights = heights };
 
     /// <summary>
     /// Whether two profiles make junctions together: each has to accept the other (its own id, or one listed in its

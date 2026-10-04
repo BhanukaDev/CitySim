@@ -15,6 +15,7 @@ namespace CitySim.Demos;
 /// dead end, a T, a 4-way, a 60° skewed T, a curve, and two hard corners), checks its cross-section and that every
 /// kind of surface was drawn, and prints "Demo road: all ok" (or the problems). Add <c>--screenshot</c> and
 /// <c>--cam</c> to look at it; run headless with <c>--quit-after</c> for the checks alone.
+/// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>).
 /// </summary>
 public partial class RoadDemo : Node
 {
@@ -29,6 +30,7 @@ public partial class RoadDemo : Node
                 string id = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : "two_lane";
                 Callable.From(() => Run(id)).CallDeferred();
             }
+            else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
     }
 
     private void Run(string roadId)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CitySim.Splines;
 using CitySim.Splines.Godot;
 
 namespace CitySim.Roads;
@@ -8,7 +9,8 @@ namespace CitySim.Roads;
 /// <summary>
 /// The splines addon's <see cref="SplineProfile"/> for each road type, built at start-up from the road's layout (the
 /// addon only knows profiles, never roads). Drawing rules come from the splines testbed's street profile; any road
-/// joins any other.
+/// joins any other. Elevation (max grade, smoothing, side slopes) comes from the road type, and every road shapes
+/// the ground.
 /// </summary>
 public static class RoadProfiles
 {
@@ -45,8 +47,11 @@ public static class RoadProfiles
             KerbRadius = Corner(KerbRadius),
             MinKerbRadius = Corner(MinKerbRadius),
             MaxKerbRadius = Corner(MaxKerbRadius),
-            MaxGradePercent = 12f,
-            GroundSmoothing = 20f,
+            MaxGradePercent = road.MaxGrade,
+            GroundSmoothing = road.GroundSmoothing,
+            Shaping = ShapingMode.Section,
+            CutSlope = road.SideSlope,
+            FillSlope = road.SideSlope,
             ConnectsTo = connectsTo,
         };
     }

@@ -70,6 +70,9 @@ runs straight through them on cuts and embankments, like Transport Fever 2. This
 roads build "masses of ground" instead of climbing hills. The terrain is then shaped to meet that line (below). The spline height is
 the top of the section: the road surface, or a canal's bank top.
 
+Once set, a spline's heights stay: when the ground changes under or round it later (a terrain tool, a script), the
+spline doesn't move. The ground round it is shaped back to it instead (decided 2026-10-05).
+
 ## Terrain shaping
 
 The addon shapes the ground under and around a spline. It is generic: the profile's **section template** decides the
@@ -391,8 +394,8 @@ These are C# events and interfaces on the Godot side, with plain data only:
 - `ShapingOverride` (optional): a consumer can replace or post-process the section per edge. For example, a road
   experiment might widen the section where a bus stop sits.
 - Custom data copies across split/merge through `ISplineDataPolicy` (the default copies it unchanged).
-- The terrain goes through an `IGround` adapter (`Raycast`, `GetHeight`, `HeightsChanged` → re-conform `Ground`
-  stations). The Godot side implements it with `citysim_terrain`, so Core never references the terrain.
+- The terrain goes through an `IGround` adapter (`Raycast`, `GetHeight`), and shaping through `IHeightGrid`. On
+  `HeightsChanged` from other edits the ground round the splines is shaped back (they keep their heights). The Godot side implements it with `citysim_terrain`, so Core never references the terrain.
 
 ## Undo, save
 

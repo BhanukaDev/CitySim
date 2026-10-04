@@ -19,10 +19,26 @@ Needs the terrain package (`citysim_terrain`) in the same project.
 
 - `src/Core/`: engine-agnostic (`System.Numerics` only). `ProfileRules`, enums, `IGround`, `DrawSession`,
   `GridLayout`, `Geometry/` (`Alignment`, `Curve`, segments, `FreehandFit`, `RibbonGeometry`), `Snapping/`,
-  `Graph/` (`SplineGraph`, `Junctions`, `Validation`).
+  `Graph/` (`SplineGraph`, `Junctions`, `Validation`, `Vertical`, `GroundShaping`).
 - `src/Godot/`: `SplineProfile` (the `.tres` per network type), `SplineNetwork` (the built graph, undo, issues,
   footprints, visuals), `SplineDrawTool`, `SplineEditTool`, `RibbonRenderer` (draw previews and the placeholder
-  flat-ribbon network), `SplineOverlay`, `SplineOptionsBar` (the testbed's bar), `SplineIssueList`, `TerrainGround`.
+  flat-ribbon network), `SplineOverlay`, `SplineOptionsBar` (the testbed's bar), `SplineIssueList`, `TerrainGround`,
+  `TerrainHeightGrid`.
+
+## Heights and ground shaping
+
+After every change `SplineNetwork` gives each node a `Height` and each edge an `EdgeHeights` line (`Vertical.Conform`):
+the ground along the centre, averaged over the profile's `GroundSmoothing`, held level over each junction's cut-back,
+limited to `MaxGrade` and rounded at crests and sags. A new node takes the ground, limited by the grade from its
+neighbours, so a road drawn up a cliff ends in a cut or on an embankment. Lines stay until their edge, nodes or
+junctions change: **splines never move with the ground**.
+
+Profiles with `Shaping = Section` then shape the ground round what changed (`GroundShaping`): level under the corridor
+and one grid cell beside it, then `CutSlope` / `FillSlope` (run per rise) back to the natural ground, and a level disc
+round each junction. It's one terrain edit, undone with the spline change. When anything else edits the ground (a terrain
+tool, a script), the ground round the splines there is shaped back once the stroke ends, as its own terrain undo step.
+`Validation` warns (`grade`) where an edge's ends are too far apart in height for its max grade. Not yet: the profile's
+`Section` template (canal channels), retaining walls (`Edge`), the cut/fill tag, a Shape ground toggle.
 
 ## Hooks
 
@@ -35,5 +51,6 @@ Needs the terrain package (`citysim_terrain`) in the same project.
   Draw each edge between `Junctions.CutBacks(edge, footprints)`, and fill each `JunctionFootprint` (its `Outline` runs
   round the corridor edge: each arm's sides, its cut end and the curbs). Two-arm hard corners have
   `Junctions.BendFill`. Leave `hidden` edges out. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
-  is an example.
+  is an example. Build on the stored heights, not the ground: `edge.Heights.At(s)` (level across, so no roll) and
+  `node.Height` for junctions. Either is null only before the network has conformed that graph.
 - Still to come (S10): batched events, costs, `CustomData` policy, save/load.

@@ -25,6 +25,10 @@ $G --headless --path . --quit-after 300 -- --flat --demo-road        # builds a 
 $G --path . -- --flat --demo-road --cam=650,560,420,70,0 --screenshot=screenshots/road_top.png        # overview
 $G --path . -- --flat --demo-road --cam=700,500,30,35,35 --screenshot=screenshots/road_junction.png   # the 4-way, low
 $G --path . -- --flat --demo-road --cam=830,515,45,45,0 --screenshot=screenshots/road_skew.png        # the 60° T
+$G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip, hillside T, undo, sculpt; "Demo shape: all ok"
+$G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
+$G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
+$G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screenshots/shape_junction.png # T on the hillside
 ```
 
 `--ui=` parts, applied in order: `open:<category>`, `tab:<tab>`, `pick:<item>`, `search:<text>`,
@@ -112,6 +116,23 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   `two_lane` are hidden (`BuildItem.Hidden`) and come back one at a time through the road checklist above.
 - Next: stop lines and crosswalks at junctions (then lane arrows), textures and normal maps, LOD in the
   performance milestone.
+
+### ⬜ R3: Roads on hills (built 2026-10-05, waiting for the user's play-test)
+- Roads don't roll: each road has a stored height line and is level across; junctions are level at their node's height.
+- Per road type, set in its `.tres` (Elevation group, not in the game's UI): `MaxGrade` (%, default 10),
+  `GroundSmoothing` (m along the road the ground is averaged over, default 30), `SideSlope` (bank run per rise, default
+  2.5 ≈ 22°). A road drawn up something steeper runs into a cut or onto an embankment; ends too far apart in height for
+  the grade get an amber `grade` warning.
+- The ground is shaped to the road on build and on Edit release: level under it plus a 3.5 m apron, then banks at the
+  side slope until they meet the natural ground (nothing on flat ground). Same undo step as the road. Delete leaves the
+  ground as it is.
+- Roads never move with the ground: a later terrain edit round a road is shaped back once the stroke ends (its own
+  terrain undo step). The roads experiment has no terrain tools yet, so `--demo-shape` stands in for one.
+- Built in the splines addon as the first part of its S8 (`Vertical`, `GroundShaping`); see its README.
+- The road mesh sits 12 cm above the shaped ground (was 4 cm): the terrain renderer rounds a level junction into the
+  slope beside it a few centimetres high and showed through the gutters.
+- Not yet: retaining walls (later, by request), bridges/tunnels, a Shape ground toggle, a cut/fill readout while drawing.
+- For the play-test: do the grade and banks feel right on real hills? Is 10 % right for the two-lane road?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking.
