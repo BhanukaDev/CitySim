@@ -9,6 +9,7 @@ DisplayName = "Four-lane two-way highway"
 Description = "Two lanes each way. No sidewalks."
 Tab = "highways"
 Order = 30
+Hidden = true
 Lanes = 4
 OneWay = false
 Sidewalks = 0

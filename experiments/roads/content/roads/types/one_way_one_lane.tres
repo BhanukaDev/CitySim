@@ -9,5 +9,6 @@ DisplayName = "One-lane one-way road"
 Description = "A single lane in one direction with sidewalks."
 Tab = "small"
 Order = 30
+Hidden = true
 Lanes = 1
 OneWay = true

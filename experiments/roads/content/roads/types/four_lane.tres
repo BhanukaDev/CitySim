@@ -9,5 +9,6 @@ DisplayName = "Four-lane road"
 Description = "Two lanes each way with a painted centre line."
 Tab = "medium"
 Order = 10
+Hidden = true
 Lanes = 4
 OneWay = false

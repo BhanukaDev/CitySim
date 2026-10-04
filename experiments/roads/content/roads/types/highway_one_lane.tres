@@ -9,6 +9,7 @@ DisplayName = "One-lane one-way highway"
 Description = "A single highway lane, for ramps and connections."
 Tab = "highways"
 Order = 60
+Hidden = true
 Lanes = 1
 OneWay = true
 Sidewalks = 0

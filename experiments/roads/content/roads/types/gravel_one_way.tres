@@ -9,6 +9,7 @@ DisplayName = "Gravel one-way road"
 Description = "Unpaved single lane in one direction."
 Tab = "small"
 Order = 70
+Hidden = true
 Lanes = 1
 OneWay = true
 Surface = 1

@@ -9,6 +9,7 @@ DisplayName = "One-way alley"
 Description = "Narrow single lane without sidewalks."
 Tab = "small"
 Order = 90
+Hidden = true
 Lanes = 1
 OneWay = true
 Sidewalks = 0

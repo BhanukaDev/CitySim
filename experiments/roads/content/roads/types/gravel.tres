@@ -9,6 +9,7 @@ DisplayName = "Gravel road"
 Description = "Unpaved two-way road for the countryside."
 Tab = "small"
 Order = 60
+Hidden = true
 Lanes = 2
 OneWay = false
 Surface = 1

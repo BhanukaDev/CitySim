@@ -19,8 +19,8 @@ G=/Applications/Godot_mono.app/Contents/MacOS/Godot
 dotnet build
 $G --headless --path . --import                                   # after adding icons or content
 $G --headless --path . -- --flat --demo-content                   # lists content, prints "Demo content: all ok"
-$G --path . -- --flat --ui=open:roads,tab:medium,pick:four_lane_divided,hover:four_lane_divided --screenshot=screenshots/ui_medium.png
-$G --path . -- --flat --ui=open:roads,pick:highway_three_lane,search:lane,mode:grid --screenshot=screenshots/ui_search.png
+$G --path . -- --flat --ui=open:roads,tab:small,pick:two_lane,hover:two_lane --screenshot=screenshots/ui_small.png
+$G --path . -- --flat --ui=open:roads,pick:two_lane,search:lane,mode:grid --screenshot=screenshots/ui_search.png
 $G --headless --path . --quit-after 300 -- --flat --demo-road        # builds a test network, prints "Demo road: all ok"
 $G --path . -- --flat --demo-road --cam=650,560,420,70,0 --screenshot=screenshots/road_top.png        # overview
 $G --path . -- --flat --demo-road --cam=700,500,30,35,35 --screenshot=screenshots/road_junction.png   # the 4-way, low
@@ -30,6 +30,53 @@ $G --path . -- --flat --demo-road --cam=830,515,45,45,0 --screenshot=screenshots
 `--ui=` parts, applied in order: `open:<category>`, `tab:<tab>`, `pick:<item>`, `search:<text>`,
 `mode:straight|curve|freehand|grid`, `anarchy`, `hover:<item>` (shows the hover card above the item's card).
 The terrain flags (`--flat`, `--load=`, `--cam=`, `--screenshot=`) come from the terrain package.
+
+## Road checklist
+
+All 33 road types are in `content/roads/types/`, but only the ones ticked here are shown in game. The rest have
+`Hidden = true` in their `.tres` file. To bring one in, delete that line, test it in Godot, then tick it here.
+Tabs with no visible roads are hidden too.
+
+**Small**
+- [ ] Two-lane road (`two_lane`): visible, being tested
+- [ ] Three-lane asymmetric road (`three_lane_asymmetric`)
+- [ ] One-lane one-way road (`one_way_one_lane`)
+- [ ] Two-lane one-way road (`one_way_two_lane`)
+- [ ] Three-lane one-way road (`one_way_three_lane`)
+- [ ] Gravel road (`gravel`)
+- [ ] Gravel one-way road (`gravel_one_way`)
+- [ ] Alley (`alley`)
+- [ ] One-way alley (`alley_one_way`)
+
+**Medium**
+- [ ] Four-lane road (`four_lane`)
+- [ ] Four-lane divided road (`four_lane_divided`)
+- [ ] Four-lane asymmetric road (`four_lane_asymmetric`)
+- [ ] Five-lane asymmetric road (`five_lane_asymmetric`)
+- [ ] Four-lane one-way road (`one_way_four_lane`)
+- [ ] Five-lane one-way road (`one_way_five_lane`)
+
+**Large**
+- [ ] Six-lane road (`six_lane`)
+- [ ] Six-lane divided road (`six_lane_divided`)
+- [ ] Eight-lane divided road (`eight_lane_divided`)
+- [ ] Six-lane asymmetric road (`six_lane_asymmetric`)
+- [ ] Seven-lane asymmetric road (`seven_lane_asymmetric`)
+- [ ] Seven-lane asymmetric road, 5 + 2 (`seven_lane_asymmetric_wide`)
+- [ ] Six-lane one-way road (`one_way_six_lane`)
+- [ ] Seven-lane one-way road (`one_way_seven_lane`)
+
+**Highways**
+- [ ] Two-lane two-way highway (`highway_two_lane_two_way`)
+- [ ] Three-lane two-way highway (`highway_three_lane_two_way`)
+- [ ] Four-lane two-way highway (`highway_four_lane_two_way`)
+- [ ] Four-lane asymmetric highway (`highway_four_lane_asymmetric`)
+- [ ] Five-lane asymmetric highway (`highway_five_lane_asymmetric`)
+- [ ] One-lane one-way highway (`highway_one_lane`)
+- [ ] Two-lane one-way highway (`highway_two_lane`)
+- [ ] Three-lane one-way highway (`highway_three_lane`)
+- [ ] Four-lane one-way highway (`highway_four_lane`)
+- [ ] Five-lane one-way highway (`highway_five_lane`)
 
 ## Milestones
 
@@ -61,7 +108,8 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   crown fading out 4 m before a junction), painted lines as flat strips 12 mm up, end faces at dead ends. Junctions:
   the footprint outline inset by the sidewalk (mouths kept open), giving flat asphalt, a gutter and kerb face round
   the corner, kerb stone and sidewalk. Hard corners: a fan. Issue halos under anything with a problem.
-- Every road type draws with this; the others have no strips yet, and medians are a raised kerbed band.
+- Every road type draws with this; the others have no strips yet, and medians are a raised kerbed band. All but
+  `two_lane` are hidden (`BuildItem.Hidden`) and come back one at a time through the road checklist above.
 - Next: stop lines and crosswalks at junctions (then lane arrows), textures and normal maps, LOD in the
   performance milestone.
 

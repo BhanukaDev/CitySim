@@ -9,6 +9,7 @@ DisplayName = "Six-lane divided road"
 Description = "Three lanes each way split by a raised median."
 Tab = "large"
 Order = 20
+Hidden = true
 Lanes = 6
 OneWay = false
 Median = 1

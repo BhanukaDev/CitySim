@@ -9,5 +9,6 @@ DisplayName = "Four-lane one-way road"
 Description = "Four lanes in one direction with sidewalks."
 Tab = "medium"
 Order = 50
+Hidden = true
 Lanes = 4
 OneWay = true

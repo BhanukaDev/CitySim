@@ -14,7 +14,7 @@ namespace CitySim.Content;
 /// </list>
 /// Any <c>.tres</c>/<c>.res</c> whose script is <see cref="BuildCategory"/>, <see cref="BuildTab"/>, a
 /// <see cref="BuildItem"/> type or <see cref="RoadStyle"/> counts; other files are ignored, so content can sit next to
-/// its textures and materials. Tabs whose category is missing and items whose tab is missing are skipped with a warning.
+/// its textures and materials. Items with <see cref="BuildItem.Hidden"/> set are left out. Tabs whose category is missing and items whose tab is missing are skipped with a warning.
 /// </summary>
 public sealed class ContentLibrary
 {
@@ -99,6 +99,9 @@ public sealed class ContentLibrary
             Warnings.Add($"item \"{i.Id}\" ({i.Source}) points at unknown tab \"{i.Tab}\", skipped");
             _items.Remove(i.Id);
         }
+        int hidden = _items.Values.Count(i => i.Hidden);
+        foreach (var i in _items.Values.Where(i => i.Hidden).ToList()) _items.Remove(i.Id);
+        if (hidden > 0) GD.Print($"Content: {hidden} hidden items left out");
         Categories = _categories.Values.OrderBy(c => c.Order).ThenBy(c => c.Label).ToList();
         Tabs = _tabs.Values.OrderBy(t => t.Order).ThenBy(t => t.Label).ToList();
         Items = _items.Values.OrderBy(i => i.Order).ThenBy(i => i.Label).ToList();

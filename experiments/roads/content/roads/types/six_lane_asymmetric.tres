@@ -9,6 +9,7 @@ DisplayName = "Six-lane asymmetric road"
 Description = "Four lanes one way, two lanes back."
 Tab = "large"
 Order = 40
+Hidden = true
 Lanes = 6
 OneWay = false
 ForwardLanes = 4

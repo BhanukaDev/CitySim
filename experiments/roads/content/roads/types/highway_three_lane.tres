@@ -9,6 +9,7 @@ DisplayName = "Three-lane one-way highway"
 Description = "Three lanes in one direction."
 Tab = "highways"
 Order = 80
+Hidden = true
 Lanes = 3
 OneWay = true
 Sidewalks = 0

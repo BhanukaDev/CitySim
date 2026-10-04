@@ -9,6 +9,7 @@ DisplayName = "Alley"
 Description = "Narrow two-lane road without sidewalks."
 Tab = "small"
 Order = 80
+Hidden = true
 Lanes = 2
 OneWay = false
 Sidewalks = 0

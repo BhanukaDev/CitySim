@@ -20,6 +20,9 @@ public partial class BuildItem : Resource
     [Export] public int Order { get; set; }
     /// <summary>Card picture. Leave empty to let the item draw its own (roads draw their cross-section).</summary>
     [Export] public Texture2D? Icon { get; set; }
+    /// <summary>Left out of the game entirely (not listed, not buildable). For content that isn't ready yet; a mod can
+    /// also hide a base item by replacing it with a hidden copy.</summary>
+    [Export] public bool Hidden { get; set; }
 
     public string Source { get; internal set; } = "Base";
     public string Label => string.IsNullOrEmpty(DisplayName) ? Id : DisplayName;
