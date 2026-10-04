@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "alley_one_way"
+DisplayName = "One-way alley"
+Description = "Narrow single lane without sidewalks."
+Tab = "small"
+Order = 90
+Lanes = 1
+OneWay = true
+Sidewalks = 0
+LaneWidth = 3.0

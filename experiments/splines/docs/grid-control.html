@@ -1,0 +1,296 @@
+<title>Grid Mode Control</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: same storyboard language as the other splines docs: one live top-down map frame, controls beside it, notes under. */
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
+  --asphalt:#7D8790; --paint:#F4F1E6; --accent:#2463D1; --ghost:rgba(36,99,209,.14); --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
+  --pill:#1C2629; --pill-fg:#F4F1E6; --node:#FFFFFF; --lot:rgba(28,38,41,.10);
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.16); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.10);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#6A747E; --paint:#E9E5D7; --accent:#6A9CF2; --ghost:rgba(106,156,242,.16); --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.10);
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px}
+main{max-width:1180px;margin:0 auto;padding-block:36px 64px;display:grid;gap:40px}
+header{display:grid;gap:10px;max-width:76ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 52px/.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:72ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:16px}
+.play{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:860px){.play{grid-template-columns:1fr}}
+.frame{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.frame svg{display:block;width:100%;height:auto;background:var(--map);touch-action:none;cursor:crosshair}
+.status{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 12px;font:13px/1.4 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--ink);font-weight:500}
+.side{display:grid;gap:14px}
+.tabs{display:grid;gap:6px}
+.tab{all:unset;cursor:pointer;display:grid;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.tab span{font:600 14px/1.3 var(--body)}
+.tab small{font-size:12.5px;color:var(--muted);line-height:1.4}
+.tab[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tab:focus-visible,.step:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ctl{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px}
+.stepper{display:flex;align-items:center;gap:6px;font:500 14px var(--mono);font-variant-numeric:tabular-nums}
+.step{all:unset;cursor:pointer;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);border-radius:4px;background:var(--paper)}
+.step:hover{border-color:var(--accent)}
+.seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;padding:4px 9px;font-size:12.5px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted)}
+.key{font:500 11.5px var(--mono);padding:1px 5px;border:1px solid var(--line);border-radius:3px;background:var(--paper)}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.note{display:grid;gap:8px;align-content:start;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.note ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:14px}
+.note p{font-size:14px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">Splines · S6 · Grid mode rethink</span>
+  <h1>Grid follows the cursor</h1>
+  <p class="lede">Right now the block size is fixed, so the grid's outline jumps in whole blocks (74 m at 8 × 8 lots) and never sits where you put the mouse. The idea here: the outline goes exactly where you drag, and you choose <em>how many roads</em> or <em>how dense</em> the grid is inside it. Every block shows its size so you can see what zoning will get.</p>
+</header>
+
+<section>
+  <div class="play">
+    <div class="frame">
+      <svg id="map" viewBox="0 0 960 600" role="img" aria-label="Top-down map: drag to draw a grid"></svg>
+      <div class="status" id="status"></div>
+    </div>
+    <div class="side">
+      <div class="tabs" role="group" aria-label="Grid control">
+        <button class="tab" id="t-now" data-mode="now"><span>Now · fixed block size</span><small>Outline rounds to whole blocks. Watch the dashed cursor box versus the roads.</small></button>
+        <button class="tab" id="t-count" data-mode="count"><span>A · Number of roads</span><small>Outline is the cursor. You set columns × rows; blocks share the space.</small></button>
+        <button class="tab" id="t-density" data-mode="density"><span>B · Density</span><small>Outline is the cursor. You pick a target block; the road count follows the size.</small></button>
+      </div>
+
+      <div class="ctl" id="c-now">
+        <div class="row">Block along<div class="stepper"><button class="step" id="na-" aria-label="Fewer lots along">−</button><span id="na">8</span><button class="step" id="na+" aria-label="More lots along">+</button></div></div>
+        <div class="row">Block across<div class="stepper"><button class="step" id="nc-" aria-label="Fewer lots across">−</button><span id="nc">8</span><button class="step" id="nc+" aria-label="More lots across">+</button></div></div>
+        <p class="hint">Lots of clear space per block. Changing these makes the whole outline jump.</p>
+      </div>
+
+      <div class="ctl" id="c-count">
+        <div class="row">Columns<div class="stepper"><button class="step" id="cc-" aria-label="Fewer columns">−</button><span id="cc">3</span><button class="step" id="cc+" aria-label="More columns">+</button></div></div>
+        <div class="row">Rows<div class="stepper"><button class="step" id="cr-" aria-label="Fewer rows">−</button><span id="cr">2</span><button class="step" id="cr+" aria-label="More rows">+</button></div></div>
+        <p class="hint"><span class="key">wheel</span> columns · <span class="key">Shift</span>+<span class="key">wheel</span> rows (on the map). Can't go below the smallest block.</p>
+      </div>
+
+      <div class="ctl" id="c-density">
+        <div class="row"><span>Target block</span><b id="dv" style="font:500 13px var(--mono)">8 lots</b></div>
+        <input type="range" id="dens" min="3" max="16" step="1" value="8" aria-label="Target block size in lots">
+        <div class="row hint" style="margin-top:-6px"><span>dense</span><span>sparse</span></div>
+        <p class="hint"><span class="key">wheel</span> on the map changes it. The count is the nearest whole number of blocks; they stretch a little to fill.</p>
+      </div>
+
+      <div class="ctl" id="c-fit">
+        <div class="row">Block fit
+          <div class="seg" role="group" aria-label="Block fit"><button id="f-even" data-fit="even">Even split</button><button id="f-lots" data-fit="lots">Lot steps</button></div>
+        </div>
+        <p class="hint" id="fithint"></p>
+      </div>
+
+      <div class="legend">
+        <span><i class="sw" style="background:var(--good)"></i>whole lots</span>
+        <span><i class="sw" style="background:var(--warn)"></i>part lot left over</span>
+        <span><i class="sw" style="background:var(--bad)"></i>under 2 lots: refused</span>
+      </div>
+      <p class="hint">Drag on the map to draw a new grid. In the game it stays three clicks (corner, width, depth) and the first edge still sets the rotation; this page drags a straight rectangle to keep it simple.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Rules I'd add</h2>
+  <div class="notes">
+    <div class="note"><h3>The outline is yours</h3><ul>
+      <li>The far corner is the cursor, with the usual snaps (nodes, guides, length steps with Ctrl).</li>
+      <li>The roads inside never move the outline.</li>
+      <li>The tag shows the outline size and the block count: <code>3 × 2 blocks · 236 × 152 m</code>.</li>
+    </ul></div>
+    <div class="note"><h3>Smallest block</h3><ul>
+      <li>A block needs at least 2 lots (16 m) of clear space, one lot deep from each side.</li>
+      <li>In A, + stops at that size. In B, the count drops a block instead.</li>
+      <li>Too small an outline for even one block is red and refused (unless Anarchy).</li>
+    </ul></div>
+    <div class="note"><h3>Block labels</h3><ul>
+      <li>Each block shows its clear size in m and in lots while you draw.</li>
+      <li>Green: whole lots. Amber: a part lot is left over, so zoning leaves a strip unused.</li>
+      <li>Labels hide when a block is too small on screen; the tag still has the range.</li>
+    </ul></div>
+  </div>
+</section>
+</main>
+
+<script>
+const L = 8, W = 10, MIN_LOTS = 2;           // lot (SnapLength) and road width, metres
+const PX = 1.5, OX = 30, OY = 30;            // px per metre, map origin
+const S = { mode:'count', fit:'even', lotsA:8, lotsC:8, cols:3, rows:2, target:8,
+            a:{x:0,y:0}, b:{x:236,y:152} };   // a = corner, b = cursor (metres)
+const svg = document.getElementById('map'), NS = 'http://www.w3.org/2000/svg';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// Split a span (centre line to centre line) into n blocks. Returns centre-line offsets.
+function split(span, n, fit) {
+  if (fit === 'even') return Array.from({length:n+1}, (_, i) => span * i / n);
+  const total = Math.floor((span - n * W) / L), base = Math.floor(total / n), extra = total - base * n;
+  const offs = [0]; let acc = 0;
+  for (let i = 0; i < n; i++) {               // spread the extra lots evenly
+    const lots = base + (Math.floor((i + 1) * extra / n) - Math.floor(i * extra / n));
+    acc += lots * L + W; offs.push(acc);
+  }
+  return offs;
+}
+const maxBlocks = span => Math.max(1, Math.floor(span / (MIN_LOTS * L + W)));
+
+function layout() {
+  const sx = Math.abs(S.b.x - S.a.x), sy = Math.abs(S.b.y - S.a.y);
+  let xs, ys;
+  if (S.mode === 'now') {
+    const pa = S.lotsA * L + W, pc = S.lotsC * L + W;
+    const nx = Math.max(1, Math.round(sx / pa)), ny = Math.max(1, Math.round(sy / pc));
+    xs = Array.from({length:nx+1}, (_, i) => i * pa); ys = Array.from({length:ny+1}, (_, i) => i * pc);
+  } else {
+    let nx, ny;
+    if (S.mode === 'count') { nx = S.cols; ny = S.rows; }
+    else { const p = S.target * L + W; nx = Math.max(1, Math.round(sx / p)); ny = Math.max(1, Math.round(sy / p)); }
+    if (S.mode === 'density') { nx = Math.min(nx, maxBlocks(sx)); ny = Math.min(ny, maxBlocks(sy)); }
+    xs = split(sx, nx, S.fit); ys = split(sy, ny, S.fit);
+  }
+  const dx = S.b.x >= S.a.x ? 1 : -1, dy = S.b.y >= S.a.y ? 1 : -1;
+  return { sx, sy, xs: xs.map(v => S.a.x + dx * v), ys: ys.map(v => S.a.y + dy * v) };
+}
+
+const el = (tag, at, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); parent.appendChild(e); return e; };
+const X = m => OX + m * PX, Y = m => OY + m * PX;
+const fmt = v => (Math.abs(v - Math.round(v)) < .05 ? Math.round(v) : v.toFixed(1));
+
+function draw() {
+  svg.textContent = '';
+  const g = layout();
+  // lot grid backdrop
+  const defs = el('defs', {});
+  const pat = el('pattern', {id:'lots', width:L*PX, height:L*PX, patternUnits:'userSpaceOnUse', x:OX, y:OY}, defs);
+  el('path', {d:`M ${L*PX} 0 L 0 0 0 ${L*PX}`, fill:'none', stroke:css('--lot'), 'stroke-width':1}, pat);
+  el('rect', {x:0, y:0, width:960, height:600, fill:'url(#lots)'});
+
+  const x0 = Math.min(...g.xs), x1 = Math.max(...g.xs), y0 = Math.min(...g.ys), y1 = Math.max(...g.ys);
+  const xsS = [...g.xs].sort((a, b) => a - b), ysS = [...g.ys].sort((a, b) => a - b);
+  // blocks
+  let minLots = Infinity, partial = 0, refused = false;
+  for (let i = 0; i < xsS.length - 1; i++) for (let j = 0; j < ysS.length - 1; j++) {
+    const cw = xsS[i+1] - xsS[i] - W, cd = ysS[j+1] - ysS[j] - W;
+    const la = cw / L, lc = cd / L, whole = Math.abs(la - Math.round(la)) < .02 && Math.abs(lc - Math.round(lc)) < .02;
+    const bad = la < MIN_LOTS - .001 || lc < MIN_LOTS - .001;
+    minLots = Math.min(minLots, la, lc); if (!whole) partial++; if (bad) refused = true;
+    const col = bad ? css('--bad') : whole ? css('--good') : css('--warn');
+    const r = el('rect', {x:X(xsS[i] + W/2), y:Y(ysS[j] + W/2), width:Math.max(0, cw*PX), height:Math.max(0, cd*PX), fill:col, 'fill-opacity':.12, stroke:col, 'stroke-opacity':.5});
+    if (cw*PX > 70 && cd*PX > 34) {
+      const cx = X(xsS[i] + W/2 + cw/2), cy = Y(ysS[j] + W/2 + cd/2);
+      const t1 = el('text', {x:cx, y:cy - 3, 'text-anchor':'middle', fill:css('--ink'), 'font-family':css('--mono'), 'font-size':12});
+      t1.textContent = `${fmt(cw)} × ${fmt(cd)} m`;
+      const t2 = el('text', {x:cx, y:cy + 12, 'text-anchor':'middle', fill:col, 'font-family':css('--mono'), 'font-size':11.5, 'font-weight':500});
+      t2.textContent = `${fmt(la)} × ${fmt(lc)} lots`;
+    }
+  }
+  // roads
+  const road = (a, b, c, d) => el('line', {x1:X(a), y1:Y(b), x2:X(c), y2:Y(d), stroke:css('--asphalt'), 'stroke-width':W*PX, 'stroke-linecap':'square'});
+  ysS.forEach(y => road(x0, y, x1, y)); xsS.forEach(x => road(x, y0, x, y1));
+  const paint = (a, b, c, d) => el('line', {x1:X(a), y1:Y(b), x2:X(c), y2:Y(d), stroke:css('--paint'), 'stroke-width':1, 'stroke-dasharray':'6 6', opacity:.8});
+  ysS.forEach(y => paint(x0, y, x1, y)); xsS.forEach(x => paint(x, y0, x, y1));
+  xsS.forEach(x => ysS.forEach(y => el('circle', {cx:X(x), cy:Y(y), r:4, fill:css('--node'), stroke:css('--ink'), 'stroke-width':1})));
+
+  // cursor outline + crosshair
+  el('rect', {x:X(Math.min(S.a.x, S.b.x)), y:Y(Math.min(S.a.y, S.b.y)), width:g.sx*PX, height:g.sy*PX, fill:'none', stroke:css('--accent'), 'stroke-width':2, 'stroke-dasharray':'7 5'});
+  el('circle', {cx:X(S.b.x), cy:Y(S.b.y), r:6, fill:'none', stroke:css('--accent'), 'stroke-width':2});
+  el('line', {x1:X(S.b.x)-12, y1:Y(S.b.y), x2:X(S.b.x)+12, y2:Y(S.b.y), stroke:css('--accent'), 'stroke-width':1.5});
+  el('line', {x1:X(S.b.x), y1:Y(S.b.y)-12, x2:X(S.b.x), y2:Y(S.b.y)+12, stroke:css('--accent'), 'stroke-width':1.5});
+  el('circle', {cx:X(S.a.x), cy:Y(S.a.y), r:5, fill:css('--accent')});
+
+  // tag pill by the cursor
+  const nx = xsS.length - 1, ny = ysS.length - 1;
+  const bw = x1 - x0, bd = y1 - y0;
+  const text = refused ? `blocks under ${MIN_LOTS} lots` : `${nx} × ${ny} blocks · ${fmt(bw)} × ${fmt(bd)} m`;
+  const pill = el('g', {});
+  const tx = Math.min(X(S.b.x) + 14, 960 - 8), ty = Math.min(Y(S.b.y) + 26, 590);
+  const t = el('text', {x:tx + 8, y:ty, fill:css('--pill-fg'), 'font-family':css('--mono'), 'font-size':12.5}, pill);
+  t.textContent = text;
+  const w = t.getComputedTextLength() + 16;
+  if (tx + w > 952) t.setAttribute('x', 952 - w + 8);
+  const bg = el('rect', {x:+t.getAttribute('x') - 8, y:ty - 15, width:w, height:22, rx:11, fill:refused ? css('--bad') : css('--pill')}, pill);
+  pill.insertBefore(bg, t);
+
+  // status line
+  const jump = Math.max(Math.abs(bw - g.sx), Math.abs(bd - g.sy));
+  document.getElementById('status').innerHTML =
+    `<span>cursor <b>${fmt(g.sx)} × ${fmt(g.sy)} m</b></span>` +
+    `<span>roads <b>${fmt(bw)} × ${fmt(bd)} m</b></span>` +
+    `<span>off by <b style="color:${jump > 1 ? 'var(--warn)' : 'var(--good)'}">${fmt(jump)} m</b></span>` +
+    `<span>roads <b>${nx + 1 + ny + 1}</b> · blocks <b>${nx * ny}</b></span>` +
+    `<span>part-lot blocks <b>${partial}</b></span>`;
+}
+
+function sync() {
+  for (const m of ['now', 'count', 'density']) {
+    document.getElementById('t-' + m).setAttribute('aria-pressed', S.mode === m);
+    document.getElementById('c-' + m).hidden = S.mode !== m;
+  }
+  document.getElementById('c-fit').hidden = S.mode === 'now';
+  for (const f of ['even', 'lots']) document.getElementById('f-' + f).setAttribute('aria-pressed', S.fit === f);
+  document.getElementById('fithint').textContent = S.fit === 'even'
+    ? 'Blocks are exactly equal and the roads end on the cursor. A block can be a part lot (amber).'
+    : 'Every block is whole lots (may differ by one lot). The far road moves in 8 m steps, never a whole block.';
+  document.getElementById('na').textContent = S.lotsA; document.getElementById('nc').textContent = S.lotsC;
+  document.getElementById('cc').textContent = S.cols; document.getElementById('cr').textContent = S.rows;
+  document.getElementById('dv').textContent = `${S.target} lots · ${S.target * L} m`;
+  document.getElementById('dens').value = S.target;
+  draw();
+}
+
+function clampCounts() {
+  const sx = Math.abs(S.b.x - S.a.x), sy = Math.abs(S.b.y - S.a.y);
+  S.cols = Math.max(1, Math.min(S.cols, maxBlocks(sx))); S.rows = Math.max(1, Math.min(S.rows, maxBlocks(sy)));
+}
+const on = (id, fn) => document.getElementById(id).addEventListener('click', fn);
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; sync(); }));
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { S.fit = b.dataset.fit; sync(); }));
+on('na-', () => { S.lotsA = Math.max(MIN_LOTS, S.lotsA - 1); sync(); }); on('na+', () => { S.lotsA = Math.min(32, S.lotsA + 1); sync(); });
+on('nc-', () => { S.lotsC = Math.max(MIN_LOTS, S.lotsC - 1); sync(); }); on('nc+', () => { S.lotsC = Math.min(32, S.lotsC + 1); sync(); });
+on('cc-', () => { S.cols--; clampCounts(); sync(); }); on('cc+', () => { S.cols++; clampCounts(); sync(); });
+on('cr-', () => { S.rows--; clampCounts(); sync(); }); on('cr+', () => { S.rows++; clampCounts(); sync(); });
+document.getElementById('dens').addEventListener('input', e => { S.target = +e.target.value; sync(); });
+
+const toMap = e => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+  const q = p.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: Math.max(0, Math.min(600, (q.x - OX) / PX)), y: Math.max(0, Math.min(360, (q.y - OY) / PX)) }; };
+let dragging = false;
+svg.addEventListener('pointerdown', e => { dragging = true; svg.setPointerCapture(e.pointerId); S.a = toMap(e); S.b = { ...S.a }; });
+svg.addEventListener('pointermove', e => { if (!dragging) return; S.b = toMap(e); if (S.mode === 'count') clampCounts(); draw(); });
+svg.addEventListener('pointerup', () => { dragging = false; if (Math.abs(S.b.x - S.a.x) < 20 || Math.abs(S.b.y - S.a.y) < 20) { S.b = { x:S.a.x + 120, y:S.a.y + 90 }; } clampCounts(); sync(); });
+svg.addEventListener('wheel', e => {
+  e.preventDefault(); const d = e.deltaY < 0 ? 1 : -1;
+  if (S.mode === 'count') { if (e.shiftKey) S.rows += d; else S.cols += d; clampCounts(); }
+  else if (S.mode === 'density') S.target = Math.max(3, Math.min(16, S.target - d));
+  else { if (e.shiftKey) S.lotsC = Math.max(MIN_LOTS, Math.min(32, S.lotsC + d)); else S.lotsA = Math.max(MIN_LOTS, Math.min(32, S.lotsA + d)); }
+  sync();
+}, { passive:false });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+new MutationObserver(draw).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+sync();
+</script>

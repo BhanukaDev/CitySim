@@ -1,6 +1,6 @@
 {
   // Run/debug the Godot projects with the C# debugger attached (breakpoints in .cs files work).
-  // Needs the "C#" extension (ms-dotnettools.csharp). F5 builds first via the "terrain: build" task.
+  // Needs the "C#" extension (ms-dotnettools.csharp). F5 builds first via the project's build task (tasks.json).
   "version": "0.2.0",
   "configurations": [
     {
@@ -78,6 +78,41 @@
       "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
       "args": ["--path", "${workspaceFolder}/experiments/splines", "--editor"],
       "cwd": "${workspaceFolder}/experiments/splines",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Roads: Play",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "roads: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/roads"],
+      "cwd": "${workspaceFolder}/experiments/roads",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // Flat map: starts faster, nothing on the ground to distract from the UI.
+      "name": "Roads: Play (flat map)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "roads: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/roads", "--", "--flat"],
+      "cwd": "${workspaceFolder}/experiments/roads",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // Opens the editor, e.g. to make or edit road .tres files in content/roads/types/.
+      "name": "Roads: Open Godot editor",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "roads: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/roads", "--editor"],
+      "cwd": "${workspaceFolder}/experiments/roads",
       "console": "internalConsole",
       "stopAtEntry": false
     },

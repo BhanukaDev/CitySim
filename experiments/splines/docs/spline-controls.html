@@ -309,7 +309,7 @@ svg('modes','Freehand · drag','Key 3','Hold and drag. The raw stroke (dotted) i
     const c1=add(p1,mul(sub(p2,p0),1/6)),c2=sub(p2,mul(sub(p3,p1),1/6));d+=` C${f(c1[0])} ${f(c1[1])} ${f(c2[0])} ${f(c2[1])} ${f(p2[0])} ${f(p2[1])}`}
   net(s,d,'street');fit.forEach(p=>node(s,p));tag(s,200,190,'60 samples → 5 nodes');
 });
-svg('modes','Grid · three clicks','Key 4','Corner, width, then drag sideways for depth. Block size snaps to 8 m lots. The grid inherits the rotation of the first edge.',s=>{
+svg('modes','Grid · three clicks','Key 4','Corner, width, then drag sideways for depth. The outline stays on the cursor; [ ] sets how many blocks fill it. The grid inherits the rotation of the first edge.',s=>{
   const o=[40,40],ux=nrm([10,1.3]),uy=[-ux[1],ux[0]],Wd=240,H=130;
   const pt=(a,b)=>add(o,add(mul(ux,a),mul(uy,b)));
   for(let a=0;a<=Wd;a+=80)net(s,line(pt(a,0),pt(a,H)),'street');

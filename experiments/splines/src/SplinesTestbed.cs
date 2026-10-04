@@ -9,7 +9,7 @@ namespace CitySim.Splines;
 /// The testbed's wiring: loads the test profiles from <see cref="ProfileDir"/> and shows the options bar. The Draw
 /// tool (S2) and the Edit tool (S5) hang off this: <c>M</c> switches between them, <c>1</c>–<c>4</c> pick a draw mode.
 /// </summary>
-public partial class SplinesTestbed : Node
+public partial class SplinesTestbed : Node, ISplineToolHost
 {
     [Export(PropertyHint.Dir)] public string ProfileDir { get; set; } = "res://profiles";
 
@@ -20,8 +20,10 @@ public partial class SplinesTestbed : Node
     public SnapProviders EnabledSnaps { get; private set; } = SnapProviders.All;
     /// <summary>Ctrl+A: Invalid issues still build (and stay red), and radii may go below the profile's minimum.</summary>
     public bool Anarchy { get; private set; }
-    /// <summary>Grid mode's block, in lots of clear space between roads: along the first edge, and across it.</summary>
-    public (int Along, int Across) GridLots { get; private set; } = (GridLayout.DefaultLots, GridLayout.DefaultLots);
+    /// <summary>Grid mode's blocks: along the first edge, and across it (fewer where the outline can't take them).</summary>
+    public (int Cols, int Rows) GridBlocks { get; private set; } = (GridLayout.DefaultCols, GridLayout.DefaultRows);
+    /// <summary>Grid mode: equal blocks on the exact outline, or whole-lot blocks.</summary>
+    public GridFit GridFit { get; private set; } = GridFit.Even;
 
     private SplineOptionsBar? _bar;
 
@@ -54,8 +56,10 @@ public partial class SplinesTestbed : Node
         _bar.ToolChanged += t => { Tool = t; GD.Print($"Splines: tool {t}"); };
         _bar.SnapProvidersChanged += p => EnabledSnaps = p;
         _bar.AnarchyChanged += on => SetAnarchy(on);
-        _bar.GridLotsChanged += (a, c) => GridLots = (a, c);
-        _bar.SetGridLots(GridLots.Along, GridLots.Across);
+        _bar.GridBlocksChanged += (c, r) => GridBlocks = (c, r);
+        _bar.GridFitChanged += f => GridFit = f;
+        _bar.SetGridBlocks(GridBlocks.Cols, GridBlocks.Rows);
+        _bar.SetGridFit(GridFit);
         EnabledSnaps = _bar.EnabledSnaps;
     }
 
@@ -82,11 +86,18 @@ public partial class SplinesTestbed : Node
         _bar.SetMode(mode);
     }
 
-    /// <summary>Sets Grid mode's block size (keys, or a scripted frame), kept within limits, and shows it in the bar.</summary>
-    public void SetGridLots(int along, int across)
+    /// <summary>Sets Grid mode's blocks (keys, or a scripted frame), kept within limits, and shows them in the bar.</summary>
+    public void SetGridBlocks(int cols, int rows)
     {
-        GridLots = (Math.Clamp(along, GridLayout.MinLots, GridLayout.MaxLots), Math.Clamp(across, GridLayout.MinLots, GridLayout.MaxLots));
-        _bar?.SetGridLots(GridLots.Along, GridLots.Across);
+        GridBlocks = (Math.Clamp(cols, 1, GridLayout.MaxBlocks), Math.Clamp(rows, 1, GridLayout.MaxBlocks));
+        _bar?.SetGridBlocks(GridBlocks.Cols, GridBlocks.Rows);
+    }
+
+    /// <summary>Sets Grid mode's fit (a scripted frame) and shows it in the bar.</summary>
+    public void SetGridFit(GridFit fit)
+    {
+        GridFit = fit;
+        _bar?.SetGridFit(fit);
     }
 
     public void SetAnarchy(bool on)

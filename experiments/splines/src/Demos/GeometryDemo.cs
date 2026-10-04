@@ -154,6 +154,8 @@ public partial class GeometryDemo : Node
         var q = c.ClosestPoint(V(80 + 10, 20 - 10));
         Check("closest on arc", Vector2.Distance(q.Position, V(80, 20)), 20);
         Check("closest on arc offset (inside = right, −)", q.Offset, -(20 - MathF.Sqrt(200)));
+        var past = new Alignment(new[] { new Pi(V(0, 0)), new Pi(V(100, 0)) }).Curve.ClosestPoint(V(150, 0));
+        Check("closest past a straight's end, on its line: offset is the distance", past.Offset, 50);
     }
 
     private void Check(string name, float got, float want, float tol = 1e-3f)

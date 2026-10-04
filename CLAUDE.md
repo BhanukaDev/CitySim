@@ -11,6 +11,9 @@ profiled hot paths.
 - `packages/citysim_terrain/`: the terrain + water package every project uses, symlinked in as
   `addons/citysim_terrain` (with `packages/terrain_3d` as `addons/terrain_3d`). **Its README is the API**: queries,
   the edit API, events, settings, and how to add it to a project. Edits here affect every experiment, so re-check each one.
+- `packages/citysim_splines/`: the generic spline addon (draw/edit tools, graph, junctions), symlinked in as
+  `addons/citysim_splines` by `experiments/splines` and `experiments/roads`. Its README is the API, including the
+  consumer hooks (`ISplineToolHost`, `INetworkVisual`). Edits here affect both, so re-check both.
 
 ## Experiments
 - `experiments/terrain/`: terrain system and the in-app Map Editor. **Read `experiments/terrain/ROADMAP.md` first.** It has
@@ -18,6 +21,9 @@ profiled hot paths.
 - `experiments/splines/`: testbed for the **generic** spline addon (roads, rails, canals, fences, walls build on it as
   separate consumer experiments). **Read `experiments/splines/ROADMAP.md` first**, then `DESIGN.md` (the spec).
   Feature first, performance later (milestone S11).
+- `experiments/roads/`: the game's build UI (bar, tray, options panel) with road types read from `.tres` content files
+  (mods drop files in `user://mods/`), then roads drawn with the splines addon. **Read `experiments/roads/ROADMAP.md`
+  first**, then `README.md` (the content format).
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

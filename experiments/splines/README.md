@@ -36,16 +36,13 @@ cursor.
 ## Layout
 
 - `src/App.cs`: start-up wiring (`TerrainCommandLine.Use()`: the map comes from the command line)
-- `src/Splines/Core/`: the addon's engine-agnostic part (`System.Numerics` only): `ProfileRules`, enums,
-  `IGround`, `DrawSession`, `Geometry/` (`Alignment`, `AlignmentOps`, `Curve`, segments, `RibbonGeometry`),
-  `Snapping/` (`SnapEngine`, `SnapTypes`), `Graph/` (`SplineGraph`, `Junctions`, `Validation`). Moves to
-  `packages/citysim_splines/` once S2 has been tried in Godot.
-- `src/Splines/Godot/`: the addon's Godot part: `SplineProfile` resource, `SplineOptionsBar`, `TerrainGround`
-  (`IGround` over `citysim_terrain`), `SplineNetwork` (the built graph, undo, issues, visuals), `SplineDrawTool` (the
-  Draw tool), `RibbonRenderer` (preview ghost, built ribbons, footprints, halos), `SplineOverlay` (screen-space
-  guides, rings, ∡ marks, knobs and tags), `SplineIssueList`
+- `addons/citysim_splines/`: the addon itself, a symlink to `packages/citysim_splines/` (its README is the API).
+  `src/Core/` is engine-agnostic (`ProfileRules`, geometry, snapping, graph, junctions, validation); `src/Godot/` has
+  the profile resource, the tools, `SplineNetwork`, the ribbons and overlay, and the consumer hooks
+  (`ISplineToolHost`, `INetworkVisual`).
 - `profiles/`: test profiles (`street`, `avenue`, `highway`, `rail`, `canal`, `fence`). Placeholders, testbed only.
-- `src/SplinesTestbed.cs`: loads the profiles, shows the options bar, `SelectProfile` for scripted demos
+- `src/SplinesTestbed.cs`: the tools' host (`ISplineToolHost`): loads the profiles, shows the options bar,
+  `SelectProfile` for scripted demos
 - `src/EditDemo.cs`: `--demo-edit`, the package's `Terrain.BeginEdit` / undo / events check
 - `src/Demos/GeometryDemo.cs`: `--demo-geometry`
 - `src/Demos/DrawDemo.cs`: `--demo-draw`

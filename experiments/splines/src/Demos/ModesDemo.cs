@@ -267,19 +267,19 @@ public partial class ModesDemo : Node
     {
         Testbed!.SetMode(DrawMode.Grid);
         Use("street");
-        Testbed.SetGridLots(GridLayout.DefaultLots, GridLayout.DefaultLots);
-        var rules = Testbed.Profile!.ToRules();
-        float pitch = GridLayout.Pitch(GridLayout.DefaultLots, rules); // 8 lots + one street = 76 m
-        Check("pitch (m)", (int)pitch, 76);
+        Testbed.SetGridBlocks(3, 2);
+        Testbed.SetGridFit(GridFit.Even);
         int before = network.Graph.EdgeCount, nodesBefore = network.Graph.Nodes.Count();
+        int Arms(float x, float z) => network.Graph.NodeAt(new NumVector2(x, z)) is { } n ? network.Graph.Node(n).Edges.Count : 0;
 
+        // The outline is the clicks; 3 × 2 blocks share it evenly.
         Click(4000, 4000);
-        Click(4000 + 230, 4000);          // 230 m rounds to 3 blocks
-        Click(4100, 4000 + 150);          // 150 m to this side rounds to 2
+        Click(4000 + 230, 4000);
+        Click(4100, 4000 + 150);
         Check("3 × 2 grid: 9 + 8 edges", network.Graph.EdgeCount, before + 17);
         Check("12 nodes", network.Graph.Nodes.Count() - nodesBefore, 12);
-        var arms = Enumerable.Range(0, 4).SelectMany(c => Enumerable.Range(0, 3).Select(r => new NumVector2(4000 + c * pitch, 4000 + r * pitch)))
-            .Select(p => network.Graph.NodeAt(p) is { } n ? network.Graph.Node(n).Edges.Count : 0).ToList();
+        var arms = Enumerable.Range(0, 4).SelectMany(c => Enumerable.Range(0, 3).Select(r => Arms(4000 + c * 230f / 3, 4000 + r * 75f))).ToList();
+        Check("far corner on the cursor's outline", Arms(4230, 4150), 2);
         Check("4 square corners", arms.Count(n => n == 2), 4);
         Check("6 T-junctions", arms.Count(n => n == 3), 6);
         Check("2 four-ways", arms.Count(n => n == 4), 2);
@@ -288,26 +288,55 @@ public partial class ModesDemo : Node
         network.Undo();
         Check("one undo removes the grid", network.Graph.EdgeCount, before);
 
+        var rules = Testbed.Profile!.ToRules();
+        var even = GridLayout.From(new(0, 0), new(230, 0), new(0, 150), 3, 2, GridFit.Even, rules)!;
+        Check("even block: 230/3 − 12 m along (×10)", (int)MathF.Round(even.BlockSize(0, 0).Along * 10), 647);
+        Check("even block is a part lot", !even.Whole(even.BlockSize(0, 0).Along));
+        var steps = GridLayout.From(new(0, 0), new(230, 0), new(0, 150), 3, 2, GridFit.LotSteps, rules)!;
+        Check("lot steps: 8 lots each, far road at 228 m", (int)MathF.Round(steps.Width), 228);
+        Check("lot steps: whole lots", steps.Whole(steps.BlockSize(1, 1).Along) && steps.Whole(steps.BlockSize(1, 1).Across));
+        var pinned = GridLayout.From(new(0, 0), new(230, 0), new(0, 150), 3, 2, GridFit.LotSteps, rules, pinAlong: true, pinAcross: true)!;
+        Check("lot steps, sides clicked onto built: they stay on the clicks", (int)MathF.Round(pinned.Width) == 230 && (int)MathF.Round(pinned.Depth) == 150);
+        var many = GridLayout.From(new(0, 0), new(230, 0), new(0, 150), 40, 2, GridFit.Even, rules)!;
+        Check("40 blocks asked on 230 m: the most that keep 2 lots (8)", many.Cols, 8);
+        Check("none under 2 lots", !many.TooSmall);
+        var tiny = GridLayout.From(new(0, 0), new(20, 0), new(0, 150), 3, 2, GridFit.Even, rules)!;
+        Check("a 20 m outline is one block, too small", tiny.Cols == 1 && tiny.TooSmall);
+
         // Across a built street (between the first two columns): it joins each row it crosses.
         DrawTool.AddBuiltForTest(Testbed.Profile, new Alignment(new[] { new Pi(new NumVector2(4038, 3900)), new Pi(new NumVector2(4038, 4300)) }));
         Click(4000, 4000);
         Click(4000 + 230, 4000);
         Click(4100, 4000 + 150);
-        Check("grid over a street: joined at each row",
-            Enumerable.Range(0, 3).Count(r => network.Graph.NodeAt(new NumVector2(4038, 4000 + r * pitch)) is { } n && network.Graph.Node(n).Edges.Count == 4), 3);
+        Check("grid over a street: joined at each row", Enumerable.Range(0, 3).Count(r => Arms(4038, 4000 + r * 75f) == 4), 3);
         network.Undo();
         network.Undo();
 
-        // Wider blocks along, the same across.
-        Testbed.SetGridLots(12, 8);
+        // On a built street: the first edge reuses it, the columns meet it in Ts.
         before = network.Graph.EdgeCount;
-        Click(4000, 4600);
-        Click(4000 + 210, 4600);          // one 108 m block → 2 blocks
-        Click(4000, 4600 + 76);
-        Check("12 × 8 lots: 2 × 1 grid", network.Graph.EdgeCount, before + 7);
-        Check("column spacing 12 lots + a street", network.Graph.NodeAt(new NumVector2(4000 + 108, 4600)) is not null);
+        DrawTool.AddBuiltForTest(Testbed.Profile, new Alignment(new[] { new Pi(new NumVector2(3900, 5000)), new Pi(new NumVector2(4400, 5000)) }));
+        Click(4000, 5000);
+        Click(4230, 5000);
+        Click(4100, 5150);
+        Check("on a street: no overlap, nothing red", !network.Issues.Any(i => i.Severity == Severity.Invalid));
+        Check("on a street: 4 Ts along it", Enumerable.Range(0, 4).Count(c => Arms(4000 + c * 230f / 3, 5000) == 3), 4);
+        Check("on a street: 5 + 6 + 8 edges", network.Graph.EdgeCount, before + 19);
         network.Undo();
-        Testbed.SetGridLots(GridLayout.DefaultLots, GridLayout.DefaultLots);
+        Check("one undo keeps the street", network.Graph.EdgeCount, before + 1);
+        network.Undo();
+
+        // On a built avenue (24 m): reused, and the blocks beside it measured from its kerb.
+        Use("avenue");
+        DrawTool.AddBuiltForTest(Testbed.Profile!, new Alignment(new[] { new Pi(new NumVector2(3900, 5600)), new Pi(new NumVector2(4400, 5600)) }));
+        Use("street");
+        Click(4000, 5600);
+        Click(4230, 5600);
+        Click(4100, 5750);
+        Check("on an avenue: nothing red", !network.Issues.Any(i => i.Severity == Severity.Invalid));
+        Check("on an avenue: equal clear rows, the middle road at 78 m", Arms(4000, 5678), 3);
+        network.Undo();
+        network.Undo();
+        Testbed.SetGridBlocks(GridLayout.DefaultCols, GridLayout.DefaultRows);
     }
 
     private static GraphEdge EdgeThrough(SplineNetwork network, NumVector2 p) =>

@@ -26,9 +26,9 @@ performance milestone (S11), unless something is unusably slow on a normal test 
 - **Alignments are PI polylines with a radius and spiral per corner** (lines/arcs/clothoids derived), not Béziers.
   The reasons are in `DESIGN.md` → Alignment.
 - **Profiles hold every network difference.** Addon code never names a network type.
-- Once S2 works, the addon moves to `packages/citysim_splines/` and is symlinked into this experiment as
-  `addons/citysim_splines`, the same way the terrain package is. Until then it lives in `src/`, with `src/Splines/Core/`
-  and `src/Splines/Godot/` already split.
+- The addon lives in `packages/citysim_splines/` (moved there 2026-10-05 for the roads experiment) and is symlinked in
+  as `addons/citysim_splines`, the same way the terrain package is: `src/Core/` and `src/Godot/`. Its README is the API.
+  Milestone notes below still say `src/Splines/...`, the path at the time.
 - Namespaces: `CitySim.Splines` (Core), `CitySim.Splines.Godot`.
 
 ## Controls
@@ -485,8 +485,27 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   outline now runs along both arms' sides in to the node and round its outside (`Junctions.RoundOutside`, shared
   with `BendFill`). `--demo-junctions` (Runs on: T on a circle, a 225° gap), `--storyboard=edit-straight-corner |
   circle-arms`.
-- For the play-test: are 8 × 8 lots the right default block? Is a freehand stroke kept close enough (6 points for
-  the storyboard's S, against its 5)?
+- **Grid rework (2026-10-04, from the user's play-test: "less control, the roads jump to block sizes")**, agreed in
+  `docs/grid-control.html`. The outline is the clicks; `[` `]` / Shift+wheel (Shift / Ctrl+Shift across) and the bar's
+  `Blocks C × R` set the count (default 3 × 2); bar toggle *Even split* (default) / *Lot steps*. Block = clear space
+  kerb to kerb, min 2 lots (a count that won't fit drops to the most that do; too small is red). Each block tinted
+  (green whole lots, amber part lot, red under 2) and labelled in m and lots (lots only when small on screen). **Placed on a built road it reuses it** (`SplineGraph.RunsAlong`, `GridLayout.Built`): no overlap,
+  the grid's lines end on it in Ts, the blocks beside it measured from its kerb. `GridLayout` now holds per-line
+  offsets and widths. Checked: `--demo-modes` (outline exact; even block 64.7 m is a part lot; lot steps 3 × 8 lots,
+  far road at 228 m; 40 asked on 230 m → 8; 20 m → one block, too small; on a street → 4 Ts, 19 edges, nothing red,
+  undo keeps the street; on an avenue → middle road at 78 m so both rows are 60 m clear). The other demos still
+  `all ok`. Storyboard `--storyboard=grid-on-road` (`--cam=540,580,330,89,0`).
+- **Play-test fixes (2026-10-04)**: a grid beside an avenue spine built in Even split but not in Lot steps. (1) Lot steps
+  rounded a far side the player had snapped onto a built node, so the far row stopped short of the avenue's corner:
+  a side whose click snaps onto a built road or node now stays put, and the depth preview uses that snapped point.
+  (2) `Curve.ClosestPoint` gave offset 0 for a point on a straight's line past its end (`Sign(0)`), so `RunsAlong`
+  took a whole row as lying on a short avenue and left it out. (3) A 3+-way with an avenue running on into a street
+  (the avenue turning off at a T) stepped from avenue to street width at the node; it now tapers like a plain
+  transition, the avenue cut back by the taper. Checks added to `--demo-geometry`, `--demo-junctions` (T transition)
+  and `--demo-modes`; storyboard `--storyboard=grid-avenue-even|grid-avenue-steps|grid-avenue-built`
+  (`--cam=560,515,420,89,0`).
+- For the play-test: does the grid feel right now (count, fit toggle, placing on a road)? Is a freehand stroke kept
+  close enough (6 points for the storyboard's S, against its 5)?
 
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.
@@ -517,8 +536,11 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   `ParallelPresets`. Offsets use the exact arc offset from S1.
 
 ### ⬜ S10: Consumer API, events, save/load
-- Batched events, `ISplineVisual`, `ISplineCost`, `ISplineDataPolicy`, `CustomData`, and a versioned graph file.
-- A package `README.md` that is the API (like `citysim_terrain`). Then start `experiments/roads/`.
+- Started 2026-10-05 for the roads experiment: the addon is a package (`packages/citysim_splines/`, README is the API),
+  the tools read the consumer's UI through `ISplineToolHost` (`SplinesTestbed` implements it), and
+  `INetworkVisual` (`SplineNetwork.Visual`) replaces the flat ribbons for the built network (the first slice of
+  `ISplineVisual`). All S1–S6 self-checks still pass after the move.
+- Still to do: batched events, `ISplineCost`, `ISplineDataPolicy`, `CustomData`, and a versioned graph file.
 
 ### ⬜ S11: Performance and scale
 Only after the features. Things to expect:
@@ -628,6 +650,9 @@ version:
   Draw mode isn't expected to make circles. Road points (each corner's point on the road) show as dots in every mode
   and snap as nodes; in Edit a click selects the stretch between two of them (delete, move, radial menu), a box
   still whole edges.
+- 2026-10-04 (S6 play-test, from the user): **Grid's outline follows the cursor**; the player sets the number of
+  blocks, not their size. Block size is clear space kerb to kerb (not centre to centre), min 2 lots; Even split /
+  Lot steps is an options-bar toggle. A grid placed on a built road reuses it.
 - **Fix after play-test (2026-10-03): moved loops and box select** (from the user: a loop moved in Edit came apart at
   its closing corner; box select "not working").
   - `AddSpline` gave a closed spline's two ends a new node each, so re-adding a loop (any Edit move) left two dead ends

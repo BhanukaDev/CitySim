@@ -1,0 +1,123 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Terrain.cs" id="1_terrain"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Camera/CityCamera.cs" id="2_camera"]
+[ext_resource type="Script" path="res://addons/citysim_terrain/src/Godot/Debug/ScreenshotCapture.cs" id="4_capture"]
+[ext_resource type="Script" path="res://src/UI/GameHud.cs" id="5_hud"]
+[ext_resource type="Script" path="res://src/Demos/UiDemo.cs" id="6_uidemo"]
+[ext_resource type="Script" path="res://addons/citysim_splines/src/Godot/SplineNetwork.cs" id="7_network"]
+[ext_resource type="Script" path="res://addons/citysim_splines/src/Godot/SplineDrawTool.cs" id="8_drawtool"]
+[ext_resource type="Script" path="res://addons/citysim_splines/src/Godot/SplineEditTool.cs" id="14_edittool"]
+[ext_resource type="Script" path="res://src/Roads/RoadToolHost.cs" id="15_host"]
+[ext_resource type="Script" path="res://src/Demos/RoadDemo.cs" id="16_roaddemo"]
+[ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_mist.tres" id="12_mist"]
+[ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_rings.tres" id="13_rings"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_macro"]
+frequency = 0.008
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_macro"]
+width = 512
+height = 512
+seamless = true
+noise = SubResource("FastNoiseLite_macro")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_horizon"]
+shader = ExtResource("9_horizon")
+shader_parameter/macro_noise = SubResource("NoiseTexture2D_macro")
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.32, 0.55, 0.88, 1)
+sky_horizon_color = Color(0.80, 0.84, 0.95, 1)
+sky_curve = 0.12
+ground_bottom_color = Color(0.62, 0.68, 0.7, 1)
+ground_horizon_color = Color(0.80, 0.84, 0.95, 1)
+sun_angle_max = 20.0
+
+[sub_resource type="Sky" id="Sky_main"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_main")
+ambient_light_source = 3
+tonemap_mode = 4
+fog_enabled = true
+fog_light_color = Color(0.66, 0.78, 0.96, 1)
+fog_density = 0.00021
+fog_aerial_perspective = 0.4
+fog_sun_scatter = 0.25
+fog_height_density = 0.0
+fog_sky_affect = 0.0
+adjustment_enabled = true
+adjustment_contrast = 1.05
+adjustment_saturation = 1.1
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.72, 0.6, 0)
+light_color = Color(1, 0.93, 0.80, 1)
+light_energy = 1.1
+shadow_enabled = true
+shadow_blur = 1.5
+directional_shadow_max_distance = 1500.0
+
+[node name="Terrain" type="Node3D" parent="."]
+script = ExtResource("1_terrain")
+HorizonMaterial = SubResource("ShaderMaterial_horizon")
+WaterMaterial = ExtResource("10_water")
+WaterfallCurtainMaterial = ExtResource("11_curtain")
+WaterfallMistMaterial = ExtResource("12_mist")
+WaterfallRingsMaterial = ExtResource("13_rings")
+
+[node name="CityCamera" type="Node3D" parent="." node_paths=PackedStringArray("Terrain")]
+script = ExtResource("2_camera")
+Terrain = NodePath("../Terrain")
+
+[node name="ScreenshotCapture" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera")]
+script = ExtResource("4_capture")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+
+[node name="GameHud" type="CanvasLayer" parent="."]
+script = ExtResource("5_hud")
+
+[node name="UiDemo" type="Node" parent="." node_paths=PackedStringArray("Hud")]
+script = ExtResource("6_uidemo")
+Hud = NodePath("../GameHud")
+
+[node name="SplineNetwork" type="Node" parent="." node_paths=PackedStringArray("Terrain")]
+script = ExtResource("7_network")
+Terrain = NodePath("../Terrain")
+
+[node name="RoadToolHost" type="Node" parent="." node_paths=PackedStringArray("Hud", "Network")]
+script = ExtResource("15_host")
+Hud = NodePath("../GameHud")
+Network = NodePath("../SplineNetwork")
+
+[node name="SplineDrawTool" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera", "HostNode", "Network")]
+script = ExtResource("8_drawtool")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+HostNode = NodePath("../RoadToolHost")
+Network = NodePath("../SplineNetwork")
+
+[node name="SplineEditTool" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera", "HostNode", "Network")]
+script = ExtResource("14_edittool")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+HostNode = NodePath("../RoadToolHost")
+Network = NodePath("../SplineNetwork")
+
+[node name="RoadDemo" type="Node" parent="." node_paths=PackedStringArray("Host", "Network")]
+script = ExtResource("16_roaddemo")
+Host = NodePath("../RoadToolHost")
+Network = NodePath("../SplineNetwork")

@@ -51,6 +51,7 @@ public partial class JunctionDemo : Node
         Continue();
         Squeezed();
         Transition();
+        TransitionAtT();
         Kerbs();
         KerbShapes();
         foreach (var f in _failures) GD.PrintErr($"Demo junctions: FAILED {f}");
@@ -59,6 +60,28 @@ public partial class JunctionDemo : Node
 
     private static Vector2 V(float x, float z) => new(x, z);
     private static Alignment Line(Vector2 a, Vector2 b) => new(new[] { new Pi(a), new Pi(b) });
+
+    /// <summary>An avenue running on into a street at a T (the avenue turning off): the avenue's side across from the
+    /// branch tapers down to the street's, no step at the node.</summary>
+    private void TransitionAtT()
+    {
+        var g = new SplineGraph();
+        g.AddSpline(Line(V(0, 0), V(100, 0)), Avenue);
+        g.AddSpline(Line(V(100, 0), V(200, 0)), Street);
+        g.AddSpline(Line(V(100, 0), V(100, 100)), Avenue);
+        int node = g.NodeAt(V(100, 0)) ?? -1;
+        Check("T transition: 3 arms", node >= 0 ? g.Arms(node).Count : 0, 3);
+        var f = node >= 0 ? Junctions.Footprint(g, node) : null;
+        Check("T transition: footprint", f is not null);
+        if (f is null) return;
+        // The far side (z < 0): 12 m out along the avenue, 6 m at the node and along the street, nothing between.
+        var far = f.Outline.Where(p => p.Y < -0.01f).ToList();
+        Check("T transition: street width at the node", far.Where(p => p.X >= 100 - 1e-3f).Max(p => -p.Y), 6f);
+        Check("T transition: no step (each point narrower nearer the node)",
+            far.Where(p => p.X < 100).All(p => -p.Y <= 6 + (100 - p.X) * 0.5f + 1e-3f));
+        Check("T transition: avenue cut back to the taper (30 m)", f.CutBack(g.Arms(node).First(a => a.Rules.Id == "avenue" && a.Direction.X < -0.5f).EdgeId,
+            g.Arms(node).First(a => a.Rules.Id == "avenue" && a.Direction.X < -0.5f).AtStart), 30f);
+    }
 
     private void TJunction()
     {

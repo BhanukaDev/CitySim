@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="BuildTab" format=3]
+
+[ext_resource type="Script" path="res://src/Content/BuildTab.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "highways"
+Category = "roads"
+DisplayName = "Highways"
+Order = 40

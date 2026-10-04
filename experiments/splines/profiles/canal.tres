@@ -1,6 +1,6 @@
 [gd_resource type="Resource" script_class="SplineProfile" format=3]
 
-[ext_resource type="Script" path="res://src/Splines/Godot/SplineProfile.cs" id="1_profile"]
+[ext_resource type="Script" path="res://addons/citysim_splines/src/Godot/SplineProfile.cs" id="1_profile"]
 
 [resource]
 script = ExtResource("1_profile")

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "one_way_three_lane"
+DisplayName = "Three-lane one-way road"
+Description = "Three lanes in one direction with sidewalks."
+Tab = "small"
+Order = 50
+Lanes = 3
+OneWay = true

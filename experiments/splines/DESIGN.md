@@ -158,7 +158,7 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
 | RMB | stop: end the chain, dropping the preview leg (built legs stay) |
 | Esc | stop, as RMB; again leaves the tool |
 | Alt + click | hard corner (only if the profile allows it; otherwise a red hint and a normal corner) |
-| Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy). Curve mode with a bend placed: the bend's radius (up to the fit). Grid mode: block lots along the first edge; Shift+`[` `]` or Ctrl+Shift+wheel: lots across |
+| Shift+wheel, `[` `]` | radius of the live corner (the last point placed, which the preview leg rounds) and of the corners after it (clamped to `MinRadius` unless Anarchy). Curve mode with a bend placed: the bend's radius (up to the fit). Grid mode: blocks along the first edge; Shift+`[` `]` or Ctrl+Shift+wheel: blocks across |
 | Ctrl (hold) | 15° angle steps counted from the previous leg (or the road the draw started on; absolute on a free first leg), and the length in whole lots; Ctrl+Shift: 5° (a fan of step spokes shows around the leg's start). On macOS Ctrl+click is still a left click |
 | Space (hold) | all snapping off |
 | `1`–`4` | Draw · Curve · Freehand · Grid |
@@ -181,11 +181,20 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
    `max(2 m, Width/2)`) into PIs. Each bend gets the radius of a circle fitted to the stroke around it, its PI pushed
    out so the arc passes through the stroke. A bend with no room for `MinRadius` is dropped (unless Anarchy), and a
    flick at either end merges into the end leg. Start and end snap like clicks. Built on release; RMB cancels.
-4. **Grid**: corner, width, depth (three clicks). The first edge sets the rotation; width and depth round to whole
-   blocks, and the depth can go to either side. A block is set **per axis** in lots of clear space between the
-   roads (default 8 × 8: zoning 4 deep from each side), so the centre lines are lots·`SnapLength` + `Width` apart.
-   Makes full-length straight rows and columns, exactly square; their crossings become `Node` junctions and the
-   corners stay square (no continuing). One undo step. The block size is in the options bar while Grid is on.
+4. **Grid**: corner, width, depth (three clicks). The first edge sets the rotation and the depth can go to either
+   side. **The outline is where the clicks are** (from the user, `docs/grid-control.html`): the player sets the
+   **number of blocks** per axis (default 3 × 2) and they share the outline; the outline never jumps. A block's size
+   is its clear space kerb to kerb (centre gap minus the roads' half widths), in lots of `SnapLength`, since zoning
+   fills it from both sides. **Fit** (options bar): *Even split* (equal blocks, roads on the outline, a block may
+   hold a part lot) or *Lot steps* (whole lots each, differing by one at most; the far roads stop short by under a
+   lot). The smallest block is **2 lots** (one deep from each side): a count that won't fit drops to the most that
+   do, and an outline too small for one block is red (Anarchy allows). Each block is labelled `64 × 48 m · 8 × 6
+   lots` while placing (amber with a part lot, red under 2). **An outline side on a built road reuses it**
+   (`SplineGraph.RunsAlong`): that stretch isn't added, the grid's lines end on it as Ts, the blocks beside it are
+   measured from its own kerb, and a far side on a road stays put (Even on that axis), as does one whose click
+   snapped onto a built road or node, so a grid ends on what it was placed against. Makes full-length straight
+   rows and columns, exactly square; their crossings become `Node` junctions and the corners stay square (no
+   continuing). One undo step.
 
 **Road points**: every corner has a point on the road: the PI itself where the road passes through it (a joint between
 chained curves, a sharp or hard corner), else the middle of its arc (where the Edit tool's radius knob sits). In every

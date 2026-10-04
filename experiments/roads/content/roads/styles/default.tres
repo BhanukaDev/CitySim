@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="RoadStyle" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadStyle.cs" id="1_script"]
+[ext_resource type="Material" path="res://content/roads/materials/asphalt.tres" id="2_asphalt"]
+[ext_resource type="Material" path="res://content/roads/materials/gravel.tres" id="3_gravel"]
+[ext_resource type="Material" path="res://content/roads/materials/gutter.tres" id="4_gutter"]
+[ext_resource type="Material" path="res://content/roads/materials/kerb.tres" id="5_kerb"]
+[ext_resource type="Material" path="res://content/roads/materials/sidewalk.tres" id="6_sidewalk"]
+[ext_resource type="Material" path="res://content/roads/materials/paint.tres" id="7_paint"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "default"
+Asphalt = ExtResource("2_asphalt")
+Gravel = ExtResource("3_gravel")
+Gutter = ExtResource("4_gutter")
+Kerb = ExtResource("5_kerb")
+Sidewalk = ExtResource("6_sidewalk")
+Paint = ExtResource("7_paint")

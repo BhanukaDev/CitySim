@@ -98,6 +98,10 @@ public partial class StoryboardDemo : Node
             ["mode-curve-circle"] = () => ModeCurveCircle(close: true),
             ["mode-freehand"] = ModeFreehand,
             ["mode-grid"] = ModeGrid,
+            ["grid-on-road"] = GridOnRoad,
+            ["grid-avenue-even"] = () => GridAvenue(GridFit.Even, build: false),
+            ["grid-avenue-steps"] = () => GridAvenue(GridFit.LotSteps, build: false),
+            ["grid-avenue-built"] = () => GridAvenue(GridFit.LotSteps, build: true),
             ["corner-slide"] = () => CornerJunction(slide: 12, branch: null, build: false),
             ["corner-red"] = () => CornerJunction(slide: 6, branch: null, build: false),
             ["corner-tee"] = () => CornerJunction(slide: 0, branch: (200, 5), build: false),
@@ -895,6 +899,40 @@ public partial class StoryboardDemo : Node
 
     /// <summary>Grid · three clicks: corner and width placed along a slightly turned first edge, the depth under the
     /// cursor: 3 × 2 blocks of 8 × 8 lots.</summary>
+    /// <summary>A grid placed on a built avenue: the first edge reuses it, the columns meet it in Ts, and the blocks
+    /// beside it are measured from its kerb.</summary>
+    private void GridOnRoad()
+    {
+        Use("avenue");
+        Build("avenue", (-80, 300), (360, 300));
+        Testbed!.SetMode(DrawMode.Grid);
+        Use("street");
+        Testbed.SetGridBlocks(2, 3);
+        Click((0, 300));
+        Click((280, 300));
+        Hover((200, 60));
+    }
+
+    /// <summary>A grid beside an avenue spine with avenue stubs off it: the first column reuses the spine, the far row
+    /// ends on the top stub's corner, and the streets meet the avenue in Ts.</summary>
+    private void GridAvenue(GridFit fit, bool build)
+    {
+        Use("avenue");
+        DrawTool!.AddBuiltForTest(Profile("avenue"), new Alignment(new[]
+            { new Pi(P((-40, 10))), new Pi(P((60, 10)), Hard: true), new Pi(P((60, 220)), Hard: true), new Pi(P((140, 220))) }));
+        Build("avenue", (-40, 115), (60, 115));
+        Build("avenue", (-40, 220), (60, 220));
+        Testbed!.SetMode(DrawMode.Grid);
+        Use("street");
+        Testbed.SetGridFit(fit);
+        Testbed.SetGridBlocks(2, 3);
+        Click((60, 220));
+        Click((380, 220));
+        // Near the stub's corner, so it snaps there (the far row stays on it in lot steps too).
+        if (build) SnapClick((61, 11));
+        else Hover((61, 11));
+    }
+
     private void ModeGrid()
     {
         Testbed!.SetMode(DrawMode.Grid);

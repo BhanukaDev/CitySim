@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "gravel"
+DisplayName = "Gravel road"
+Description = "Unpaved two-way road for the countryside."
+Tab = "small"
+Order = 60
+Lanes = 2
+OneWay = false
+Surface = 1
+Sidewalks = 0

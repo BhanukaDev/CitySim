@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "five_lane_asymmetric"
+DisplayName = "Five-lane asymmetric road"
+Description = "Three lanes one way, two lanes back."
+Tab = "medium"
+Order = 40
+Lanes = 5
+OneWay = false
+ForwardLanes = 3

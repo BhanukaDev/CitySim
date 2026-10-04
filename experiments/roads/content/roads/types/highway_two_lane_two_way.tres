@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "highway_two_lane_two_way"
+DisplayName = "Two-lane two-way highway"
+Description = "One lane each way. No sidewalks."
+Tab = "highways"
+Order = 10
+Lanes = 2
+OneWay = false
+Sidewalks = 0
+LaneWidth = 3.75

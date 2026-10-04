@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="RoadType" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadType.cs" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+Id = "four_lane_divided"
+DisplayName = "Four-lane divided road"
+Description = "Two lanes each way split by a raised median."
+Tab = "medium"
+Order = 20
+Lanes = 4
+OneWay = false
+Median = 1

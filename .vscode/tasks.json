@@ -102,6 +102,39 @@
       },
       "dependsOn": "splines: build",
       "problemMatcher": []
+    },
+    {
+      "label": "roads: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "-nologo", "-v", "q", "/property:GenerateFullPaths=true"],
+      "options": { "cwd": "${workspaceFolder}/experiments/roads" },
+      "problemMatcher": "$msCompile",
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "roads: content check",
+      "detail": "List every loaded category, tab and road and check them (prints \"Demo content: all ok\")",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . -- --flat --demo-content",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/roads",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "roads: build",
+      "problemMatcher": []
+    },
+    {
+      "label": "roads: screenshot",
+      "detail": "Open Roads on the Medium tab with a hover card and save screenshots/latest.png",
+      "type": "shell",
+      "command": "mkdir -p screenshots && \"$GODOT\" --path . -- --flat --ui=open:roads,tab:medium,pick:four_lane_divided,hover:four_lane_divided --screenshot=\"$PWD/screenshots/latest.png\" && open screenshots/latest.png",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/roads",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "roads: build",
+      "problemMatcher": []
     }
   ]
 }
