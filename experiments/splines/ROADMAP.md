@@ -513,6 +513,12 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   (`GridLayout.Lines`), each a bend at the profile's `DefaultRadius` with its bend slider, instead of two roads meeting
   square at a node. The whole ring is one loop closed at the first column's T; a side on a built road breaks it there.
   `--demo-modes` grid counts updated (6 + 7 edges, 8 nodes, 4 corners at the default radius).
+- **Corner magnet in Grid mode** (2026-10-05, roads play-test): Grid mode now offers a bend's slider like the other
+  modes (`SnapQuery.BendSliders` is on in every mode). A grid click on a bend's dot or slider splits the bend at that
+  radius before the grid's roads are added (`SplineDrawTool.ApplyGridBends`, in the trial and the build), and the grid
+  lines are laid out on that split graph. A grid corner on a built road or node isn't rounded (`GridLayout.Lines`): the
+  outline breaks there, so the corner is a junction. Started on a bend's corner point, the bend becomes a 4-way. Checked
+  by the roads experiment's `--demo-grid-bend` (windowed).
 
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.

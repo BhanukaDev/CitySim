@@ -376,10 +376,7 @@ public partial class LaneLinkTool : Node
             }
             if (ghost is { } gk && Index(s.Arms, gk.From) is { } gi && Index(s.Arms, gk.To) is { } gj)
             {
-                var (a, b) = (s.Arms[gi], s.Arms[gj]);
-                var move = LaneLinks.MoveOf(a, b);
-                Curve(LaneLinks.Path(a.In[gk.From.Lane], -a.Outward, b.Out[gk.To.Lane], b.Outward, move != Move.Straight),
-                    SplineOverlay.Accent, 3f, dashed: true);
+                Curve(LaneLinks.Path(s.Arms, gi, gk.From.Lane, gj, gk.To.Lane), SplineOverlay.Accent, 3f, dashed: true);
             }
             else if (DragFrom is { } df && Index(s.Arms, df) is { } di && _view.Cursor is { } cur)
             {

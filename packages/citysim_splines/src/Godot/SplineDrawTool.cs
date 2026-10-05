@@ -495,7 +495,7 @@ public partial class SplineDrawTool : Node
             CtrlSteps = ctrl,
             FineSteps = ctrl && mods.HasFlag(DrawModifiers.Shift),
             Disabled = mods.HasFlag(DrawModifiers.Space),
-            BendSliders = Mode != DrawMode.Grid, // a grid's corner doesn't reshape a bend
+            BendSliders = true,
         };
     }
 
@@ -606,7 +606,7 @@ public partial class SplineDrawTool : Node
     {
         if (!drawing) { Network?.Undo(); return; }
         if (_session.Bend is not null) { _session.SetBend(null); _bendRadius = null; return; }
-        if (_gridAlongEnd is not null) { _gridAlongEnd = null; return; }
+        if (_gridAlongEnd is not null) { _gridAlongEnd = null; _gridAlongBend = null; return; }
         if (_session.LegsBuilt == 0 || Network is null || Host?.Profile is not { } profile) { CancelSession(); return; }
         Network.Undo();
         _session.Undo();
@@ -630,6 +630,7 @@ public partial class SplineDrawTool : Node
         _bendRadius = null;
         _stroke = null;
         _gridAlongEnd = null;
+        _gridAlongBend = null;
         ClearGridTrial();
         _renderer?.SetPreview(null, 0);
     }

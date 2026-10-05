@@ -13,7 +13,9 @@ namespace CitySim.Splines.Godot;
 /// (<c>[</c> <c>]</c> / Shift+wheel along, Shift+<c>[</c> <c>]</c> / Ctrl+Shift+wheel across, or the options bar),
 /// sharing the space by <see cref="ISplineToolHost.GridFit"/>. A side on a built road reuses it. From the second click
 /// the whole grid is tried on a copy of the graph and drawn in place of the built one; the third builds every road
-/// in one undo step. Its ends don't continue dead ends, so its corners stay square.
+/// in one undo step. Its ends don't continue dead ends, so its corners stay square. A click on a bend's dot or its
+/// slider (the corner magnet, as in the other modes) makes the junction there: the bend is split at that radius before
+/// the grid's roads are added (<see cref="ApplyGridBends"/>).
 /// </summary>
 public partial class SplineDrawTool
 {
@@ -22,6 +24,8 @@ public partial class SplineDrawTool
     /// <summary>The second click snapped onto a built road or node: the far column stays there.</summary>
     private bool _gridAlongPinned;
     private bool _showingGridTrial;
+    /// <summary>The bend the second click sat on, if any (the first click's is <see cref="_startBend"/>).</summary>
+    private BendSlide? _gridAlongBend;
 
     private GridLayout? Layout(ProfileRules rules, NumVector2 alongEnd, NumVector2? depthAt, bool pinAlong, bool pinAcross = false)
     {
@@ -62,23 +66,46 @@ public partial class SplineDrawTool
             _sessionProfile = profile;
             _session.Reset(profile.DefaultRadius);
             _session.Place(at, false);
+            _startBend = BendAt(at);
             return;
         }
         if (_gridAlongEnd is null)
         {
-            if (Layout(rules, at, null, SnappedOnBuilt) is not null) (_gridAlongEnd, _gridAlongPinned) = (at, SnappedOnBuilt);
+            if (Layout(rules, at, null, SnappedOnBuilt) is not null)
+                (_gridAlongEnd, _gridAlongPinned, _gridAlongBend) = (at, SnappedOnBuilt, BendAt(at));
             return;
         }
         if (Layout(rules, _gridAlongEnd.Value, GridDepthAt(raw), _gridAlongPinned, SnappedOnBuilt) is { } grid) BuildGrid(grid, profile);
+    }
+
+    /// <summary>The bend slider the cursor snapped onto at <paramref name="at"/>, if any.</summary>
+    private BendSlide? BendAt(NumVector2 at) => _snap?.Bend is { } b && Near(b.Position, at) ? b : null;
+
+    /// <summary>The bends the grid's clicks sat on: the corner's, the second click's, and the cursor's for the depth.</summary>
+    private IEnumerable<BendSlide> GridBends()
+    {
+        if (_startBend is { } s) yield return s;
+        if (_gridAlongBend is { } a) yield return a;
+        if (SnappedOnBuilt && _snap?.Bend is { } d) yield return d;
+    }
+
+    /// <summary>Makes the junctions on the bends the grid's clicks sat on, in <paramref name="g"/> (a copy of the
+    /// built graph, or the graph itself when building), before the grid's roads are added.</summary>
+    private void ApplyGridBends(SplineGraph g)
+    {
+        foreach (var b in GridBends().ToList())
+            if (g.Edges.FirstOrDefault(x => ReferenceEquals(x.Alignment, b.Alignment)) is { } edge)
+                g.SplitBend(edge.Id, b.Pi, b.Radius);
     }
 
     /// <summary>The whole grid on a copy of the graph, and the issues it brings (not ones already there).</summary>
     private (SplineGraph Graph, List<Issue> Issues, List<int> Nodes) TryGrid(GridLayout grid, ProfileRules rules)
     {
         var g = Network!.Graph.Clone();
+        ApplyGridBends(g);
         var edges = new HashSet<int>();
         var nodes = new HashSet<int>();
-        foreach (var line in grid.Lines(Network.Graph, rules))
+        foreach (var line in grid.Lines(g, rules))
         {
             var r = g.AddSpline(line, rules, Ends.None);
             nodes.UnionWith(r.Nodes);
@@ -127,6 +154,7 @@ public partial class SplineDrawTool
             Issues = issues,
             Worst = Validation.Worst(issues),
             PlaceLabel = "Place depth",
+            Bend = BendMark(),
         });
     }
 
@@ -142,10 +170,10 @@ public partial class SplineDrawTool
             return;
         }
         Network!.RegisterProfile(profile);
-        var lines = grid.Lines(Network.Graph, rules);
         Network.Apply(g =>
         {
-            foreach (var line in lines) g.AddSpline(line, rules, Ends.None);
+            ApplyGridBends(g);
+            foreach (var line in grid.Lines(g, rules)) g.AddSpline(line, rules, Ends.None);
             return 0;
         });
         _flashes.Add((new FlashTag(far, grid.Label()), until));

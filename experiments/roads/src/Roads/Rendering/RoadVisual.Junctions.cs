@@ -116,7 +116,20 @@ public sealed partial class RoadVisual
             var into = Lanes(true);
             // From the centre toward the kerb of the lanes coming in (the right of their travel).
             var kerb = into.Count > 0 ? System.Numerics.Vector2.Normalize(into[0] - N(pos + left * sec.Split)) : default;
-            arms.Add(new ArmLanes(c.EdgeId, c.AtStart, N(pos), N(outward), kerb, into, Lanes(false), sec.LaneWidth));
+            // The road's line from the cut in to the node, with the right of travel coming in.
+            var curve = e.Alignment.Curve;
+            float cut = c.AtStart ? c.CutBack : curve.Length - c.CutBack, node = c.AtStart ? 0 : curve.Length;
+            int steps = Math.Max(1, (int)MathF.Ceiling(MathF.Abs(cut - node)));
+            var spine = new List<(System.Numerics.Vector2, System.Numerics.Vector2)>();
+            for (int i = 0; i <= steps; i++)
+            {
+                var sample = curve.Sample(cut + (node - cut) * i / steps);
+                var away = c.AtStart ? sample.Tangent : -sample.Tangent;
+                spine.Add((sample.Position, new System.Numerics.Vector2(away.Y, -away.X)));
+            }
+            var atNode = curve.Sample(node).Tangent;
+            arms.Add(new ArmLanes(c.EdgeId, c.AtStart, N(pos), N(outward), kerb, into, Lanes(false), sec.LaneWidth,
+                c.AtStart ? atNode : -atNode, spine));
         }
         return arms;
     }
@@ -147,7 +160,8 @@ public sealed partial class RoadVisual
                 Move.Left => 1 - MathF.Max(0, System.Numerics.Vector2.Dot(-a.Outward, b.Outward)),
                 _ => 1,
             };
-            var path = new TrackPath(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward), a.LaneWidth / 2, turn);
+            var path = new TrackPath(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward), a.LaneWidth / 2, turn,
+                LaneLinks.Path(arms, l).Select(x => (G(x.P), G(x.D))).ToList());
             if (ribbons) Ribbon(rm, path, rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)]);
             paths.Add(path);
         }
@@ -156,11 +170,14 @@ public sealed partial class RoadVisual
 
     /// <summary>A path cars take across a junction: from <see cref="P0"/> heading <see cref="D0"/> to <see cref="P3"/>
     /// heading <see cref="D3"/>, a lane (<see cref="Half"/> its half width) wide, turning 0..1.</summary>
-    private readonly record struct TrackPath(Vector2 P0, Vector2 D0, Vector2 P3, Vector2 D3, float Half, float Turn)
+    /// <see cref="Along"/>: the points, where they're known (a lane link's <see cref="LaneLinks.Path(IReadOnlyList{ArmLanes}, LaneLink)"/>).</summary>
+    private readonly record struct TrackPath(Vector2 P0, Vector2 D0, Vector2 P3, Vector2 D3, float Half, float Turn,
+        IReadOnlyList<(Vector2 P, Vector2 D)>? Along = null)
     {
-        /// <summary>Points along the path's centre with its heading (<see cref="LaneLinks.Path(System.Numerics.Vector2,
-        /// System.Numerics.Vector2, System.Numerics.Vector2, System.Numerics.Vector2, bool)"/>).</summary>
-        public IEnumerable<(Vector2 P, Vector2 D)> Points() =>
+        /// <summary>Points along the path's centre with its heading: <see cref="Along"/>, else
+        /// <see cref="LaneLinks.Path(System.Numerics.Vector2, System.Numerics.Vector2, System.Numerics.Vector2,
+        /// System.Numerics.Vector2, bool)"/>.</summary>
+        public IEnumerable<(Vector2 P, Vector2 D)> Points() => Along ??
             LaneLinks.Path(new(P0.X, P0.Y), new(D0.X, D0.Y), new(P3.X, P3.Y), new(D3.X, D3.Y), Turn > 0)
                 .Select(x => (new Vector2(x.P.X, x.P.Y), new Vector2(x.D.X, x.D.Y)));
 

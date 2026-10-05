@@ -57,6 +57,10 @@ $G --headless --path . --quit-after 300 -- --flat --demo-cluster      # 3 juncti
 $G --path . -- --flat --demo-cluster --cam=712,490,70,89,0 --screenshot=screenshots/cluster_top.png     # 3 junctions as one, island
 $G --path . -- --flat --demo-cluster --cam=708,492,28,35,210 --screenshot=screenshots/cluster_low.png   # the island, low
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
+$G --headless --path . --quit-after 300 -- --flat --demo-bend-t[=four_lane]   # a road joined to a 90° bend's middle at 45°; "Demo bend T: all ok"
+$G --path . -- --flat --demo-bend-t --cam=605,505,55,89,0 --screenshot=screenshots/bend_t.png
+$G --path . -- --flat --ui=open:roads,pick:two_lane,mode:grid --demo-grid-bend --cam=625,525,90,89,0 --screenshot=screenshots/grid_bend.png  # grid from a bend's corner point; "Demo grid bend: all ok" (windowed only)
+$G --path . -- --flat --demo-lane-links=uturn --cam=700,505,48,89,0 --screenshot=screenshots/lanelinks_uturn.png  # a U-turn picked
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-continue --cam=715,515,110,60,0 --screenshot=screenshots/continue_draw.png  # a draw continuing a dead end off a 4-way; "Demo continue: all ok" (windowed only)
 ```
 
@@ -280,6 +284,9 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   as two roads running into each other. Now Grid mode rounds them like the Straight tool (splines addon, `GridLayout.Lines`):
   one road round each corner at the default radius, same surface as the road (no junction seam), with the bend dot
   and its magnet slider. `--demo-grid` builds a 3 × 2 grid.
+- **Corner magnet in Grid mode** (user report, 2026-10-05): Grid mode now has a bend's slider and its magnets too. A grid
+  click on a bend makes the junction there (the bend split at that radius); a grid corner on a built road isn't rounded,
+  so a grid started on a bend's corner point turns it into a 4-way. `--demo-grid-bend` checks it.
 - Two roads still meeting at an angle at a node (what a delete leaves) get a footprint in the addon
   (`JunctionFootprint.Bend`): a kerb inside, the outside concentric with it, both roads cut back. `RoadVisual.BendLines`
   carries the lines round it; no stop lines or crossings there (`Crossings.AtJunction` skips bends). It's junction
@@ -316,6 +323,15 @@ like the TM:PE lane connector in CS1).
   in blue, drawn on top in the baker (`LinkOverlay`).
 - Known gap: deleting a road from an edited T leaves a 2-road node whose ends still carry tags, so the graph doesn't merge it
   back into one road (`TryMerge` refuses ends with data). To fix when it bites.
+- **Curved arms** (user report, 2026-10-05: a road joined at 45° to the middle of a 90° bend drew tyre wear out over the
+  grass and chevrons in odd places). Moves are told apart by the roads' directions at the node (`ArmLanes.Heading`), not
+  at the mouths, so the two halves of the bend are straight on; straight on through a road that curves through the
+  junction follows the road's own line (`ArmLanes.Spine`, `LaneLinks.Along`), lanes matched by their offset from it; a
+  turn follows its lane in (round the curve) to near the corner where the two lanes' lines meet, turns on a circle's arc
+  and follows the lane out (`LaneLinks.Turn`): it starts where the lane is within 15° of its direction at that corner
+  and never turns further than it has to, so no wide sweeps, loops past the kerb or hooks back into a lane. Square junctions draw as before. `--demo-bend-t[=<road>]` checks every link stays on the junction.
+- **U-turns** (user report, 2026-10-05: too sharp) swing round a 5 m radius (`LaneLinks.UTurnRadius`, most cars and vans
+  in one go): out away from the turn, round a half circle centred between the lanes, back in (a "bulb").
 - For the play-test: is RMB-anywhere for the picked link right, or should it be RMB on the link? Are the dots big enough
   at a normal zoom? Should a lane left with no links be refused instead of shown red?
 

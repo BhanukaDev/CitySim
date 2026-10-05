@@ -12,12 +12,12 @@ public partial class RoadDemo
     [Export] public LaneLinkTool? LaneLinkTool { get; set; }
 
     /// <summary>
-    /// <c>--demo-lane-links[=links|pick|add]</c>: a street with a 4-way at 700 and a T at 500, then the Lane Links tool's
+    /// <c>--demo-lane-links[=links|pick|add|uturn]</c>: a street with a 4-way at 700 and a T at 500, then the Lane Links tool's
     /// clicks: select the 4-way, pick its left turn from the west and remove it (RMB), undo / redo, link it again by dragging
     /// between the lane dots (both ways, and a drag let go on nothing), a U-turn, undo back to auto, a split of an arm that keeps the links; at the T the right turn from the west is
     /// removed and the wear must follow. Prints "Demo lane links: all ok". Leaves the 4-way selected without its left
     /// turn from the west, for screenshots; <c>pick</c> also picks its right turn from the west with the mouse on it,
-    /// <c>add</c> leaves a drag from the west lane coming in held over the lane it lost.
+    /// <c>add</c> leaves a drag from the west lane coming in held over the lane it lost, <c>uturn</c> a U-turn from the west picked.
     /// </summary>
     private void RunLaneLinks(string shot)
     {
@@ -142,6 +142,13 @@ public partial class RoadDemo
             // Mid-drag from the west lane coming in, the mouse on the lane it lost.
             tool.StartDragAt(tool.LanePoint(left.From, false)!.Value);
             tool.ForcedPlanCursor = tool.LanePoint(left.To, true);
+        }
+        else if (shot == "uturn")
+        {
+            // A U-turn from the west back west, picked.
+            var uturn = new LaneLinkTool.LinkKey(left.From, back);
+            tool.Link(uturn);
+            tool.ClickAt(tool.LinkPoint(uturn)!.Value, left: true);
         }
         foreach (var p in problems) GD.PrintErr($"Demo lane links: {p}");
         GD.Print(problems.Count == 0 ? "Demo lane links: all ok" : $"Demo lane links: {problems.Count} problem(s)");

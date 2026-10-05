@@ -157,8 +157,9 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
     /// The roads: the outline as roads turning its corners on arcs of the profile's default radius (as the Draw tool
     /// makes a corner, so each has its bend slider, not a node), and every inner row and column line straight across
     /// to it, less any stretch that lies on a built road in <paramref name="built"/> (that road is reused; the grid's
-    /// lines end on it and join it, and the outline breaks there). Added to a graph one by one, their crossings become
-    /// the junctions. With no rows it's just the first edge.
+    /// lines end on it and join it, and the outline breaks there). A corner on a built road or node isn't rounded: the
+    /// outline breaks there too, so the corner is a junction with that road. Added to a graph one by one, their crossings
+    /// become the junctions. With no rows it's just the first edge.
     /// </summary>
     public List<Alignment> Lines(SplineGraph? built = null, ProfileRules? rules = null)
     {
@@ -181,7 +182,7 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
             float length = Vector2.Distance(a, b);
             var dir = (b - a) / length;
             var kept = Kept(a, b);
-            if (kept.Count == 0) open = null;
+            if (kept.Count == 0 || OnBuilt(a)) open = null;
             foreach (var (s0, s1) in kept)
             {
                 if (s0 > 0 || open is null)
@@ -195,7 +196,8 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
             }
         }
         var first = runs.FirstOrDefault();
-        if (runs.Count == 1 && open is not null && Vector2.Distance(first![0].Position, corners[0]) < SplineGraph.NodeTolerance)
+        bool closes = open is not null && !OnBuilt(corners[0]) && Vector2.Distance(first![0].Position, corners[0]) < SplineGraph.NodeTolerance;
+        if (runs.Count == 1 && closes)
         {
             // The whole ring unbroken: one loop, closed on the first side (where the first column meets it, a T anyway)
             // so every corner is a bend.
@@ -209,10 +211,10 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
         else
         {
             // A run ending on corner 0 goes on into one starting there.
-            if (runs.Count > 1 && open is not null && Vector2.Distance(first![0].Position, corners[0]) < SplineGraph.NodeTolerance)
+            if (runs.Count > 1 && closes)
             {
-                open[^1] = new Pi(corners[0], radius);
-                open.AddRange(first.Skip(1));
+                open![^1] = new Pi(corners[0], radius);
+                open.AddRange(first!.Skip(1));
                 runs.RemoveAt(0);
             }
             lines.AddRange(runs.Select(r => new Alignment(r)));
@@ -221,6 +223,10 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
         for (int r = 1; r < Rows; r++) Add(Point(0, r), Point(Cols, r));
         for (int c = 1; c < Cols; c++) Add(Point(c, 0), Point(c, Rows));
         return lines;
+
+        // A corner on a built road or node (a grid started on one): a junction there, not a bend.
+        bool OnBuilt(Vector2 p) => built is not null && (built.NodeAt(p) is not null || built.Edges.Any(e =>
+            e.Alignment.Curve.Length > 0 && Vector2.Distance(e.Alignment.Curve.ClosestPoint(p).Position, p) < SplineGraph.NodeTolerance));
 
         void Add(Vector2 a, Vector2 b)
         {

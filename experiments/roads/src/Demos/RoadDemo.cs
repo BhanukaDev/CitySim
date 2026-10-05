@@ -21,8 +21,10 @@ namespace CitySim.Demos;
 /// <c>--demo-grid[=&lt;road id&gt;]</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
 /// <c>--demo-mixed</c>: the four-lane road with the two-lane one: lane drops, mixed junctions (<see cref="RunMixed"/>).
 /// <c>--demo-offset[=draw|replace|chevron]</c>: roads moved sideways, transitions, the Replace mode (<see cref="RunOffset"/>).
+/// <c>--demo-grid-bend</c>: a grid started on a bend's slider (<see cref="RunGridBend"/>).
+/// <c>--demo-bend-t[=&lt;road id&gt;]</c>: a road joined to the middle of a 90° bend at 45° (<see cref="RunBendT"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
-/// <c>--demo-lane-links[=links|pick|add]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
+/// <c>--demo-lane-links[=links|pick|add|uturn]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
 /// <c>--bake-road-thumbnails[=&lt;road id&gt;]</c>: renders the road cards' pictures (<see cref="RoadThumbnailBaker"/>) and quits.
 /// <c>--bake-road-textures</c>: rewrites the road shaders' noise textures (<see cref="RoadTextureBaker"/>) and quits.
@@ -60,6 +62,12 @@ public partial class RoadDemo : Node
                 Callable.From(() => RunOffset(shot)).CallDeferred();
             }
             else if (arg == "--demo-cluster") Callable.From(RunCluster).CallDeferred();
+            else if (arg == "--demo-grid-bend") Callable.From(RunGridBend).CallDeferred();
+            else if (arg == "--demo-bend-t" || arg.StartsWith("--demo-bend-t="))
+            {
+                string id = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : "two_lane";
+                Callable.From(() => RunBendT(id)).CallDeferred();
+            }
             else if (arg == "--demo-crossings")
             {
                 var at = OS.GetCmdlineUserArgs().FirstOrDefault(x => x.StartsWith("--crossing-cursor="))?["--crossing-cursor=".Length..].Split(',');
