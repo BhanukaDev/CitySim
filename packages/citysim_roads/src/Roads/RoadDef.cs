@@ -26,6 +26,8 @@ public sealed record RoadDef
     /// <summary>Each side, between the outer lane and the kerb (gutter, later parking or a bike lane).</summary>
     public float StripWidth { get; init; }
     public float MedianWidth { get; init; } = 2f;
+    /// <summary>Rows of zoning cells on each side; 0 = no zoning along it (highways).</summary>
+    public int ZoneRows { get; init; } = 5;
 
     /// <summary>Lanes going forward (all of them on a one-way road).</summary>
     public int Forward => OneWay ? Lanes : ForwardLanes > 0 ? ForwardLanes : (Lanes + 1) / 2;

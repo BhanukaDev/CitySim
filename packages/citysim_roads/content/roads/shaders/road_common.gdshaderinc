@@ -17,11 +17,22 @@ uniform float detail_far : hint_range(10.0, 1000.0) = 150.0;
 uniform float crack_far : hint_range(10.0, 2000.0) = 350.0;
 group_uniforms;
 
+group_uniforms Depth_bias;
+/// Beyond this distance (m) the road is drawn in front of where it is by this share of the distance, so the coarser
+/// far terrain LODs don't swallow it on uneven ground. Same pixel, nearer depth; the fragment sees the true position.
+uniform float far_bias_start : hint_range(0.0, 1000.0) = 40.0;
+uniform float far_bias : hint_range(0.0, 0.05) = 0.01;
+group_uniforms;
+
 varying vec3 world_pos;
 varying vec3 world_normal;
 
-// Varyings can only be set in vertex() itself, so this is a macro for it.
-#define ROAD_VERTEX world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+// Varyings can only be set in vertex() itself, so this is a macro for it. It also pulls the road toward the camera
+// along the view ray (see far_bias); not in the shadow pass, whose view is the light's.
+#define ROAD_VERTEX world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz); \
+	if (!IN_SHADOW_PASS) { vec4 view = MODELVIEW_MATRIX * vec4(VERTEX, 1.0); float d = length(view.xyz); \
+		view.xyz *= 1.0 - min(far_bias * max(d - far_bias_start, 0.0), d * 0.5) / max(d, 1e-3); POSITION = PROJECTION_MATRIX * view; } \
+	else { POSITION = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0)); }
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);

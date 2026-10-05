@@ -32,8 +32,9 @@ profiled hot paths.
   first**, then `packages/citysim_roads/README.md` (the content format). The code lives in the two packages above;
   the experiment keeps the scene and the demos.
   Road tools are Straight, Curve, Grid and Replace (no Freehand); try every new road feature with all four.
-- `experiments/zoning/`: zones painted on freeform parcels along roads, buildings grow on them. **Read
-  `experiments/zoning/ROADMAP.md` first**, then `PLAN.md` (the agreed plan and its reasons).
+- `experiments/zoning/`: zones painted on a cell grid that bends with the roads (CS-style cells, not square); plots
+  are made from painted cells and buildings grow on them. **Read `experiments/zoning/ROADMAP.md` first**, then
+  `PLAN.md` (the agreed plan and its reasons). The spec is the storyboard `experiments/zoning/docs/zoning-grid.html`.
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

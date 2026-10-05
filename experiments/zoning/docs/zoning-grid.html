@@ -1,0 +1,703 @@
+<title>Zoning Grid</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: same storyboard language as the zoning and splines docs: a frame strip, one live top-down map with controls beside it, rules under. */
+:root{
+  --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
+  --asphalt:#7D8790; --kerb:#C9CDC4; --paint:#F4F1E6; --accent:#2463D1; --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
+  --pill:#1C2629; --pill-fg:#F4F1E6; --node:#FFFFFF; --lot:rgba(28,38,41,.05); --tree:#4E8C4A; --garden:rgba(78,140,74,.22);
+  --ground:#CFD8C6; --plinth:#A89C8A; --contour:rgba(28,38,41,.16); --roof-eu:#B8643F; --roof-us:#8A949E; --roof-uk:#7C5F52;
+  --z-res-low:#7CC36A; --z-res-med:#3E9E4F; --z-res-high:#22703A; --z-com-low:#6BA6E6; --z-com-med:#2F6FC9; --z-off:#8E78D6; --z-mix:#D99A2B;
+  --ui-bg:#1A1C21; --ui-tile:rgba(255,255,255,.045); --ui-tile-hi:rgba(255,255,255,.08); --ui-text:#EBEFF4; --ui-dim:#9EABB8; --ui-accent:#45B8DB; --ui-line:rgba(255,255,255,.08);
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#5E6871; --kerb:#46504F; --paint:#E9E5D7; --accent:#6A9CF2; --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.04); --tree:#5E9E58; --garden:rgba(94,158,88,.20);
+  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14); --roof-eu:#B0603E; --roof-us:#7F8992; --roof-uk:#7A5C50;
+  --z-res-low:#84C873; --z-res-med:#4FB062; --z-res-high:#3C8F52; --z-com-low:#78AEEA; --z-com-med:#4E86D6; --z-off:#A08CE0; --z-mix:#E2A94A;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
+  --asphalt:#5E6871; --kerb:#46504F; --paint:#E9E5D7; --accent:#6A9CF2; --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
+  --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.04); --tree:#5E9E58; --garden:rgba(94,158,88,.20);
+  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14); --roof-eu:#B0603E; --roof-us:#7F8992; --roof-uk:#7A5C50;
+  --z-res-low:#84C873; --z-res-med:#4FB062; --z-res-high:#3C8F52; --z-com-low:#78AEEA; --z-com-med:#4E86D6; --z-off:#A08CE0; --z-mix:#E2A94A;
+}
+body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px}
+main{max-width:1180px;margin:0 auto;padding-block:36px 64px;display:grid;gap:32px}
+header{display:grid;gap:10px;max-width:80ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 52px/.95 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:700 30px/1 var(--display);letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 14px/1.3 var(--body);margin:0}
+p{margin:0;max-width:72ch}
+.lede{font-size:17px;color:var(--muted)}
+section{display:grid;gap:16px}
+.strip{display:flex;flex-wrap:wrap;gap:6px}
+.fr{all:unset;cursor:pointer;padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font:600 13.5px/1.2 var(--body)}
+.fr small{display:block;font:400 11.5px/1.2 var(--mono);color:var(--muted);margin-top:2px}
+.fr[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.fr:focus-visible,.step:focus-visible,.seg button:focus-visible,input:focus-visible,.card:focus-visible,.tool:focus-visible,.utab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.play{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media (max-width:860px){.play{grid-template-columns:1fr}}
+.frame{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.frame svg{display:block;width:100%;height:auto;background:var(--map);touch-action:none}
+.status{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px 12px;font:13px/1.4 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;min-height:20px}
+.status b{color:var(--ink);font-weight:500}
+.side{display:grid;gap:14px;min-width:0}
+.side h2{font-size:34px}
+.ctl{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px}
+.row b{font:500 13px var(--mono);font-variant-numeric:tabular-nums}
+.seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;padding:4px 9px;font-size:12.5px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.step{all:unset;cursor:pointer;padding:4px 10px;border:1px solid var(--line);border-radius:4px;background:var(--paper);font-size:12.5px}
+.step:hover{border-color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.hint{font-size:12.5px;color:var(--muted)}
+.key{font:500 11.5px var(--mono);padding:1px 5px;border:1px solid var(--line);border-radius:3px;background:var(--paper)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.note{display:grid;gap:8px;align-content:start;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.note ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:14px}
+.note p{font-size:14px;color:var(--muted)}
+.note a{color:var(--accent)}
+.q{display:grid;gap:6px;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.q p{font-size:14px}
+.q .opts{font-size:13.5px;color:var(--muted)}
+code{font:13px var(--mono)}
+svg text{font-family:var(--mono)}
+/* In-game UI mock: always the game's dark look */
+.tray{background:var(--ui-bg);color:var(--ui-text);padding:10px 12px 12px;display:grid;gap:10px;font:13px/1.3 var(--body)}
+.tray[hidden]{display:none}
+.utabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--ui-line)}
+.utab{all:unset;cursor:pointer;padding:6px 10px;color:var(--ui-dim);font:500 13px var(--body);border-bottom:2px solid transparent}
+.utab[aria-pressed="true"]{color:var(--ui-text);border-bottom-color:var(--ui-accent)}
+.cards{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.card{all:unset;cursor:pointer;flex:0 0 132px;display:grid;grid-template-rows:auto 1fr auto;border:1px solid transparent;border-radius:6px;background:var(--ui-tile);overflow:hidden;position:relative}
+.card:hover{background:var(--ui-tile-hi)}
+.card[aria-pressed="true"]{border-color:var(--ui-accent);box-shadow:0 0 0 1px var(--ui-accent)}
+.card svg{display:block;width:100%;height:auto;background:#5E7A55}
+.card .nm{padding:6px 8px 0;font:500 12.5px/1.25 var(--body);color:var(--ui-text)}
+.card .ft{display:flex;justify-content:space-between;align-items:center;padding:6px 8px 7px;font:11px var(--mono);color:var(--ui-dim)}
+.pillz{font:500 10.5px/1 var(--mono);padding:3px 5px;border-radius:3px;background:rgba(0,0,0,.45);color:var(--ui-text)}
+.card .chip{position:absolute;top:5px;left:5px}
+.opanel{background:var(--ui-bg);color:var(--ui-text);border-radius:6px;padding:12px;display:grid;gap:10px;font:13px/1.3 var(--body)}
+.opanel .hd{display:flex;justify-content:space-between;align-items:center;gap:8px;font:500 15px var(--body)}
+.opanel .lbl{font:500 10.5px var(--body);letter-spacing:.08em;color:var(--ui-dim);text-transform:uppercase;display:flex;justify-content:space-between}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tool{all:unset;cursor:pointer;text-align:center;padding:8px 4px;border-radius:5px;background:var(--ui-tile);border:1px solid transparent;font-size:12.5px}
+.tool[aria-pressed="true"]{border-color:var(--ui-accent);background:rgba(69,184,219,.14)}
+.tool i{display:block;font:500 10.5px var(--mono);color:var(--ui-dim);font-style:normal;margin-top:2px}
+.ufacts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.ufacts div{background:var(--ui-tile);border-radius:4px;padding:5px 7px;font:500 10px var(--body);letter-spacing:.06em;color:var(--ui-dim);text-transform:uppercase}
+.ufacts b{display:block;font:500 13px var(--body);letter-spacing:0;text-transform:none;color:var(--ui-text);margin-top:2px}
+.opanel input[type=range]{accent-color:var(--ui-accent)}
+.utog{display:flex;justify-content:space-between;align-items:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">CitySim · zoning experiment · Z0.5 storyboard</span>
+  <h1>A Grid That Follows the Road</h1>
+  <p class="lede">Zoning on a cell grid, as in Cities: Skylines, but the grid isn't square: each road side gets a strip of cells with columns square to the road and rows parallel to it, so it bends with curves and meets other roads cleanly at corners. You paint cells; the card's form groups them into plots; the style picks the buildings. Hover a cell to read it. This replaces the free-parcel storyboard (kept in <code>zoning-storyboard.html</code>).</p>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--lot);outline:1px solid var(--line)"></i>free cell</span>
+    <span><i class="sw" style="background:var(--z-res-low)"></i>Low · Res</span>
+    <span><i class="sw" style="background:var(--z-res-med)"></i>Med · Res</span>
+    <span><i class="sw" style="background:var(--z-com-low)"></i>Com</span>
+    <span><i class="sw" style="background:var(--z-off)"></i>Office</span>
+    <span><i class="sw" style="background:var(--z-mix)"></i>Mixed</span>
+    <span><i class="sw" style="background:var(--roof-eu)"></i>EU roofs</span>
+    <span><i class="sw" style="background:var(--roof-us)"></i>US roofs</span>
+    <span><i class="sw" style="background:var(--roof-uk)"></i>UK roofs</span>
+  </div>
+</header>
+
+<nav class="strip" id="strip" aria-label="Frames"></nav>
+
+<section>
+  <div class="play">
+    <div class="frame">
+      <svg id="map" viewBox="0 0 320 200" role="img" aria-label="Top-down map"></svg>
+      <div class="status" id="status"></div>
+      <div class="tray" id="tray" hidden></div>
+    </div>
+    <div class="side" id="side"></div>
+  </div>
+</section>
+
+<section>
+  <h2 id="rules-h">Rules</h2>
+  <div class="notes" id="notes"></div>
+</section>
+
+<section>
+  <h2>Open questions</h2>
+  <div class="notes" id="questions"></div>
+</section>
+</main>
+
+<script>
+// ---------------------------------------------------------------- math
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1]], sub=(a,b)=>[a[0]-b[0],a[1]-b[1]], mul=(a,s)=>[a[0]*s,a[1]*s];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1], cross=(a,b)=>a[0]*b[1]-a[1]*b[0], len=a=>Math.hypot(a[0],a[1]);
+const norm=a=>{const l=len(a)||1;return [a[0]/l,a[1]/l]}, perp=a=>[-a[1],a[0]], lerp=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), DEG=Math.PI/180;
+function lineInt(p,d,q,e){const den=cross(d,e); if(Math.abs(den)<1e-9) return null; return add(p,mul(d,cross(sub(q,p),e)/den));}
+function area(P){let s=0;for(let i=0;i<P.length;i++){const a=P[i],b=P[(i+1)%P.length];s+=a[0]*b[1]-b[0]*a[1];}return Math.abs(s)/2;}
+function centroid(P){let s=0,x=0,y=0;for(let i=0;i<P.length;i++){const a=P[i],b=P[(i+1)%P.length],c=a[0]*b[1]-b[0]*a[1];s+=c;x+=(a[0]+b[0])*c;y+=(a[1]+b[1])*c;}
+  if(Math.abs(s)<1e-9){const n=P.length;return [P.reduce((t,p)=>t+p[0],0)/n,P.reduce((t,p)=>t+p[1],0)/n];} return [x/(3*s),y/(3*s)];}
+function pip(p,P){let c=false;for(let i=0,j=P.length-1;i<P.length;j=i++){const a=P[i],b=P[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])c=!c;}return c;}
+function segDist(p,a,b){const ab=sub(b,a);const t=clamp(dot(sub(p,a),ab)/(dot(ab,ab)||1),0,1);return len(sub(p,add(a,mul(ab,t))));}
+function polyDist(p,L){let d=1e9;for(let i=0;i<L.length-1;i++)d=Math.min(d,segDist(p,L[i],L[i+1]));return d;}
+function hash(s){let h=2166136261;for(const c of String(s)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return h>>>0;}
+function rng(seed){let a=seed>>>0;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function clipHalf(P,p,q,keep){const d=sub(q,p),s=x=>cross(d,sub(x,p)),k=Math.sign(s(keep))||1,out=[];
+  for(let i=0;i<P.length;i++){const A=P[i],B=P[(i+1)%P.length],a=s(A)*k,b=s(B)*k;if(a>=0)out.push(A);if((a>=0)!==(b>=0))out.push(lerp(A,B,a/(a-b)));}return out;}
+function rayHits(P,O,D){const ts=[];for(let i=0;i<P.length;i++){const A=P[i],B=P[(i+1)%P.length],e=sub(B,A),den=cross(D,e);if(Math.abs(den)<1e-9)continue;
+  const w=sub(A,O),t=cross(w,e)/den,u=cross(w,D)/den;if(u>=-1e-9&&u<=1+1e-9)ts.push(t);}return ts;}
+
+// ---------------------------------------------------------------- forms (shared rules), styles (the look), zone cards
+// A form is the shared plot + building config for a kind of building; every style uses the same one.
+// widths: [metres, weight]; gap: building to building; sb: setback; bd: building depth range; bw: max building width
+const FORMS={
+  detached: {name:'Detached',widths:[[12,2],[15,3],[18,2]],gap:4,sb:5,bd:[10,14],bw:13,irr:.2,arm:22,cornerL:false,depth:35},
+  row:      {name:'Row',widths:[[5,2],[6,3],[7,2]],gap:0,sb:2,bd:[9,11],bw:7,irr:.2,arm:14,cornerL:true,depth:28},
+  walkup:   {name:'Walk-up',widths:[[16,2],[20,2],[24,1]],gap:5,sb:4,bd:[12,15],bw:20,irr:.15,arm:20,cornerL:true,depth:32},
+  perimeter:{name:'Perimeter block',widths:[[12,1],[16,2],[20,1]],gap:0,sb:0,bd:[12,14],bw:20,irr:.1,arm:18,cornerL:true,depth:30},
+  tower:    {name:'Tower',widths:[[34,1],[42,1]],gap:8,sb:6,bd:[20,26],bw:30,irr:0,arm:34,cornerL:false,depth:45},
+  shops:    {name:'Shops',widths:[[9,1],[12,2]],gap:0,sb:0,bd:[10,13],bw:12,irr:.2,arm:14,cornerL:true,depth:28},
+  strip:    {name:'Strip',widths:[[30,1],[40,1]],gap:5,sb:15,bd:[14,18],bw:34,irr:0,arm:30,cornerL:false,depth:42},
+  highstreet:{name:'High street',widths:[[8,1],[10,2],[12,2]],gap:0,sb:0,bd:[12,15],bw:12,irr:.2,arm:14,cornerL:true,depth:30},
+  campus:   {name:'Campus',widths:[[36,1],[44,1]],gap:10,sb:10,bd:[16,20],bw:30,irr:0,arm:36,cornerL:false,depth:45},
+  offices:  {name:'Offices',widths:[[16,1],[20,1]],gap:0,sb:2,bd:[12,16],bw:20,irr:.1,arm:18,cornerL:true,depth:30},
+  mixed:    {name:'Shops + flats',widths:[[10,1],[12,2],[14,1]],gap:0,sb:0,bd:[12,14],bw:14,irr:.2,arm:16,cornerL:true,depth:30},
+};
+// The form a card without one grows (the zone's default; later a weighted mix)
+const ZONE_FORM={'res-low':'detached','res-med':'walkup','res-high':'tower','com-low':'shops','com-med':'highstreet','off':'offices','mix':'mixed'};
+// A style is the look (models, materials, roofs). It may override a few shared fields; most don't.
+const STYLES={
+  eu:{name:'Eastern Europe',short:'EU',over:{all:{irr:.4}}},
+  us:{name:'US Suburban',short:'US',over:{all:{irr:0},detached:{sb:8}}},
+  uk:{name:'UK',short:'UK',over:{}},
+};
+function profFor(form,style){const st=STYLES[style];
+  return{...FORMS[form],...(st.over.all||{}),...(st.over[form]||{}),id:form+'-'+style,style,form,name:st.short+' '+FORMS[form].name};}
+const overText=st=>{const o=[];for(const k in st.over)for(const f in st.over[k])o.push(`${f} ${st.over[k][f]}${k==='all'?'':' ('+FORMS[k].name.toLowerCase()+')'}`);return o.length?o.join(', '):'none';};
+const CARDS=[
+  {id:'eu-low',  tab:'Residential',name:'EU Low Residential',style:'eu',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'eu-row',  tab:'Residential',name:'EU Row Houses',style:'eu',form:'row',zone:'res-low',pill:'Low · Res'},
+  {id:'us-low',  tab:'Residential',name:'US Low Residential',style:'us',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'uk-low',  tab:'Residential',name:'UK Low Residential',style:'uk',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'uk-row',  tab:'Residential',name:'UK Terraces',style:'uk',form:'row',zone:'res-low',pill:'Low · Res'},
+  {id:'eu-walk', tab:'Residential',name:'EU Walk-ups',style:'eu',form:'walkup',zone:'res-med',pill:'Med · Res'},
+  {id:'eu-perim',tab:'Residential',name:'EU Perimeter Block',style:'eu',form:'perimeter',zone:'res-med',pill:'Med · Res'},
+  {id:'us-high', tab:'Residential',name:'US Towers',style:'us',form:'tower',zone:'res-high',pill:'High · Res'},
+  {id:'eu-shop', tab:'Commercial',name:'EU Corner Shops',style:'eu',form:null,zone:'com-low',pill:'Low · Com'},
+  {id:'us-strip',tab:'Commercial',name:'US Strip Retail',style:'us',form:'strip',zone:'com-low',pill:'Low · Com'},
+  {id:'uk-high', tab:'Commercial',name:'UK High Street',style:'uk',form:null,zone:'com-med',pill:'Med · Com'},
+  {id:'us-park', tab:'Office',name:'US Office Park',style:'us',form:'campus',zone:'off',pill:'Low · Off'},
+  {id:'eu-off',  tab:'Office',name:'EU Offices',style:'eu',form:null,zone:'off',pill:'Med · Off'},
+  {id:'eu-mixed',tab:'Mixed',name:'EU Shops + Flats',style:'eu',form:null,zone:'mix',pill:'Med · Mixed'},
+  {id:'us-main', tab:'Mixed',name:'US Main Street',style:'us',form:null,zone:'mix',pill:'Med · Mixed'},
+];
+for(const c of CARDS){c.formId=c.form||ZONE_FORM[c.zone];c.prof=profFor(c.formId,c.style);}
+const CARD=Object.fromEntries(CARDS.map(c=>[c.id,c]));
+const ZONE_NAME={'res-low':'Low · Res','res-med':'Med · Res','res-high':'High · Res','com-low':'Low · Com','com-med':'Med · Com','off':'Office','mix':'Mixed'};
+const MIN_D=8, MIN_LOT_D=11, OFF=8; // OFF: road half-width 6 m + pavement 2 m
+
+// ---------------------------------------------------------------- shared geometry
+function prepRun(pts,side,d){
+  const n=pts.length,T=[],N=[];
+  for(let j=0;j<n-1;j++){const t=norm(sub(pts[j+1],pts[j]));T.push(t);N.push(mul(perp(t),side));}
+  const VN=[];
+  for(let i=0;i<n;i++){
+    if(i===0)VN.push(N[0]);else if(i===n-1)VN.push(N[n-2]);
+    else{const m=norm(add(N[i-1],N[i]));VN.push(mul(m,1/Math.max(dot(m,N[i]),.35)));}
+  }
+  const mid=pts.map((p,i)=>add(p,mul(VN[i],d/2))),F=[0],M=[0];
+  for(let i=1;i<n;i++){F.push(F[i-1]+len(sub(pts[i],pts[i-1])));M.push(M[i-1]+len(sub(mid[i],mid[i-1])));}
+  return {pts,T,N,VN,F,M,d,side,n,LF:F[n-1],LM:M[n-1]};
+}
+function locate(arr,v){const n=arr.length;if(v<=arr[0])return[0,0];if(v>=arr[n-1])return[n-2,1];
+  let i=0;while(i<n-2&&arr[i+1]<v)i++;const s=arr[i+1]-arr[i];return[i,s>1e-9?(v-arr[i])/s:0];}
+const frontAt=(r,i,f)=>lerp(r.pts[i],r.pts[i+1],f);
+const fToM=(r,v)=>{const[i,f]=locate(r.F,v);return r.M[i]+(r.M[i+1]-r.M[i])*f;};
+function cornerInfo(A,B){
+  const P=A.pts[A.n-1],tA=A.T[A.n-2],nA=A.N[A.n-2],tB=B.T[0],nB=B.N[0];
+  let Q=lineInt(add(P,mul(nA,A.d)),tA,add(P,mul(nB,B.d)),tB)||add(P,mul(nA,A.d));
+  const u=mul(tA,-1),v=tB;let ang=Math.acos(clamp(dot(u,v),-1,1));const bis=add(u,v);
+  if(len(bis)<1e-6||dot(bis,add(nA,nB))<0)ang=2*Math.PI-ang;
+  return{P,Q,tA,nA,tB,nB,ang,reachA:dot(sub(P,Q),tA),reachB:dot(sub(Q,P),tB)};
+}
+function fitRect(poly,C,T,N,prof,R){
+  const bd0=prof.bd[0]+R()*(prof.bd[1]-prof.bd[0]);
+  for(let extra=0;extra<=14;extra+=2){const b=fitAt(poly,C,T,N,{...prof,sb:prof.sb+extra},bd0);if(b)return b;}
+  return null;
+}
+function fitAt(poly,C,T,N,prof,bd0){
+  const Ci=add(C,mul(N,.05)),dh=rayHits(poly,Ci,N).filter(t=>t>.5);if(!dh.length)return null;
+  const bd=Math.min(bd0,Math.min(...dh)-prof.sb-4);if(bd<6)return null;
+  let L=-1e9,Rr=1e9;
+  for(const y of[prof.sb+.1,prof.sb+bd/2,prof.sb+bd]){const O=add(Ci,mul(N,y)),ts=rayHits(poly,O,T),ng=ts.filter(t=>t<0),ps=ts.filter(t=>t>0);
+    if(!ng.length||!ps.length)return null;L=Math.max(L,Math.max(...ng));Rr=Math.min(Rr,Math.min(...ps));}
+  L+=prof.gap/2;Rr-=prof.gap/2;if(Rr-L<4.5)return null;
+  if(Rr-L>prof.bw){const c=(L+Rr)/2;L=c-prof.bw/2;Rr=c+prof.bw/2;}
+  const p=(s,y)=>add(add(Ci,mul(T,s)),mul(N,y));
+  return[p(L,prof.sb),p(Rr,prof.sb),p(Rr,prof.sb+bd),p(L,prof.sb+bd)];
+}
+function cornerBld(c,A,B,prof){
+  const sb=prof.sb;const bd=Math.min(prof.bd[1],Math.min(A.d,B.d)-sb-5);if(bd<7)return null;
+  const X=(ya,yb)=>lineInt(add(c.P,mul(c.nA,ya)),c.tA,add(c.P,mul(c.nB,yb)),c.tB);
+  if(prof.cornerL){
+    const X0=X(sb,sb),X1=X(sb+bd,sb+bd);if(!X0||!X1)return null;
+    const la=Math.min(c.armA-prof.gap/2,22),lb=Math.min(c.armB-prof.gap/2,22);
+    if(dot(sub(c.P,X1),c.tA)>la-4||dot(sub(X1,c.P),c.tB)>lb-4)return null;
+    const a=s=>add(sub(c.P,mul(c.tA,la)),mul(c.nA,s)),b=s=>add(add(c.P,mul(c.tB,lb)),mul(c.nB,s));
+    return[a(sb),X0,b(sb),b(sb+bd),X1,a(sb+bd)];
+  }
+  const side=Math.max(sb*.75,4);const xs=[sb,sb+bd].map(y=>{const q=X(y,side);return q?dot(sub(c.P,q),c.tA):1e9;});
+  const x0=Math.max(...xs),x1=Math.min(x0+prof.bw,c.armA-prof.gap/2);if(x1-x0<8)return null;
+  const p=(x,y)=>add(sub(c.P,mul(c.tA,x)),mul(c.nA,y));
+  return[p(x1,sb),p(x0,sb),p(x0,sb+bd),p(x1,sb+bd)];
+}
+// ---------------------------------------------------------------- scene helpers
+function quadrant(O,u,v,key,d,block){ // land between rays u and v from O
+  const nu=dot(perp(u),v)>0?perp(u):mul(perp(u),-1),nv=dot(perp(v),u)>0?perp(v):mul(perp(v),-1);
+  const P=lineInt(add(O,mul(nu,OFF)),u,add(O,mul(nv,OFF)),v);
+  return{key,block:block||key,hint:add(O,mul(norm(add(u,v)),40)),
+    runs:[{key:key+':a',pts:[add(P,mul(u,260)),P]},{key:key+':b',pts:[P,add(P,mul(v,260))]}]};
+}
+const straightRun=(key,a,b,d,hint)=>({key,hint,runs:[{key,pts:[a,b],d}]});
+function arcPts(c,r,a0,a1,n){const P=[];for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;P.push([c[0]+r*Math.cos(a),c[1]+r*Math.sin(a)]);}return P;}
+function bezier(p0,p1,p2,n){const P=[];for(let i=0;i<=n;i++){const t=i/n,u=1-t;P.push([u*u*p0[0]+2*u*t*p1[0]+t*t*p2[0],u*u*p0[1]+2*u*t*p1[1]+t*t*p2[1]]);}return P;}
+function offsetLine(P,o){return P.map((p,i)=>{const a=P[Math.max(0,i-1)],b=P[Math.min(P.length-1,i+1)];return add(p,mul(perp(norm(sub(b,a))),o));});}
+
+// ---------------------------------------------------------------- svg
+const f1=x=>(+x).toFixed(1), f0=x=>Math.round(x);
+const pstr=P=>P.map(p=>f1(p[0])+','+f1(p[1])).join(' ');
+const zfill=z=>`var(--z-${z})`;
+function svgRoads(roads,bulbs=[]){
+  let s='';
+  for(const r of roads)s+=`<polyline points="${pstr(r)}" style="fill:none;stroke:var(--kerb);stroke-width:${2*OFF}"/>`;
+  for(const b of bulbs)s+=`<circle cx="${b.c[0]}" cy="${b.c[1]}" r="${b.r+2}" style="fill:var(--kerb)"/>`;
+  for(const r of roads)s+=`<polyline points="${pstr(r)}" style="fill:none;stroke:var(--asphalt);stroke-width:12"/>`;
+  for(const b of bulbs)s+=`<circle cx="${b.c[0]}" cy="${b.c[1]}" r="${b.r}" style="fill:var(--asphalt)"/>`;
+  for(const r of roads)s+=`<polyline points="${pstr(r)}" style="fill:none;stroke:var(--paint);stroke-width:.35;stroke-dasharray:3 3;opacity:.7"/>`;
+  return s;
+}
+function trees(P,key,max=10,dens=70){
+  const R=rng(hash('t'+key)),n=clamp(Math.round(area(P)/dens),1,max);let s='',k=0;
+  const xs=P.map(p=>p[0]),ys=P.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  for(let i=0;i<n*8&&k<n;i++){const p=[x0+R()*(x1-x0),y0+R()*(y1-y0)];if(!pip(p,P))continue;
+    let ok=true;for(let j=0;j<P.length;j++)if(segDist(p,P[j],P[(j+1)%P.length])<1.6){ok=false;break;}if(!ok)continue;
+    s+=`<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="${f1(1.4+R()*1.2)}" style="fill:var(--tree);opacity:.85"/>`;k++;}
+  return s;
+}
+function bldSvg(B,style,extra=''){
+  if(!B)return'';const z=`var(--roof-${style||'eu'})`;
+  return`<polygon points="${pstr(B.map(p=>add(p,[1,1.2])))}" style="fill:var(--ink);opacity:.16"/>`+
+    `<polygon points="${pstr(B)}" style="fill:${z};stroke:var(--ink);stroke-opacity:.55;stroke-width:.35;${extra}"/>`;
+}
+function parcelSvg(p,o={}){
+  const id=o.id??'';
+  if(p.kind==='sliver'||p.kind==='garden'||p.kind==='steep')
+    return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="fill:var(--garden);stroke:var(--ink);stroke-opacity:.3;stroke-width:.25"/>`+trees(p.poly,p.key,6,55);
+  if(p.kind==='chunk')return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="fill:var(--lot);stroke:var(--ink);stroke-opacity:.16;stroke-width:.25"/>`;
+  const z=o.zone!==undefined?o.zone:p.zone;
+  const fill=z?`fill:${zfill(z)};fill-opacity:${o.alpha??.3}`:'fill:var(--lot)';
+  return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="${fill};stroke:var(--ink);stroke-opacity:${o.so??.5};stroke-width:${o.sw??.3}"/>`;
+}
+function pill(p,text,tone){
+  const w=text.length*2.05+3.2,bg=tone==='warn'?'var(--warn)':tone==='bad'?'var(--bad)':tone==='good'?'var(--good)':'var(--pill)';
+  return`<g pointer-events="none"><rect x="${f1(p[0]-w/2)}" y="${f1(p[1]-3)}" width="${f1(w)}" height="6" rx="1.4" style="fill:${bg}"/>`+
+    `<text x="${f1(p[0])}" y="${f1(p[1]+1.3)}" text-anchor="middle" style="font-size:3.4px;fill:var(--pill-fg)">${text}</text></g>`;
+}
+const lbl=(p,t,size=2.8,op=.7)=>`<text x="${f1(p[0])}" y="${f1(p[1])}" text-anchor="middle" dominant-baseline="middle" pointer-events="none" style="font-size:${size}px;fill:var(--ink);opacity:${op}">${t}</text>`;
+
+function pickW(prof,R){const tot=prof.widths.reduce((s,w)=>s+w[1],0);let x=R()*tot;for(const w of prof.widths){x-=w[1];if(x<=0)return w[0];}return prof.widths[0][0];}
+function thumb(c){
+  const pr=c.prof,R=rng(hash(c.id));let x=4,s=`<rect x="0" y="40" width="120" height="8" fill="#6E747C"/><rect x="0" y="38" width="120" height="2" fill="#9AA0A3"/>`;
+  const sc=Math.min(1.6,60/(pr.widths.reduce((a,w)=>Math.max(a,w[0]),0)*2.2));
+  while(x<116){const w=pickW(pr,R)*sc*1.4,bw=Math.min(w-pr.gap*sc,pr.bw*sc*1.4),bd=(pr.bd[0]+R()*(pr.bd[1]-pr.bd[0]))*sc*1.2,sb=pr.sb*sc*1.2;
+    if(x+w>118)break;s+=`<rect x="${f1(x+(w-bw)/2)}" y="${f1(38-sb-bd)}" width="${f1(bw)}" height="${f1(bd)}" style="fill:var(--roof-${c.style});stroke:#1C2629;stroke-opacity:.5;stroke-width:.5"/>`;x+=w;}
+  return`<svg viewBox="0 0 120 50" aria-hidden="true">${s}</svg>`;
+}
+function renderTray(){
+  const tray=$('#tray');if(S.frame!=='paint'){tray.hidden=true;return;}
+  tray.hidden=false;const tabs=['Residential','Commercial','Office','Mixed'];
+  tray.innerHTML=`<div class="utabs">${tabs.map(t=>`<button class="utab" data-tab="${t}" aria-pressed="${Z.tab===t}">${t}</button>`).join('')}</div>
+  <div class="cards">${CARDS.filter(c=>c.tab===Z.tab).map(c=>`<button class="card" data-card="${c.id}" aria-pressed="${Z.card===c.id}"><span class="chip pillz">${STYLES[c.style].short}</span>${thumb(c)}<span class="nm">${c.name}</span><span class="ft"><span class="pillz">${c.pill}</span><span>${c.form?FORMS[c.form].name:''}</span></span></button>`).join('')}</div>`;
+}
+function svgPt(e){const pt=map.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const q=pt.matrixTransform(map.getScreenCTM().inverse());return[q.x,q.y];}
+// ---------------------------------------------------------------- grid engine
+// A road side's band is a strip of cells: columns cut square to the road (even widths near the cell size, measured
+// half-way back), rows as offset lines. At a block corner the two bands meet in a patch whose lines run parallel to
+// both roads (rectangles at 90°, parallelograms otherwise). Sharp corners and kinks are cut on the meeting line.
+// Plot widths in cells, per form (shared by every style)
+const CELLW={detached:[[2,3],[3,2]],row:[[1,1]],walkup:[[2,1],[3,2]],perimeter:[[2,1],[3,1]],tower:[[4,1],[5,1]],shops:[[1,2],[2,1]],
+  strip:[[4,1],[5,1]],highstreet:[[1,2],[2,1]],campus:[[5,1],[6,1]],offices:[[2,1],[3,1]],mixed:[[1,1],[2,2]]};
+function cellPoly(r,ma,mb,y0,y1){
+  const[ia,fa]=locate(r.M,ma),[ib,fb]=locate(r.M,mb);
+  const at=(i,f,y)=>lerp(add(r.pts[i],mul(r.VN[i],y)),add(r.pts[i+1],mul(r.VN[i+1],y)),f);
+  const inner=[];for(let i=ia+1;i<=ib;i++)if(r.M[i]>ma+1e-6&&r.M[i]<mb-1e-6)inner.push(i);
+  return[at(ia,fa,y0),...inner.map(i=>add(r.pts[i],mul(r.VN[i],y0))),at(ib,fb,y0),
+    at(ib,fb,y1),...inner.slice().reverse().map(i=>add(r.pts[i],mul(r.VN[i],y1))),at(ia,fa,y1)];
+}
+function gridChains(chains){
+  const W=S.cell,out={cells:[],runs:[],corners:[]};
+  for(const ch of chains){
+    const p0=ch.runs[0].pts[0],p1=ch.runs[0].pts[1],t0=norm(sub(p1,p0));
+    const side=ch.side??(dot(perp(t0),sub(ch.hint,lerp(p0,p1,.5)))>=0?1:-1);
+    const R=ch.runs.map(rd=>{const rows=rd.rows??S.rows;return Object.assign(prepRun(rd.pts,side,rows*W),{key:rd.key,rows,joint:rd.joint,block:ch.block??ch.key});});
+    if(ch.closed){ // bands of a block meet half-way: fewer rows where the block is narrow
+      const poly=R.map(r=>r.pts[0]);
+      for(const r of R){const m=locate(r.F,r.LF/2),C=frontAt(r,...m),N=r.N[m[0]],h=rayHits(poly,add(C,mul(N,.1)),N).filter(t=>t>1);
+        if(h.length){const rows=Math.max(0,Math.min(r.rows,Math.floor(Math.min(...h)/2/W)));if(rows!==r.rows)Object.assign(r,prepRun(r.pts,side,rows*W),{rows});}}
+    }
+    const nr=R.length,nc=ch.closed?nr:nr-1;
+    for(let k=0;k<nc;k++){
+      const A=R[k],B=R[(k+1)%nr],c=cornerInfo(A,B);c.key=ch.key+':c'+k;c.block=ch.block??ch.key;c.A=A;c.B=B;const deg=c.ang/DEG;
+      c.kind='clip';
+      if(A.rows>0&&B.rows>0&&!A.joint&&!B.joint&&deg>=59.5&&deg<=150.5){
+        const D=sub(c.Q,c.P),m=mul(c.tA,-1),det=cross(m,c.tB);
+        c.a=cross(D,c.tB)/det;c.b=cross(m,D)/det;
+        if(c.a>0&&c.b>0&&c.a<=A.LF*.6&&c.b<=B.LF*.6){
+          c.kind='patch';
+          const eA=dot(c.tB,c.nA)>0?c.tB:mul(c.tB,-1),eB=dot(c.tA,c.nB)>0?c.tA:mul(c.tA,-1);
+          c.XA=sub(c.P,mul(c.tA,c.a));c.eA=eA;c.extA=A.d*Math.max(0,dot(eA,c.tA)/dot(eA,c.nA));
+          c.XB=add(c.P,mul(c.tB,c.b));c.eB=eB;c.extB=B.d*Math.max(0,dot(eB,mul(c.tB,-1))/dot(eB,c.nB));
+          const na=Math.max(1,Math.round(c.a/W)),nb=Math.max(1,Math.round(c.b/W));c.na=na;c.nb=nb;
+          c.L=(i,j)=>add(sub(c.P,mul(c.tA,c.a*i/na)),mul(c.tB,c.b*j/nb));
+          for(let i=0;i<na;i++)for(let j=0;j<nb;j++){
+            const poly=[c.L(i,j),c.L(i,j+1),c.L(i+1,j+1),c.L(i+1,j)];
+            out.cells.push({poly,key:c.key+':'+i+':'+j,patch:c,i,j,row:Math.min(i,j),block:c.block,C:centroid(poly)});
+          }
+        }
+      }
+      A.endC=c;B.startC=c;out.corners.push(c);
+    }
+    for(const r of R){
+      if(r.rows<1)continue;
+      const s=r.startC,e=r.endC;
+      const f0=s?(s.kind==='patch'?s.b-s.extB:0):0, f1=e?(e.kind==='patch'?r.LF-e.a+e.extA:r.LF):r.LF;
+      const m0=fToM(r,Math.max(0,f0)),m1=fToM(r,Math.min(r.LF,f1));if(m1-m0<W*.4)continue;
+      const n=Math.max(1,Math.round((m1-m0)/W)),ms=[];for(let i=0;i<=n;i++)ms.push(m0+(m1-m0)*i/n);
+      r.ms=ms;r.cols=n;
+      const clip=(poly,ma,mb)=>{
+        if(s&&s.kind==='clip'&&ma<fToM(r,Math.max(s.reachB,0))+r.d)poly=clipHalf(poly,s.P,s.Q,add(s.P,mul(s.tB,2)));
+        if(s&&s.kind==='patch'&&ma<fToM(r,s.b+s.extB)+1)poly=clipHalf(poly,s.XB,add(s.XB,s.eB),add(s.P,mul(s.tB,s.b+5)));
+        if(e&&e.kind==='clip'&&mb>fToM(r,r.LF-Math.max(e.reachA,0))-r.d)poly=clipHalf(poly,e.P,e.Q,sub(e.P,mul(e.tA,2)));
+        if(e&&e.kind==='patch'&&mb>fToM(r,r.LF-e.a-e.extA)-1)poly=clipHalf(poly,e.XA,add(e.XA,e.eA),sub(e.P,mul(e.tA,e.a+5)));
+        return poly;};
+      r.clip=clip;
+      for(let i=0;i<n;i++)for(let k=0;k<r.rows;k++){
+        const raw=cellPoly(r,ms[i],ms[i+1],k*W,(k+1)*W),poly=clip(raw,ms[i],ms[i+1]);
+        if(poly.length<3||area(poly)<area(raw)*.25)continue;
+        out.cells.push({poly,key:r.key+':'+i+':'+k,run:r,col:i,row:k,block:r.block,C:centroid(poly)});
+      }
+    }
+    out.runs.push(...R);
+  }
+  return out;
+}
+// Paint values are card ids, or 'auto' (the frame's Form + Style controls as a Low · Res card)
+function cardInfo(id){if(!id)return null;if(id==='auto')return{id:'auto',zone:'res-low',formId:S.form,style:S.style,prof:profFor(S.form,S.style),name:STYLES[S.style].short+' '+FORMS[S.form].name};return CARD[id];}
+// Plots from painted cells: same card in neighbouring front-connected columns forms a stretch; the card's form
+// groups its columns into plots (widths in cells); a plot is as deep as its shallowest painted column.
+function makePlots(G,paint0){
+  const paint=c=>c?paint0(c):null;
+  const plots=[];const byKey={};for(const c of G.cells)byKey[c.key]=c;
+  for(const r of G.runs){
+    if(!r.ms)continue;
+    const colCard=[],colRows=[];
+    for(let i=0;i<r.cols;i++){const id=paint(byKey[r.key+':'+i+':0']);let k=0;
+      if(id)while(k<r.rows&&byKey[r.key+':'+i+':'+k]&&paint(byKey[r.key+':'+i+':'+k])===id)k++;colCard.push(k?id:null);colRows.push(k);}
+    let i=0;
+    while(i<r.cols){
+      if(!colCard[i]){i++;continue;}let j=i;while(j<r.cols&&colCard[j]===colCard[i])j++;
+      const card=cardInfo(colCard[i]),R=rng(hash(r.key+':'+i+':'+card.id)),opts=CELLW[card.formId];
+      let a=i;
+      while(a<j){
+        const tot=opts.reduce((s,o)=>s+o[1],0);let x=R()*tot,w=opts[0][0];for(const o of opts){x-=o[1];if(x<=0){w=o[0];break;}}
+        let b=Math.min(j,a+w);if(j-b>0&&j-b<opts[0][0])b=j; // a leftover narrower than the smallest plot joins this one
+        const rows=Math.min(...colRows.slice(a,b));
+        const raw=cellPoly(r,r.ms[a],r.ms[b],0,rows*S.cell),poly=r.clip(raw,r.ms[a],r.ms[b]);
+        if(poly.length>=3&&area(poly)>8){
+          const lc=locate(r.M,(r.ms[a]+r.ms[b])/2),C=frontAt(r,...lc),T=r.T[lc[0]],N=r.N[lc[0]];
+          const pl={poly,card,cols:b-a,rows,key:r.key+':p'+a,run:r,C,T,N};
+          pl.bld=fitRect(poly,C,T,N,card.prof,rng(hash(pl.key+card.id)));
+          plots.push(pl);for(let q=a;q<b;q++)for(let k=0;k<rows;k++){const c=byKey[r.key+':'+q+':'+k];if(c)c.plot=pl;}
+        }
+        a=b;
+      }
+      i=j;
+    }
+  }
+  // corner plots: the corner cell's card takes the painted rectangle it starts
+  for(const c of G.corners){
+    if(c.kind!=='patch')continue;const at=(i,j)=>G.cells.find(x=>x.key===c.key+':'+i+':'+j);const id=paint(at(0,0));if(!id)continue;
+    let I=1,J=1;while(I<c.na&&paint(at(I,0))===id)I++;while(J<c.nb&&paint(at(0,J))===id)J++;
+    const card=cardInfo(id),poly=[c.L(0,0),c.L(0,J),c.L(I,J),c.L(I,0)];
+    const cc={...c,armA:c.a*I/c.na,armB:c.b*J/c.nb},pl={poly,card,corner:true,cols:I,rows:J,key:c.key+':p',C:centroid(poly)};
+    pl.bld=cornerBld(cc,{d:c.b*J/c.nb},{d:c.a*I/c.na},card.prof);
+    plots.push(pl);for(let i=0;i<I;i++)for(let j=0;j<J;j++){const x=at(i,j);if(x)x.plot=pl;}
+  }
+  return plots;
+}
+
+// ---------------------------------------------------------------- state
+const S={frame:'straight',style:'eu',form:'detached',rows:5,cell:8,view:'half',radius:130,angle:60,stem:90,bend:10,showOld:true};
+let LAST=null;
+const Z={tab:'Residential',card:'eu-low',tool:'brush',brush:10,paint:{},born:{},instant:true,cursor:null};
+const autoPaint=(test,maxRow=4)=>c=>{if(S.view==='grid')return null;if(c.row>=maxRow)return null;if(S.view==='half'&&!test(c))return null;return'auto';};
+
+// ---------------------------------------------------------------- render pieces
+function cellSvg(c,i,id){
+  const card=cardInfo(id);
+  const fill=card?`fill:${zfill(card.zone)};fill-opacity:.32`:'fill:var(--lot)';
+  return`<polygon data-c="${i}" points="${pstr(c.poly)}" style="${fill};stroke:var(--ink);stroke-opacity:${card?.28:.3};stroke-width:.22"/>`;
+}
+function cornerAnn(G){let s='';for(const c of G.corners){const deg=f0(c.ang/DEG),at=add(c.Q,mul(norm(sub(c.Q,c.P)),7));
+  s+=pill(at,`${deg}° · ${c.kind==='patch'?'corner grid':'cut'}`,c.kind==='patch'?'':'warn');}return s;}
+function info(c){
+  if(!c)return'';const id=LAST.paint(c),card=cardInfo(id),parts=[];
+  parts.push(`<b>${c.patch?'Corner cell':'Cell'}</b>`);
+  if(c.patch)parts.push(`${c.i+1} × ${c.j+1} from the corner`);else parts.push(`column ${c.col+1}`,`row ${c.row+1}`);
+  parts.push(card?`${ZONE_NAME[card.zone]} · ${card.name}`:'unzoned');
+  if(c.plot)parts.push(`plot ${c.plot.cols} × ${c.plot.rows} cells`);
+  return parts.join(' · ');
+}
+
+// ---------------------------------------------------------------- frames
+const FRAMES=[],F=o=>FRAMES.push(o);
+const formCtl={type:'seg',id:'form',label:'Form',opts:[['detached','Detached'],['row','Row'],['walkup','Walk-up']]};
+const styleCtl={type:'seg',id:'style',label:'Style',opts:[['eu','EU'],['us','US'],['uk','UK']]};
+const viewCtl={type:'seg',id:'view',label:'Zoned',opts:[['grid','None'],['half','Half'],['all','All']]};
+const rowsCtl={type:'range',id:'rows',label:'Grid depth',min:1,max:8,step:1,fmt:v=>`${v} rows · ${v*S.cell} m`};
+const cellCtl={type:'seg',id:'cell',label:'Cell',opts:[[6,'6 m'],[8,'8 m'],[10,'10 m']]};
+const geo=[viewCtl,formCtl,styleCtl,rowsCtl,cellCtl];
+
+F({id:'straight',name:'Straight',sub:'cells follow the road',title:'Straight road',
+  hint:'Each road side gets a strip of cells, like the CS zoning grid: columns square to the road, rows parallel to it. Here they come out as plain rectangles. Paint cells; the form groups them into plots.',
+  controls:geo,
+  build(){const G=gridChains([{key:'s:t',hint:[160,0],runs:[{key:'s:t',pts:[[-10,100-OFF],[330,100-OFF]]}]},{key:'s:b',hint:[160,200],runs:[{key:'s:b',pts:[[-10,100+OFF],[330,100+OFF]]}]}]);
+    return{G,roads:[[[-10,100],[330,100]]],paint:autoPaint(c=>c.C[0]<160)};},
+  notes:[['Grid',['A road side gets up to 8 rows of cells (the road type sets the maximum; CS1 has 4, CS2 6). Columns are as close to the cell size as fits evenly, so there are no left-over slivers.','The grid belongs to the road and is rebuilt with it. Nothing is placed until you paint.']],
+    ['Plots',['The form groups painted cells into plots: Detached 2–3 columns, Row 1, Walk-up 2–3. A plot is as deep as its shallowest painted column, and needs the front row (road access).','Styles only change the buildings; EU and UK Detached get the same plots.']],
+    ['Cell size',['8 m is the CS cell. 6 m paints finer and suits narrow row houses; 10 m is coarser. One size for the whole game, picked here.']]],
+});
+F({id:'curve',name:'Curve',sub:'fans out',title:'Curved road',
+  hint:'The same grid on a curve: columns stay square to the road at their point, so cells fan out on the outside and narrow on the inside. Columns are measured half-way back so both sides keep usable cells.',
+  controls:[...geo,{type:'range',id:'radius',label:'Radius',min:80,max:260,step:5,fmt:v=>v+' m'}],
+  build(){const R=S.radius,c=[160,70+R],am=Math.min(Math.asin(Math.min(1,190/R)),1.45),seg=(r)=>arcPts(c,r,-Math.PI/2-am,-Math.PI/2+am,72);
+    const inRows=Math.max(1,Math.min(S.rows,Math.floor((R-OFF-6)/S.cell)));
+    const G=gridChains([{key:'c:o',hint:[160,-2000],runs:[{key:'c:o',pts:seg(R+OFF)}]},{key:'c:i',hint:c,runs:[{key:'c:i',pts:seg(R-OFF),rows:inRows}]}]);
+    return{G,roads:[seg(R)],paint:autoPaint(c=>c.C[0]<160),status:`<span>R <b>${R} m</b></span><span>inside rows <b>${inRows}</b></span>`};},
+  notes:[['Fanning',['Outside the bend the back cells are wider than the front ones; inside they are narrower. Either way every cell still touches its neighbours, with no gaps or overlaps.','On a tight bend the inside gets fewer rows instead of folding over itself.']],
+    ['Unlike CS',['CS1 and CS2 lay square cells along the road, so curves leave wedges of dead land between them. Here the grid bends with the road.']]],
+});
+F({id:'corner',name:'Corner',sub:'any angle',title:'Block corners',
+  hint:'Two roads crossing. Between 60° and 150° the two grids meet in a corner patch whose lines run parallel to both roads: square at 90°, parallelograms when skewed. Sharper corners are cut on the meeting line.',
+  controls:[...geo,{type:'range',id:'angle',label:'Crossing angle',min:35,max:90,step:5,fmt:v=>v+'°'}],
+  build(){const O=[160,100],a=[1,0],b=[Math.cos(S.angle*DEG),-Math.sin(S.angle*DEG)],na=mul(a,-1),nb=mul(b,-1);
+    const G=gridChains([quadrant(O,a,b,'q1'),quadrant(O,b,na,'q2'),quadrant(O,na,nb,'q3'),quadrant(O,nb,a,'q4')]);
+    return{G,roads:[[add(O,mul(a,-250)),add(O,mul(a,250))],[add(O,mul(b,-250)),add(O,mul(b,250))]],ann:cornerAnn(G),paint:autoPaint(c=>c.C[1]<100)};},
+  notes:[['Corner patch',['The corner region (as deep as both bands) gets its own small grid with lines parallel to each road, so each corner cell faces both streets.','Paint the corner cell and the corner plot takes the painted rectangle it starts: one corner building (L-shaped for joined forms).']],
+    ['Joins',['Where a band meets a skewed patch, its last column takes the wedge between them: the only irregular cell.','Under 60° the grids are cut on the line from the kerb corner to where the back lines cross; cells under a quarter of their size are dropped (they become trees).']],
+    ['Unlike CS',['CS grids are square to each road and overlap at corners, so one road\'s cells win and the other side has dead cells. Here nothing overlaps or goes unused.']]],
+});
+F({id:'t',name:'T-junction',sub:'stem side',title:'T-junction',
+  hint:'The stem splits the near side into two corner patches; the far side is one unbroken strip.',
+  controls:[...geo,{type:'range',id:'stem',label:'Stem angle',min:50,max:130,step:5,fmt:v=>v+'°'}],
+  build(){const O=[160,135],a=[1,0],b=[Math.cos(S.stem*DEG),-Math.sin(S.stem*DEG)];
+    const G=gridChains([quadrant(O,a,b,'t1'),quadrant(O,b,[-1,0],'t2'),{key:'t:b',hint:[160,400],runs:[{key:'t:b',pts:[[-10,135+OFF],[330,135+OFF]]}]}]);
+    return{G,roads:[[[-10,135],[330,135]],[O,add(O,mul(b,250))]],ann:cornerAnn(G),paint:autoPaint(c=>c.C[0]<160)};},
+  notes:[['Stem side',['Two corner patches. Skew the stem and one goes to parallelograms, then gets cut below 60°.']],['Far side',['One strip, untouched by the stem.']]],
+});
+F({id:'cul',name:'Cul-de-sac',sub:'pie cells',title:'Cul-de-sac',
+  hint:'The strip follows the kerb up the stem and round the turning circle, where the cells fan out into pie shapes.',
+  controls:geo,
+  build(){const bc=[160,72],br=13,rr=br+2,y0=178,jy=bc[1]+Math.sqrt(rr*rr-OFF*OFF),aL=Math.atan2(jy-bc[1],-OFF),aR=Math.atan2(jy-bc[1],OFF)+2*Math.PI;
+    const G=gridChains([{key:'cd',hint:[60,120],runs:[{key:'cd:l',pts:[[-10,y0-OFF],[160-OFF,y0-OFF]]},{key:'cd:sl',pts:[[160-OFF,y0-OFF],[160-OFF,jy]]},
+      {key:'cd:bulb',pts:arcPts(bc,rr,aL,aR,48),joint:true},{key:'cd:sr',pts:[[160+OFF,jy],[160+OFF,y0-OFF]]},{key:'cd:r',pts:[[160+OFF,y0-OFF],[330,y0-OFF]]}]},
+      {key:'cd:b',hint:[160,400],runs:[{key:'cd:b',pts:[[-10,y0+OFF],[330,y0+OFF]]}]}]);
+    return{G,roads:[[[-10,y0],[330,y0]],[[160,y0],bc]],bulbs:[{c:bc,r:br}],paint:autoPaint(c=>c.patch?c.patch.key==='cd:c0':['cd:sl','cd:bulb','cd:sr'].includes(c.run.key))};},
+  notes:[['Bulb',['The turning circle is just more strip. Columns are measured half-way back, so the pie cells stay a usable width.'],],['Kinks',['Where the stem meets the bulb the two strips are cut on their meeting line, like a sharp corner.']]],
+});
+F({id:'block',name:'Block',sub:'grids meet',title:'A closed block',
+  hint:'Four roads around a block. Each side\'s grid stops half-way to the opposite side, so a narrow block gets fewer rows. Whatever the cells don\'t reach is the block interior.',
+  controls:[...geo],
+  build(){const x0=40+OFF,x1=280-OFF,y0=20+OFF,y1=150-OFF,c=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+    const G=gridChains([{key:'bk',closed:true,hint:[160,90],runs:[0,1,2,3].map(k=>({key:'bk:'+'NESW'[k],pts:[c[k],c[(k+1)%4]]}))}]);
+    const pre=`<polygon points="${pstr(c)}" style="fill:var(--garden)"/>`;
+    return{G,pre,roads:[[[40,-10],[40,210]],[[280,-10],[280,210]],[[-10,20],[330,20]],[[-10,150],[330,150]]],paint:autoPaint(c=>c.C[0]<160)};},
+  notes:[['Depth',['Grid depth is the road\'s maximum rows, capped at half the distance to the far side of the block.','You choose zone depth by painting: paint 2 rows, get shallow plots; paint all, get deep ones (one-sided zoning is painting one side).']],
+    ['Interior',['Cells the grid doesn\'t reach stay green. Later, complex forms (courtyards, estates) can use it.']]],
+});
+
+// ---- paint
+function zoneChains(){
+  const blk=(key,x0,x1,y0,y1)=>{const c=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];return{key,block:key,closed:true,hint:[(x0+x1)/2,(y0+y1)/2],runs:[0,1,2,3].map(k=>({key:key+':'+'NESW'[k],pts:[c[k],c[(k+1)%4]]}))};};
+  return[blk('b1',12+OFF,172-OFF,12+OFF,188-OFF),blk('b2',172+OFF,308-OFF,12+OFF,188-OFF)];
+}
+function brushHits(G,pt){return G.cells.filter(c=>pip(pt,c.poly)||len(sub(c.C,pt))<Z.brush);}
+function applyZone(pt,click){
+  const G=LAST.G,id=Z.tool==='erase'?null:Z.card;
+  if(Z.tool==='fill'){if(!click)return;const h=G.cells.find(c=>pip(pt,c.poly))||(LAST.blocks||[]).find(b=>pip(pt,b.poly));if(!h)return;
+    for(const c of G.cells)if(c.block===h.block){if(id)Z.paint[c.key]=id;else delete Z.paint[c.key];}}
+  else for(const c of brushHits(G,pt)){if(id)Z.paint[c.key]=id;else delete Z.paint[c.key];}
+  render();
+}
+function seedZones(){
+  const G=gridChains(zoneChains()),put=(test,id)=>{for(const c of G.cells)if(test(c))Z.paint[c.key]=id;};
+  put(c=>c.run&&c.run.key==='b1:N'&&c.row<4,'eu-low');put(c=>c.patch&&c.patch.key==='b1:c0'&&c.i<4&&c.j<4,'eu-low');
+  put(c=>c.run&&c.run.key==='b1:W'&&c.row<3&&c.col<9,'eu-row');
+  put(c=>c.run&&c.run.key==='b1:S'&&c.row<5&&c.col<5,'us-low');
+  put(c=>c.run&&c.run.key==='b2:N'&&c.row<2,'uk-high');put(c=>c.patch&&c.patch.key==='b2:c0'&&c.i<2&&c.j<2,'uk-high');
+  put(c=>c.run&&c.run.key==='b2:E'&&c.row<4,'eu-walk');
+  put(c=>c.run&&c.run.key==='b2:S'&&c.row<4,'uk-low');put(c=>c.patch&&c.patch.key==='b2:c2'&&c.i<3&&c.j<3,'eu-mixed');
+}
+F({id:'paint',name:'Zone cards',sub:'paint cells',title:'Painting the grid',
+  hint:'Pick a card in the tray and paint cells, as in CS. Each painted stretch is grouped into plots by the card\'s form and builds after a short wait.',
+  controls:[rowsCtl,cellCtl],
+  build(){
+    const G=gridChains(zoneChains()),blocks=zoneChains().map(ch=>({block:ch.block,poly:ch.runs.map(r=>r.pts[0])}));
+    let pre='';for(const b of blocks)pre+=`<polygon points="${pstr(b.poly)}" style="fill:var(--garden)"/>`;
+    let ann='';const hot=Z.tool==='erase'?'var(--bad)':'var(--accent)';
+    if(Z.cursor&&Z.tool!=='fill'){ann+=`<circle cx="${f1(Z.cursor[0])}" cy="${f1(Z.cursor[1])}" r="${Z.brush}" style="fill:none;stroke:${hot};stroke-width:.6;stroke-dasharray:2 1.2" pointer-events="none"/>`;
+      for(const c of brushHits(G,Z.cursor))ann+=`<polygon points="${pstr(c.poly)}" style="fill:none;stroke:${hot};stroke-width:.6" pointer-events="none"/>`;}
+    if(Z.cursor&&Z.tool==='fill'){const h=G.cells.find(c=>pip(Z.cursor,c.poly))||blocks.find(b=>pip(Z.cursor,b.poly));
+      if(h)ann+=`<polygon points="${pstr(blocks.find(b=>b.block===h.block).poly)}" style="fill:none;stroke:${hot};stroke-width:.9" pointer-events="none"/>`;}
+    const c=CARD[Z.card];
+    return{G,pre,ann,blocks,grow:true,paint:x=>x&&Z.paint[x.key]||null,roads:[[[-10,12],[330,12]],[[-10,188],[330,188]],[[12,-10],[12,210]],[[172,-10],[172,210]],[[308,-10],[308,210]]],
+      status:`<span>${{brush:'Brush',fill:'Fill',erase:'Erase'}[Z.tool]}${Z.tool==='fill'?'':' <b>'+Z.brush+' m</b>'}</span><span><b>${c.name}</b> · ${c.pill}</span>`};
+  },
+  notes:[['Painting',['<span class="key">1</span> Brush paints every cell it touches. <span class="key">2</span> Fill paints the whole block. <span class="key">3</span> Erase. <span class="key">[</span> <span class="key">]</span> brush size.','Depth is painted too: paint more rows for deeper plots. No separate depth handle.']],
+    ['Plots',['Neighbouring painted columns with the same card form a stretch; the form groups them into plots. Cells behind an unpainted front cell have no road access and stay empty.','Repainting with the same form in another style keeps the plots and swaps buildings over time.']]],
+});
+
+// ---- road moved
+F({id:'moved',name:'Road moved',sub:'cells inherit',title:'Road moved under the grid',
+  hint:'The middle road is dragged. Its grid is rebuilt; each new cell takes the card of the old painted cell under its centre. Buildings that still stand on cells painted with the same card stay; the rest are replaced over time, and anything on the road is demolished.',
+  controls:[formCtl,styleCtl,{type:'range',id:'bend',label:'Move road',min:-30,max:30,step:1,fmt:v=>(v>0?'+':'')+v+' m'},{type:'seg',id:'showOld',label:'Old grid',opts:[[true,'Show'],[false,'Hide']]}],
+  build(){
+    const scene=bend=>{const cl=bezier([-10,75],[160,75+2*bend],[330,75],48);
+      return{cl,G:gridChains([{key:'m:u',hint:[160,-500],runs:[{key:'m:u',pts:offsetLine(cl,-OFF),rows:4}]},{key:'m:d',hint:[160,600],runs:[{key:'m:d',pts:offsetLine(cl,OFF),rows:4}]},
+        {key:'m:b',hint:[160,0],runs:[{key:'m:b',pts:[[-10,192-OFF],[330,192-OFF]],rows:4}]}])};};
+    const old=scene(0),oldPaint=c=>c.row<4?(c.run.key==='m:d'&&c.C[0]>=160?'us-strip':'auto'):null;
+    const oldPlots=makePlots(old.G,oldPaint),cur=scene(S.bend);
+    const inh={};for(const c of cur.G.cells){const o=old.G.cells.find(q=>pip(c.C,q.poly));if(o){const id=oldPaint(o);if(id)inh[c.key]=id;}}
+    const paint=c=>c&&inh[c.key]||null,plots=makePlots(cur.G,paint);
+    let ann='',keptSvg='',kept=0,repl=0,demo=0;
+    if(S.showOld&&S.bend)for(const c of old.G.cells)ann+=`<polygon points="${pstr(c.poly)}" style="fill:none;stroke:var(--ink);stroke-opacity:.3;stroke-width:.25;stroke-dasharray:1.2 .9" pointer-events="none"/>`;
+    for(const o of oldPlots){if(!o.bld)continue;
+      const onRoad=o.bld.some(q=>polyDist(q,cur.cl)<OFF+.5)||polyDist(centroid(o.bld),cur.cl)<OFF+.5;
+      const onCard=o.bld.every(q=>cur.G.cells.some(c=>paint(c)===o.card.id&&pip(q,c.poly)));
+      const host=onCard&&plots.find(p=>p.card.id===o.card.id&&pip(centroid(o.bld),p.poly));
+      if(onRoad){demo++;ann+=`<polygon points="${pstr(o.bld)}" style="fill:none;stroke:var(--bad);stroke-width:.6;stroke-dasharray:1.2 .8"/>`;}
+      else if(onCard){kept++;keptSvg+=bldSvg(o.bld,o.card.style);if(host){host.kept=true;host.bld=null;}}
+      else{repl++;ann+=`<polygon points="${pstr(o.bld)}" style="fill:none;stroke:var(--warn);stroke-width:.7;stroke-dasharray:1.6 1"/>`;}}
+    for(const p of plots)if(!p.kept&&p.bld)p.ghost=true;
+    return{G:cur.G,plots,paint,roads:[cur.cl,[[-10,192],[330,192]]],ann:ann+keptSvg,
+      status:`<span>kept <b>${kept}</b></span><span>replaced over time <b>${repl}</b></span><span>demolished <b>${demo}</b></span>`};
+  },
+  legend:[['var(--roof-eu)','kept'],['var(--warn)','replaced over time'],['var(--bad)','demolished']],
+  notes:[['Rebuild',['Only the moved road\'s grid is rebuilt; the bottom road\'s cells don\'t change.','Each new cell takes the card under its centre in the old grid. Old road land is unpainted.']],
+    ['Buildings',['Still standing on cells painted with the same card: kept, and its new plot keeps it. Otherwise replaced over time (dashed outline: the new plot\'s building will grow). On the new road: demolished with the edit.']]],
+});
+
+const QUESTIONS=[
+  ['Cell size','8 m like CS, or 6 m (fits narrow row houses and EU shops) or 10 m. One size for the whole game.','Try the Cell control in any frame.'],
+  ['Max rows','How deep can a road side zone? CS1 has 4 rows (32 m), CS2 6 (48 m). The storyboard defaults to 5 and lets a road type set its own.','Higher suits suburbs and big lots; lower keeps cores tight.'],
+  ['Corner range','Corner patches between 60° and 150°, cut below that.','Or patch down to 45° with long parallelogram cells.'],
+  ['Front row rule','A plot needs its front cell painted (road access), and is as deep as its shallowest painted column.','Or allow painted back cells to join the plot in front of them.'],
+];
+
+// ---------------------------------------------------------------- UI
+const $=s=>document.querySelector(s),map=$('#map');
+function ctlHtml(c){
+  if(c.type==='seg')return`<div class="row"><span>${c.label}</span><div class="seg" role="group" aria-label="${c.label}">${c.opts.map(([v,t])=>`<button data-seg="${c.id}" data-v="${v}" aria-pressed="${String(S[c.id])===String(v)}">${t}</button>`).join('')}</div></div>`;
+  if(c.type==='range')return`<div class="row"><span>${c.label}</span><b id="v-${c.id}">${c.fmt(S[c.id])}</b></div><input type="range" id="r-${c.id}" min="${c.min}" max="${c.max}" step="${c.step}" value="${S[c.id]}" aria-label="${c.label}">`;
+  return'';
+}
+function zonePanel(){
+  const c=CARD[Z.card];
+  return`<div class="opanel"><div class="hd"><span>${c.name}</span><span class="pillz">${c.pill}</span></div>
+  <div class="ufacts"><div>Style<b>${STYLES[c.style].short}</b></div><div>Form<b>${FORMS[c.formId].name}</b></div><div>Plot<b>${CELLW[c.formId].map(o=>o[0]).join('–')} cells</b></div></div>
+  <div class="lbl"><span>Tool</span><span>1–3</span></div>
+  <div class="tools">${[['brush','Brush','1'],['fill','Fill','2'],['erase','Erase','3']].map(([id,t,k])=>`<button class="tool" data-tool="${id}" aria-pressed="${Z.tool===id}">${t}<i>${k}</i></button>`).join('')}</div>
+  <div class="lbl"><span>Brush</span><span>${Z.brush} m · [ ]</span></div>
+  <input type="range" id="r-brush" min="4" max="30" step="1" value="${Z.brush}" aria-label="Brush size"></div>`;
+}
+function renderStrip(){$('#strip').innerHTML=FRAMES.map(f=>`<button class="fr" data-f="${f.id}" aria-pressed="${S.frame===f.id}">${f.name}<small>${f.sub}</small></button>`).join('');}
+function renderSide(){
+  const f=FRAMES.find(x=>x.id===S.frame);
+  const leg=f.legend?`<div class="legend">${f.legend.map(([c,t])=>`<span><i class="sw" style="background:${c}"></i>${t}</span>`).join('')}</div>`:'';
+  $('#side').innerHTML=`<h2>${f.title}</h2><p class="hint" style="font-size:13.5px">${f.hint}</p>
+    ${f.controls.length?`<div class="ctl">${f.controls.map(ctlHtml).join('')}</div>`:''}${S.frame==='paint'?zonePanel():''}${leg}`;
+  $('#notes').innerHTML=f.notes.map(([h,li])=>`<div class="note"><h3>${h}</h3><ul>${li.map(x=>`<li>${x}</li>`).join('')}</ul></div>`).join('');
+  $('#rules-h').textContent='Rules · '+f.name;
+}
+function render(){
+  const f=FRAMES.find(x=>x.id===S.frame),r=f.build();LAST=r;
+  const G=r.G,paint=r.paint,plots=r.plots||makePlots(G,paint);
+  let s=r.pre||'';
+  G.cells.forEach((c,i)=>{s+=cellSvg(c,i,paint(c));});
+  for(const p of plots)s+=`<polygon points="${pstr(p.poly)}" style="fill:none;stroke:var(--ink);stroke-opacity:.7;stroke-width:.5" pointer-events="none"/>`;
+  s+=svgRoads(r.roads,r.bulbs);
+  const now=performance.now();let pending=false;
+  for(const p of plots){
+    if(!p.bld)continue;
+    if(p.ghost){s+=`<polygon points="${pstr(p.bld)}" style="fill:none;stroke:var(--ink);stroke-opacity:.45;stroke-width:.35;stroke-dasharray:.8 .8" pointer-events="none"/>`;continue;}
+    if(r.grow){const k=p.key+'|'+p.card.id+'|'+p.cols+'x'+p.rows;if(Z.born[k]===undefined)Z.born[k]=Z.instant?-1e9:now+250+(hash(k)%900);
+      const t=now-Z.born[k];if(t<0){pending=true;continue;}if(t<700){pending=true;s+=`<polygon points="${pstr(p.bld)}" style="fill:none;stroke:var(--ink);stroke-opacity:.6;stroke-width:.4;stroke-dasharray:1 .8"/>`;continue;}}
+    s+=bldSvg(p.bld,p.card.style);
+  }
+  if(r.grow){Z.instant=false;if(pending)setTimeout(()=>{if(S.frame==='paint')render();},140);}
+  s+=r.ann||'';map.innerHTML=s;
+  const nc=G.cells.length,np=G.cells.filter(c=>paint(c)).length;
+  r.status=`<span>cells <b>${nc}</b></span><span>zoned <b>${np}</b></span><span>plots <b>${plots.length}</b></span><span>cell <b>${S.cell} m</b></span>`+(r.status||'');
+  $('#status').innerHTML=r.status;
+}
+function setFrame(id){S.frame=id;renderStrip();renderSide();renderTray();render();}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button');if(!t)return;
+  if(t.dataset.f){setFrame(t.dataset.f);try{history.replaceState(null,'','#'+t.dataset.f);}catch(_){}}
+  else if(t.dataset.seg){const id=t.dataset.seg,v=t.dataset.v;S[id]=v==='true'?true:v==='false'?false:isNaN(+v)?v:+v;renderSide();render();}
+  else if(t.dataset.tab){Z.tab=t.dataset.tab;renderTray();}
+  else if(t.dataset.card){Z.card=t.dataset.card;if(Z.tool==='erase')Z.tool='brush';renderTray();renderSide();render();}
+  else if(t.dataset.tool){Z.tool=t.dataset.tool;renderSide();render();}
+});
+document.addEventListener('input',e=>{
+  const id=e.target.id;if(!id.startsWith('r-'))return;const k=id.slice(2),v=+e.target.value;
+  if(k==='brush'){Z.brush=v;renderSide();render();return;}
+  S[k]=v;const f=FRAMES.find(x=>x.id===S.frame),c=f.controls.find(c=>c.id===k),o=$('#v-'+k);if(o&&c)o.textContent=c.fmt(v);render();
+});
+document.addEventListener('keydown',e=>{
+  if(S.frame!=='paint'||e.target.matches('input'))return;
+  if(e.key==='1'||e.key==='2'||e.key==='3'){Z.tool=['brush','fill','erase'][+e.key-1];renderSide();render();}
+  else if(e.key==='['||e.key===']'){Z.brush=clamp(Z.brush+(e.key===']'?2:-2),4,30);renderSide();render();}
+});
+let drag=null;
+map.addEventListener('pointerdown',e=>{if(S.frame==='paint'){drag=true;map.setPointerCapture(e.pointerId);applyZone(svgPt(e),true);}});
+map.addEventListener('pointermove',e=>{
+  const pt=svgPt(e);
+  if(S.frame==='paint'){Z.cursor=pt;if(drag&&Z.tool!=='fill')applyZone(pt,false);else render();}
+  const el=document.elementFromPoint(e.clientX,e.clientY),cel=el&&el.closest&&el.closest('[data-c]');
+  if(cel&&LAST)$('#status').innerHTML=info(LAST.G.cells[+cel.dataset.c]);else if(LAST)$('#status').innerHTML=LAST.status;
+});
+map.addEventListener('pointerup',()=>{drag=null;});
+map.addEventListener('pointerleave',()=>{if(S.frame==='paint'){Z.cursor=null;render();}else if(LAST)$('#status').innerHTML=LAST.status;});
+$('#questions').innerHTML=QUESTIONS.map(([h,p,o])=>`<div class="q"><h3>${h}</h3><p>${p}</p><p class="opts">${o}</p></div>`).join('');
+seedZones();
+const start=(location.hash||'').slice(1);
+setFrame(FRAMES.some(f=>f.id===start)?start:'straight');
+
+</script>

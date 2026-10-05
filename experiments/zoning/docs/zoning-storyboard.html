@@ -6,7 +6,7 @@
   --paper:#EEF1EC; --panel:#F8FAF6; --map:#E3E9DE; --ink:#1C2629; --muted:#5A6764; --line:#CBD4CC;
   --asphalt:#7D8790; --kerb:#C9CDC4; --paint:#F4F1E6; --accent:#2463D1; --warn:#C07A00; --bad:#C23A2B; --good:#2F7D4A;
   --pill:#1C2629; --pill-fg:#F4F1E6; --node:#FFFFFF; --lot:rgba(28,38,41,.05); --tree:#4E8C4A; --garden:rgba(78,140,74,.22);
-  --ground:#CFD8C6; --plinth:#A89C8A; --contour:rgba(28,38,41,.16);
+  --ground:#CFD8C6; --plinth:#A89C8A; --contour:rgba(28,38,41,.16); --roof-eu:#B8643F; --roof-us:#8A949E; --roof-uk:#7C5F52;
   --z-res-low:#7CC36A; --z-res-med:#3E9E4F; --z-res-high:#22703A; --z-com-low:#6BA6E6; --z-com-med:#2F6FC9; --z-off:#8E78D6; --z-mix:#D99A2B;
   --ui-bg:#1A1C21; --ui-tile:rgba(255,255,255,.045); --ui-tile-hi:rgba(255,255,255,.08); --ui-text:#EBEFF4; --ui-dim:#9EABB8; --ui-accent:#45B8DB; --ui-line:rgba(255,255,255,.08);
   --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
@@ -15,14 +15,14 @@
   color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
   --asphalt:#5E6871; --kerb:#46504F; --paint:#E9E5D7; --accent:#6A9CF2; --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
   --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.04); --tree:#5E9E58; --garden:rgba(94,158,88,.20);
-  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14);
+  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14); --roof-eu:#B0603E; --roof-us:#7F8992; --roof-uk:#7A5C50;
   --z-res-low:#84C873; --z-res-med:#4FB062; --z-res-high:#3C8F52; --z-com-low:#78AEEA; --z-com-med:#4E86D6; --z-off:#A08CE0; --z-mix:#E2A94A;
 }}
 :root[data-theme="dark"]{
   color-scheme:dark; --paper:#131A1C; --panel:#1A2326; --map:#18211F; --ink:#E2E8E3; --muted:#95A29D; --line:#2C3739;
   --asphalt:#5E6871; --kerb:#46504F; --paint:#E9E5D7; --accent:#6A9CF2; --warn:#E5A430; --bad:#E7654F; --good:#5DBB7E;
   --pill:#0B1012; --pill-fg:#E9E5D7; --node:#F4F6F2; --lot:rgba(226,232,227,.04); --tree:#5E9E58; --garden:rgba(94,158,88,.20);
-  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14);
+  --ground:#26302B; --plinth:#7E7465; --contour:rgba(226,232,227,.14); --roof-eu:#B0603E; --roof-us:#7F8992; --roof-uk:#7A5C50;
   --z-res-low:#84C873; --z-res-med:#4FB062; --z-res-high:#3C8F52; --z-com-low:#78AEEA; --z-com-med:#4E86D6; --z-off:#A08CE0; --z-mix:#E2A94A;
 }
 body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--body);padding-inline:20px}
@@ -65,6 +65,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .note{display:grid;gap:8px;align-content:start;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 .note ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:14px}
 .note p{font-size:14px;color:var(--muted)}
+.note a{color:var(--accent)}
 .q{display:grid;gap:6px;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 .q p{font-size:14px}
 .q .opts{font-size:13.5px;color:var(--muted)}
@@ -104,7 +105,7 @@ svg text{font-family:var(--mono)}
 <header>
   <span class="eyebrow">CitySim · zoning experiment · Z0.5 storyboard</span>
   <h1>Zones on Freeform Parcels</h1>
-  <p class="lede">One frame per case from the plan. Every parcel here comes from a small working version of the split rules (bands along each road side, cut perpendicular to the road, mixed widths from the style, one corner parcel per block corner), so the shapes are what the rules really produce. Hover a parcel to read it. Agree these frames and they become the target for Z1–Z3.</p>
+  <p class="lede">One frame per case from the plan. Every parcel here comes from a small working version of the split rules (bands along each road side, cut perpendicular to the road, mixed widths from the building form, one corner parcel per block corner), so the shapes are what the rules really produce. Hover a parcel to read it. Agree these frames and they become the target for Z1–Z3. Plot and building rules belong to the <em>form</em> (detached, row, walk-up…) and are shared by every style. A style is the look (here, roof colour) and may override a field or two.</p>
   <div class="legend">
     <span><i class="sw" style="background:var(--z-res-low)"></i>Low · Res</span>
     <span><i class="sw" style="background:var(--z-res-med)"></i>Med · Res</span>
@@ -113,6 +114,9 @@ svg text{font-family:var(--mono)}
     <span><i class="sw" style="background:var(--z-off)"></i>Office</span>
     <span><i class="sw" style="background:var(--z-mix)"></i>Mixed</span>
     <span><i class="sw" style="background:var(--tree)"></i>garden / trees</span>
+    <span><i class="sw" style="background:var(--roof-eu)"></i>EU roofs</span>
+    <span><i class="sw" style="background:var(--roof-us)"></i>US roofs</span>
+    <span><i class="sw" style="background:var(--roof-uk)"></i>UK roofs</span>
   </div>
 </header>
 
@@ -132,6 +136,25 @@ svg text{font-family:var(--mono)}
 <section>
   <h2 id="rules-h">Rules</h2>
   <div class="notes" id="notes"></div>
+</section>
+
+<section>
+  <h2>Research used</h2>
+  <div class="notes">
+    <div class="note"><h3>Parcels from blocks</h3><ul>
+      <li><a href="https://twak.org/project/parcels/">Vanegas et al., Procedural Generation of Parcels in Urban Modeling (2012)</a>: straight-skeleton strips per street, corner regions reassigned to the main street, and OBB splits for block interiors. The method behind CityEngine.</li>
+      <li><a href="https://doc.arcgis.com/en/cityengine/latest/help/help-layers-block-parameters.htm">CityEngine block parameters</a>: lot width min, irregularity (stochastic width and edge direction), corner angle and width, merging small and shallow lots.</li>
+      <li><a href="https://martindevans.me/game-development/2015/12/27/Procedural-Generation-For-Dummies-Lots/">Procedural Generation for Dummies: Lot Subdivision</a>: OBB parcelling with area, access, aspect and frontage rules.</li>
+    </ul></div>
+    <div class="note"><h3>Organic plots</h3><ul>
+      <li><a href="https://github.com/dunkean/burgmap">burgmap</a> (pre-modern settlement generator): frontage runs, skeleton strips, perpendicular cuts that fan on curves, ±6° tilt plus ±12° coherent field noise, stochastic depth, sliver merging, burgage-cycle infill.</li>
+      <li><a href="https://hlamap.org.uk/types/1/agriculture-and-settlement/medievalpost-medieval-reverse-s-shaped-fields">Reverse-S fields</a> and <a href="https://www.researchgate.net/publication/370248143_The_archaeology_of_burgage_plots_in_Scottish_medieval_towns_a_review">burgage plot archaeology</a>: plots on old plough strips keep the S curve; plots were set out in measured units (Dunfermline ~6.8 m fronts), later split and merged.</li>
+    </ul></div>
+    <div class="note"><h3>Not used yet</h3><ul>
+      <li>OBB recursive splitting for big High-density and campus plots, and for block interiors (later, with merged parcels).</li>
+      <li>Burgage cycle: rear wings and back buildings fill a deep plot as it levels up, instead of swapping the whole model (fits Levels later).</li>
+    </ul></div>
+  </div>
 </section>
 
 <section>
@@ -160,38 +183,51 @@ function clipHalf(P,p,q,keep){const d=sub(q,p),s=x=>cross(d,sub(x,p)),k=Math.sig
 function rayHits(P,O,D){const ts=[];for(let i=0;i<P.length;i++){const A=P[i],B=P[(i+1)%P.length],e=sub(B,A),den=cross(D,e);if(Math.abs(den)<1e-9)continue;
   const w=sub(A,O),t=cross(w,e)/den,u=cross(w,D)/den;if(u>=-1e-9&&u<=1+1e-9)ts.push(t);}return ts;}
 
-// ---------------------------------------------------------------- styles (building profiles), zone cards
+// ---------------------------------------------------------------- forms (shared rules), styles (the look), zone cards
+// A form is the shared plot + building config for a kind of building; every style uses the same one.
 // widths: [metres, weight]; gap: building to building; sb: setback; bd: building depth range; bw: max building width
-const PROF={
-  eu:        {id:'eu',name:'Eastern Europe',widths:[[8,2],[10,3],[12,3],[15,2]],gap:2,sb:3,bd:[9,13],bw:12,irr:.45,arm:16,cornerL:true,depth:30,maxPlinth:2.5},
-  us:        {id:'us',name:'US Suburban',widths:[[18,2],[20,3],[24,2]],gap:4,sb:8,bd:[11,15],bw:15,irr:.05,arm:26,cornerL:false,depth:40,maxPlinth:1.8},
-  'eu-row':  {id:'eu-row',widths:[[5,2],[6,3],[7,2]],gap:0,sb:2,bd:[9,11],bw:7,irr:.3,arm:14,cornerL:true,depth:28},
-  'eu-walk': {id:'eu-walk',widths:[[16,2],[20,2],[24,1]],gap:5,sb:4,bd:[12,15],bw:20,irr:.2,arm:20,cornerL:true,depth:32},
-  'eu-perim':{id:'eu-perim',widths:[[12,1],[16,2],[20,1]],gap:0,sb:0,bd:[12,14],bw:20,irr:.15,arm:18,cornerL:true,depth:30},
-  'us-high': {id:'us-high',widths:[[34,1],[42,1]],gap:8,sb:6,bd:[20,26],bw:30,irr:0,arm:34,cornerL:false,depth:45},
-  'eu-shop': {id:'eu-shop',widths:[[9,1],[12,2]],gap:0,sb:0,bd:[10,13],bw:12,irr:.3,arm:14,cornerL:true,depth:28},
-  'us-strip':{id:'us-strip',widths:[[30,1],[40,1]],gap:5,sb:15,bd:[14,18],bw:34,irr:0,arm:30,cornerL:false,depth:42},
-  'eu-high': {id:'eu-high',widths:[[8,1],[10,2],[12,2]],gap:0,sb:0,bd:[12,15],bw:12,irr:.25,arm:14,cornerL:true,depth:30},
-  'us-park': {id:'us-park',widths:[[36,1],[44,1]],gap:10,sb:10,bd:[16,20],bw:30,irr:0,arm:36,cornerL:false,depth:45},
-  'eu-off':  {id:'eu-off',widths:[[16,1],[20,1]],gap:0,sb:2,bd:[12,16],bw:20,irr:.15,arm:18,cornerL:true,depth:30},
-  'eu-mixed':{id:'eu-mixed',widths:[[10,1],[12,2],[14,1]],gap:0,sb:0,bd:[12,14],bw:14,irr:.25,arm:16,cornerL:true,depth:30},
-  'us-main': {id:'us-main',widths:[[8,1],[10,1],[12,1]],gap:0,sb:0,bd:[14,18],bw:12,irr:.1,arm:14,cornerL:false,depth:34},
+const FORMS={
+  detached: {name:'Detached',widths:[[12,2],[15,3],[18,2]],gap:4,sb:5,bd:[10,14],bw:13,irr:.2,arm:22,cornerL:false,depth:35},
+  row:      {name:'Row',widths:[[5,2],[6,3],[7,2]],gap:0,sb:2,bd:[9,11],bw:7,irr:.2,arm:14,cornerL:true,depth:28},
+  walkup:   {name:'Walk-up',widths:[[16,2],[20,2],[24,1]],gap:5,sb:4,bd:[12,15],bw:20,irr:.15,arm:20,cornerL:true,depth:32},
+  perimeter:{name:'Perimeter block',widths:[[12,1],[16,2],[20,1]],gap:0,sb:0,bd:[12,14],bw:20,irr:.1,arm:18,cornerL:true,depth:30},
+  tower:    {name:'Tower',widths:[[34,1],[42,1]],gap:8,sb:6,bd:[20,26],bw:30,irr:0,arm:34,cornerL:false,depth:45},
+  shops:    {name:'Shops',widths:[[9,1],[12,2]],gap:0,sb:0,bd:[10,13],bw:12,irr:.2,arm:14,cornerL:true,depth:28},
+  strip:    {name:'Strip',widths:[[30,1],[40,1]],gap:5,sb:15,bd:[14,18],bw:34,irr:0,arm:30,cornerL:false,depth:42},
+  highstreet:{name:'High street',widths:[[8,1],[10,2],[12,2]],gap:0,sb:0,bd:[12,15],bw:12,irr:.2,arm:14,cornerL:true,depth:30},
+  campus:   {name:'Campus',widths:[[36,1],[44,1]],gap:10,sb:10,bd:[16,20],bw:30,irr:0,arm:36,cornerL:false,depth:45},
+  offices:  {name:'Offices',widths:[[16,1],[20,1]],gap:0,sb:2,bd:[12,16],bw:20,irr:.1,arm:18,cornerL:true,depth:30},
+  mixed:    {name:'Shops + flats',widths:[[10,1],[12,2],[14,1]],gap:0,sb:0,bd:[12,14],bw:14,irr:.2,arm:16,cornerL:true,depth:30},
 };
+// The form a card without one grows (the zone's default; later a weighted mix)
+const ZONE_FORM={'res-low':'detached','res-med':'walkup','res-high':'tower','com-low':'shops','com-med':'highstreet','off':'offices','mix':'mixed'};
+// A style is the look (models, materials, roofs). It may override a few shared fields; most don't.
+const STYLES={
+  eu:{name:'Eastern Europe',short:'EU',over:{all:{irr:.4}}},
+  us:{name:'US Suburban',short:'US',over:{all:{irr:0},detached:{sb:8}}},
+  uk:{name:'UK',short:'UK',over:{}},
+};
+function profFor(form,style){const st=STYLES[style];
+  return{...FORMS[form],...(st.over.all||{}),...(st.over[form]||{}),id:form+'-'+style,style,form,name:st.short+' '+FORMS[form].name};}
+const overText=st=>{const o=[];for(const k in st.over)for(const f in st.over[k])o.push(`${f} ${st.over[k][f]}${k==='all'?'':' ('+FORMS[k].name.toLowerCase()+')'}`);return o.length?o.join(', '):'none';};
 const CARDS=[
-  {id:'eu-low',  tab:'Residential',name:'EU Low Residential',style:'Eastern Europe',prof:'eu',zone:'res-low',pill:'Low · Res',form:'Mixed forms'},
-  {id:'eu-row',  tab:'Residential',name:'EU Row Houses',style:'Eastern Europe',prof:'eu-row',zone:'res-low',pill:'Low · Res',form:'Row'},
-  {id:'us-low',  tab:'Residential',name:'US Suburban Low Residential',style:'US Suburban',prof:'us',zone:'res-low',pill:'Low · Res',form:'Mixed forms'},
-  {id:'eu-walk', tab:'Residential',name:'EU Walk-ups',style:'Eastern Europe',prof:'eu-walk',zone:'res-med',pill:'Med · Res',form:'Walk-up'},
-  {id:'eu-perim',tab:'Residential',name:'EU Perimeter Block',style:'Eastern Europe',prof:'eu-perim',zone:'res-med',pill:'Med · Res',form:'Perimeter block'},
-  {id:'us-high', tab:'Residential',name:'US Towers',style:'US Suburban',prof:'us-high',zone:'res-high',pill:'High · Res',form:'Tower'},
-  {id:'eu-shop', tab:'Commercial',name:'EU Corner Shops',style:'Eastern Europe',prof:'eu-shop',zone:'com-low',pill:'Low · Com',form:'Mixed forms'},
-  {id:'us-strip',tab:'Commercial',name:'US Strip Retail',style:'US Suburban',prof:'us-strip',zone:'com-low',pill:'Low · Com',form:'Strip'},
-  {id:'eu-high', tab:'Commercial',name:'EU High Street',style:'Eastern Europe',prof:'eu-high',zone:'com-med',pill:'Med · Com',form:'Mixed forms'},
-  {id:'us-park', tab:'Office',name:'US Office Park',style:'US Suburban',prof:'us-park',zone:'off',pill:'Low · Off',form:'Campus'},
-  {id:'eu-off',  tab:'Office',name:'EU Offices',style:'Eastern Europe',prof:'eu-off',zone:'off',pill:'Med · Off',form:'Mixed forms'},
-  {id:'eu-mixed',tab:'Mixed',name:'EU Shops + Flats',style:'Eastern Europe',prof:'eu-mixed',zone:'mix',pill:'Med · Mixed',form:'Mixed forms'},
-  {id:'us-main', tab:'Mixed',name:'US Main Street',style:'US Suburban',prof:'us-main',zone:'mix',pill:'Med · Mixed',form:'Mixed forms'},
+  {id:'eu-low',  tab:'Residential',name:'EU Low Residential',style:'eu',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'eu-row',  tab:'Residential',name:'EU Row Houses',style:'eu',form:'row',zone:'res-low',pill:'Low · Res'},
+  {id:'us-low',  tab:'Residential',name:'US Low Residential',style:'us',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'uk-low',  tab:'Residential',name:'UK Low Residential',style:'uk',form:null,zone:'res-low',pill:'Low · Res'},
+  {id:'uk-row',  tab:'Residential',name:'UK Terraces',style:'uk',form:'row',zone:'res-low',pill:'Low · Res'},
+  {id:'eu-walk', tab:'Residential',name:'EU Walk-ups',style:'eu',form:'walkup',zone:'res-med',pill:'Med · Res'},
+  {id:'eu-perim',tab:'Residential',name:'EU Perimeter Block',style:'eu',form:'perimeter',zone:'res-med',pill:'Med · Res'},
+  {id:'us-high', tab:'Residential',name:'US Towers',style:'us',form:'tower',zone:'res-high',pill:'High · Res'},
+  {id:'eu-shop', tab:'Commercial',name:'EU Corner Shops',style:'eu',form:null,zone:'com-low',pill:'Low · Com'},
+  {id:'us-strip',tab:'Commercial',name:'US Strip Retail',style:'us',form:'strip',zone:'com-low',pill:'Low · Com'},
+  {id:'uk-high', tab:'Commercial',name:'UK High Street',style:'uk',form:null,zone:'com-med',pill:'Med · Com'},
+  {id:'us-park', tab:'Office',name:'US Office Park',style:'us',form:'campus',zone:'off',pill:'Low · Off'},
+  {id:'eu-off',  tab:'Office',name:'EU Offices',style:'eu',form:null,zone:'off',pill:'Med · Off'},
+  {id:'eu-mixed',tab:'Mixed',name:'EU Shops + Flats',style:'eu',form:null,zone:'mix',pill:'Med · Mixed'},
+  {id:'us-main', tab:'Mixed',name:'US Main Street',style:'us',form:null,zone:'mix',pill:'Med · Mixed'},
 ];
+for(const c of CARDS){c.formId=c.form||ZONE_FORM[c.zone];c.prof=profFor(c.formId,c.style);}
 const CARD=Object.fromEntries(CARDS.map(c=>[c.id,c]));
 const ZONE_NAME={'res-low':'Low · Res','res-med':'Med · Res','res-high':'High · Res','com-low':'Low · Com','com-med':'Med · Com','off':'Office','mix':'Mixed'};
 const MIN_D=8, MIN_LOT_D=11, OFF=8; // OFF: road half-width 6 m + pavement 2 m
@@ -216,15 +252,25 @@ const backAt=(r,i,f,d=r.d)=>lerp(add(r.pts[i],mul(r.VN[i],d)),add(r.pts[i+1],mul
 function projM(r,p){let best=1e9,F=0;for(let i=0;i<r.n-1;i++){const a=r.pts[i],ab=sub(r.pts[i+1],a),t=clamp(dot(sub(p,a),ab)/(dot(ab,ab)||1),0,1),d=len(sub(p,add(a,mul(ab,t))));
   if(d<best){best=d;F=r.F[i]+t*(r.F[i+1]-r.F[i]);}}return fToM(r,F);}
 const fToM=(r,v)=>{const[i,f]=locate(r.F,v);return r.M[i]+(r.M[i+1]-r.M[i])*f;};
-function stripPoly(r,ma,mb,sa,sb){
-  const[ia,fa]=locate(r.M,ma),[ib,fb]=locate(r.M,mb);
-  const front=[frontAt(r,ia,fa)];
+// Smooth 1D value noise in [-1,1]: coherent drift along a street
+function vnoise(key,x){const i=Math.floor(x),f=x-i,h=k=>hash(key+':'+k)/2147483647.5-1,u=f*f*(3-2*f);return h(i)*(1-u)+h(i+1)*u;}
+// A cut: {m, tilt (rad), A (reverse-S amplitude, m), df (depth factor)}. Its side line is shared by both neighbours.
+const cutOf=c=>typeof c==='number'?{m:c,tilt:0,A:0,df:1}:c;
+function sideLine(r,c){
+  const[i,f]=locate(r.M,c.m),F0=frontAt(r,i,f),T=r.T[i],D=r.d*(c.df||1),N0=lerp(r.VN[i],r.VN[i+1],f),tt=Math.tan(c.tilt||0),pts=[];
+  const n=c.A?6:1;for(let k=1;k<=n;k++){const y=D*k/n;pts.push(add(add(F0,mul(N0,y)),mul(T,y*tt+(c.A||0)*Math.sin(2*Math.PI*k/n))));}
+  return{F0,pts};
+}
+function stripPoly(r,a,b){
+  a=cutOf(a);b=cutOf(b);const ma=a.m,mb=b.m;
+  const[ia,fa]=locate(r.M,ma),[ib,fb]=locate(r.M,mb),sa=sideLine(r,a),sb=sideLine(r,b);
+  const front=[sa.F0];
   for(let i=ia+1;i<=ib;i++)if(r.M[i]>ma+1e-6&&r.M[i]<mb-1e-6)front.push(r.pts[i]);
-  front.push(frontAt(r,ib,fb));
-  const back=[add(backAt(r,ib,fb),mul(r.T[ib],sb))];
-  for(let i=ib;i>ia;i--)if(r.M[i]>ma+1e-6&&r.M[i]<mb-1e-6)back.push(add(r.pts[i],mul(r.VN[i],r.d)));
-  back.push(add(backAt(r,ia,fa),mul(r.T[ia],sa)));
-  return front.concat(back);
+  front.push(sb.F0);
+  const back=[...sb.pts];
+  for(let i=ib;i>ia;i--)if(r.M[i]>ma+1e-6&&r.M[i]<mb-1e-6){const t=(r.M[i]-ma)/(mb-ma),df=(a.df||1)+((b.df||1)-(a.df||1))*t;back.push(add(r.pts[i],mul(r.VN[i],r.d*df)));}
+  back.push(...sa.pts.slice().reverse());
+  const P=front.concat(back);P.ba=sa.pts[sa.pts.length-1];P.bb=sb.pts[sb.pts.length-1];return P;
 }
 function cornerInfo(A,B){
   const P=A.pts[A.n-1],tA=A.T[A.n-2],nA=A.N[A.n-2],tB=B.T[0],nB=B.N[0];
@@ -232,6 +278,15 @@ function cornerInfo(A,B){
   const u=mul(tA,-1),v=tB;let ang=Math.acos(clamp(dot(u,v),-1,1));const bis=add(u,v);
   if(len(bis)<1e-6||dot(bis,add(nA,nB))<0)ang=2*Math.PI-ang;
   return{P,Q,tA,nA,tB,nB,ang,reachA:dot(sub(P,Q),tA),reachB:dot(sub(Q,P),tB)};
+}
+// Shape an inner cut from the research: coherent drift + small per-plot tilt (burgmap ±12° field, ±6° tilt),
+// reverse-S side lines (medieval plough strips), and a ragged rear line (depth varies slowly along the run)
+function shapeCut(r,m,irr,R){
+  const T=S.tech,c={m,tilt:0,A:0,df:1};if(!irr)return c;
+  c.tilt=T.drift?irr*(12*vnoise(r.key+'a',m/150)+4*(R()*2-1))*DEG:irr*14*(R()*2-1)*DEG;
+  if(T.scurve)c.A=irr*3.2*(.7+.3*vnoise(r.key+'s',m/200));
+  if(T.rear)c.df=1+irr*.25*vnoise(r.key+'d',m/45);
+  return c;
 }
 function pickW(prof,R){const tot=prof.widths.reduce((s,w)=>s+w[1],0);let x=R()*tot;for(const w of prof.widths){x-=w[1];if(x<=0)return w[0];}return prof.widths[0][0];}
 function splitWidths(L,prof,R){
@@ -286,39 +341,47 @@ function buildChains(chains,opts){
     for(let k=0;k<nc;k++){
       const A=R[k],B=R[(k+1)%nr],c=cornerInfo(A,B);c.key=ch.key+':c'+k;c.block=ch.block??ch.key;c.A=A;c.B=B;
       const cz=opts.cornerZone?opts.cornerZone(c.key):null;c.prof=(cz&&cz.prof)||opts.prof;c.zone=cz?cz.zone:opts.zone;c.card=cz?cz.card:opts.card;
-      c.armA=Math.max(c.prof.arm,c.reachA);c.armB=Math.max(c.prof.arm,c.reachB);const deg=c.ang/DEG;
-      c.kind=(!opts.forceClip&&A.d>=MIN_D&&B.d>=MIN_D&&!A.joint&&!B.joint&&deg<=152&&Math.max(c.reachA,c.reachB)<=Math.max(c.prof.arm*2,Math.min(A.d,B.d)*1.25)&&c.armA<=A.LF*.6&&c.armB<=B.LF*.6)?'parcel':'clip';
+      const arm=(opts.armProf||c.prof).arm;c.armA=Math.max(arm,c.reachA);c.armB=Math.max(arm,c.reachB);const deg=c.ang/DEG;
+      c.kind=(!opts.forceClip&&A.d>=MIN_D&&B.d>=MIN_D&&!A.joint&&!B.joint&&deg<=152&&Math.max(c.reachA,c.reachB)<=Math.max(arm*2,Math.min(A.d,B.d)*1.25)&&c.armA<=A.LF*.6&&c.armB<=B.LF*.6)?'parcel':'clip';
       A.endC=c;B.startC=c;C.push(c);
     }
     for(const r of R){
       if(r.d<1)continue;
       const m0=r.startC&&r.startC.kind==='parcel'?fToM(r,r.startC.armB):0;
       const m1=r.endC&&r.endC.kind==='parcel'?fToM(r,r.LF-r.endC.armA):r.LM;
-      if(m1-m0<2)continue;
+      r.zm0=m0;r.zm1=m1;if(m1-m0<2)continue;
       let st;
       if(opts.fixedCuts){const cs=[m0,...opts.fixedCuts(r).filter(m=>m>m0+.5&&m<m1-.5).sort((a,b)=>a-b),m1];st=[{m0,m1,prof:opts.prof,zone:opts.zone,card:opts.card,cuts:cs}];}
       else st=opts.stretches?opts.stretches(r,m0,m1):[{m0,m1,prof:opts.prof,zone:opts.zone,card:opts.card}];
       for(const s of st){
         const RR=rng(hash(r.key+':'+Math.round(s.m0)));let cuts;
-        if(s.cuts)cuts=s.cuts.map(m=>({m,sk:0}));
-        else{const ws=splitWidths(s.m1-s.m0,s.prof,RR);let m=s.m0;cuts=[{m,sk:0}];
-          ws.forEach((w,i)=>{m+=w;const last=i===ws.length-1;cuts.push({m:last?s.m1:m,sk:last?0:(RR()*2-1)*s.prof.irr*4});});
+        if(s.cuts)cuts=s.cuts.map(m=>cutOf(m));
+        else{const ws=splitWidths(s.m1-s.m0,s.prof,RR);let m=s.m0;cuts=[cutOf(s.m0)];
+          ws.forEach((w,i)=>{m+=w;cuts.push(i===ws.length-1?cutOf(s.m1):shapeCut(r,m,s.prof.irr,RR));});
           const av=opts.avoid&&opts.avoid(r);
-          if(av&&av.length){for(let i=1;i<cuts.length-1;i++){const c=cuts[i],iv=av.find(v=>c.m>v[0]&&c.m<v[1]);if(iv){c.m=c.m-iv[0]<iv[1]-c.m?iv[0]-.4:iv[1]+.4;c.sk=0;}}
+          if(av&&av.length){for(let i=1;i<cuts.length-1;i++){const c=cuts[i],iv=av.find(v=>c.m>v[0]&&c.m<v[1]);if(iv)cuts[i]=cutOf(c.m-iv[0]<iv[1]-c.m?iv[0]-.4:iv[1]+.4);}
             cuts=cuts.filter((c,i)=>i===0||i===cuts.length-1||(c.m>cuts[0].m+3&&c.m<s.m1-3));cuts.sort((x,y)=>x.m-y.m);
             cuts=cuts.filter((c,i)=>i===0||c.m-cuts[i-1].m>3||i===cuts.length-1);}}
-        for(let i=0;i<cuts.length-1;i++){
-          const a=cuts[i],b=cuts[i+1];let poly=stripPoly(r,a.m,b.m,a.sk,b.sk);
+        const mk=(a,b)=>{const sp=stripPoly(r,a,b);let poly=sp;
           if(r.startC&&r.startC.kind==='clip'&&a.m<fToM(r,Math.max(r.startC.reachB,0))+r.d)poly=clipHalf(poly,r.startC.P,r.startC.Q,add(r.startC.P,mul(r.startC.tB,2)));
           if(r.endC&&r.endC.kind==='clip'&&b.m>fToM(r,r.LF-Math.max(r.endC.reachA,0))-r.d)poly=clipHalf(poly,r.endC.P,r.endC.Q,sub(r.endC.P,mul(r.endC.tA,2)));
-          if(poly.length<3)continue;const ar=area(poly);if(ar<3)continue;
-          const la=locate(r.M,a.m),lb=locate(r.M,b.m),lc=locate(r.M,(a.m+b.m)/2);
-          const fa=frontAt(r,...la),fb=frontAt(r,...lb),frontW=len(sub(fb,fa)),effD=ar/Math.max(frontW,1);
-          const lot={poly,kind:opts.kind||(effD<MIN_LOT_D?'sliver':'lot'),key:r.key+':'+Math.round(a.m*10),runKey:r.key,block:r.block,ma:a.m,mb:b.m,
-            zone:s.zone,card:s.card,prof:s.prof,frontW,depth:effD,C:frontAt(r,...lc),T:r.T[lc[0]],N:r.N[lc[0]],fa,fb,
-            ba:add(backAt(r,...la),mul(r.T[la[0]],a.sk)),bb:add(backAt(r,...lb),mul(r.T[lb[0]],b.sk))};
-          if(lot.kind==='lot'&&!opts.noBuild)lot.bld=fitRect(poly,lot.C,lot.T,lot.N,s.prof,rng(hash(lot.key+s.prof.id)));
-          out.parcels.push(lot);if(i>0)r.cutBacks.push(lot.ba);
+          if(poly.length<3)return null;const ar=area(poly);if(ar<3)return null;
+          const fa=frontAt(r,...locate(r.M,a.m)),fb=frontAt(r,...locate(r.M,b.m)),frontW=len(sub(fb,fa));
+          return{a,b,poly,ar,fa,fb,frontW,effD:ar/Math.max(frontW,1),ba:sp.ba,bb:sp.bb};};
+        let pieces=[];for(let i=0;i<cuts.length-1;i++){const p=mk(cuts[i],cuts[i+1]);if(p)pieces.push(p);}
+        // Merge slivers into a neighbour (CityEngine lotAreaMin / shallowLotFrac, burgmap's merge rule)
+        if(S.tech.merge&&!s.cuts&&!opts.kind){const maxW=Math.max(...s.prof.widths.map(w=>w[0]))*2.2;
+          for(let i=0,guard=0;i<pieces.length&&guard<60;i++,guard++){const p=pieces[i];if(p.effD>=MIN_LOT_D&&p.ar>=60)continue;
+            let best=null;
+            if(i>0&&pieces[i-1].b===p.a){const m=mk(pieces[i-1].a,p.b);if(m&&m.frontW<=maxW&&m.effD>=MIN_LOT_D*.9)best={m,at:i-1};}
+            if(i<pieces.length-1&&pieces[i+1].a===p.b){const m=mk(p.a,pieces[i+1].b);if(m&&m.frontW<=maxW&&m.effD>=MIN_LOT_D*.9&&(!best||m.effD>best.m.effD))best={m,at:i};}
+            if(best){pieces.splice(best.at,2,best.m);i=Math.max(-1,best.at-2);}}}
+        for(const pc of pieces){
+          const lc=locate(r.M,(pc.a.m+pc.b.m)/2);
+          const lot={poly:pc.poly,kind:opts.kind||(s.chunk?'chunk':pc.effD<MIN_LOT_D?'sliver':'lot'),key:r.key+':'+Math.round(pc.a.m*10),runKey:r.key,block:r.block,ma:pc.a.m,mb:pc.b.m,
+            zone:s.zone,card:s.card,prof:s.prof,frontW:pc.frontW,depth:pc.effD,C:frontAt(r,...lc),T:r.T[lc[0]],N:r.N[lc[0]],fa:pc.fa,fb:pc.fb,ba:pc.ba,bb:pc.bb};
+          if(lot.kind==='lot'&&!opts.noBuild)lot.bld=fitRect(pc.poly,lot.C,lot.T,lot.N,s.prof,rng(hash(lot.key+s.prof.id)));
+          out.parcels.push(lot);if(pc.a!==cuts[0])r.cutBacks.push(pc.ba);
         }
       }
     }
@@ -373,8 +436,8 @@ function trees(P,key,max=10,dens=70){
     s+=`<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="${f1(1.4+R()*1.2)}" style="fill:var(--tree);opacity:.85"/>`;k++;}
   return s;
 }
-function bldSvg(B,zone,extra=''){
-  if(!B)return'';const z=zfill(zone||'res-low');
+function bldSvg(B,style,extra=''){
+  if(!B)return'';const z=`var(--roof-${style||'eu'})`;
   return`<polygon points="${pstr(B.map(p=>add(p,[1,1.2])))}" style="fill:var(--ink);opacity:.16"/>`+
     `<polygon points="${pstr(B)}" style="fill:${z};stroke:var(--ink);stroke-opacity:.55;stroke-width:.35;${extra}"/>`;
 }
@@ -382,6 +445,7 @@ function parcelSvg(p,o={}){
   const id=o.id??'';
   if(p.kind==='sliver'||p.kind==='garden'||p.kind==='steep')
     return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="fill:var(--garden);stroke:var(--ink);stroke-opacity:.3;stroke-width:.25"/>`+trees(p.poly,p.key,6,55);
+  if(p.kind==='chunk')return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="fill:var(--lot);stroke:var(--ink);stroke-opacity:.16;stroke-width:.25"/>`;
   const z=o.zone!==undefined?o.zone:p.zone;
   const fill=z?`fill:${zfill(z)};fill-opacity:${o.alpha??.3}`:'fill:var(--lot)';
   return`<polygon data-p="${id}" points="${pstr(p.poly)}" style="${fill};stroke:var(--ink);stroke-opacity:${o.so??.5};stroke-width:${o.sw??.3}"/>`;
@@ -394,13 +458,13 @@ function pill(p,text,tone){
 const lbl=(p,t,size=2.8,op=.7)=>`<text x="${f1(p[0])}" y="${f1(p[1])}" text-anchor="middle" dominant-baseline="middle" pointer-events="none" style="font-size:${size}px;fill:var(--ink);opacity:${op}">${t}</text>`;
 
 // ---------------------------------------------------------------- state
-const S={frame:'straight',style:'eu',irr:null,radius:130,angle:60,stem:90,grade:28,hillside:true,interior:'gardens',depths:null,bend:8,showOld:true};
-const prof=()=>PROF[S.style];
+const S={irrO:.8,tech:{drift:true,scurve:true,rear:true,merge:true},frame:'straight',style:'eu',form:'detached',irr:null,radius:130,angle:60,stem:90,grade:28,hillside:true,interior:'gardens',depths:null,bend:8,showOld:true};
+const prof=()=>profFor(S.form,S.style);
 const zoneDefault='res-low';
 let LAST=null; // last build, for hover
 function info(p){
   if(!p)return'';
-  const kind={lot:'Parcel',corner:'Corner parcel',sliver:'Sliver · trees',garden:'Back garden',steep:'Too steep · garden'}[p.kind]||'Parcel';
+  const kind={chunk:'Free chunk',lot:'Plot',corner:'Corner parcel',sliver:'Sliver · trees',garden:'Back garden',steep:'Too steep · garden'}[p.kind]||'Parcel';
   const z=p.zone?ZONE_NAME[p.zone]:'Unzoned';const st=p.card?CARD[p.card].name:(p.prof&&p.prof.name)||'';
   const parts=[`<b>${kind}</b>`];
   if(p.kind==='corner')parts.push(`arms ${f0(p.corner.armA)} + ${f0(p.corner.armB)} m`,`∡ ${f0(p.corner.ang/DEG)}°`);
@@ -413,12 +477,13 @@ function info(p){
 // ---------------------------------------------------------------- frames
 const FRAMES=[];
 const F=(o)=>FRAMES.push(o);
-const styleCtl={type:'seg',id:'style',label:'Style',opts:[['eu','Eastern Europe'],['us','US Suburban']]};
+const formCtl={type:'seg',id:'form',label:'Form',opts:[['detached','Detached'],['row','Row']]};
+const styleCtl={type:'seg',id:'style',label:'Style',opts:[['eu','EU'],['us','US'],['uk','UK']]};
 
 F({id:'straight',name:'Straight',sub:'mixed widths',
   title:'Straight road',
-  hint:'Both sides of one road. Widths are drawn from the style\'s building widths, then nudged by its irregularity. Same road, same parcels: the seed is the road side, not the session.',
-  controls:[styleCtl,{type:'range',id:'irr',label:'Irregularity',min:0,max:1,step:.05,fmt:v=>(+v).toFixed(2)}],
+  hint:'Both sides of one road. Widths come from the form\'s building widths, then are nudged by irregularity. Switch the style: only the roofs change (EU and US override irregularity, US also the detached setback). Same road, same parcels: the seed is the road side, not the session.',
+  controls:[formCtl,styleCtl,{type:'range',id:'irr',label:'Irregularity',min:0,max:1,step:.05,fmt:v=>(+v).toFixed(2)}],
   build(){
     const pr={...prof(),irr:S.irr??prof().irr},d=pr.depth;
     const B=buildChains([straightRun('s:top',[-10,100-OFF],[330,100-OFF],d,[160,0]),straightRun('s:bot',[-10,100+OFF],[330,100+OFF],d,[160,200])],{prof:pr,zone:zoneDefault});
@@ -428,15 +493,35 @@ F({id:'straight',name:'Straight',sub:'mixed widths',
       status:`<span><b>${ws.length}</b> parcels</span><span>front <b>${f0(Math.min(...ws))}–${f0(Math.max(...ws))} m</b></span><span>depth <b>${d} m</b></span><span>irregularity <b>${pr.irr.toFixed(2)}</b></span>`};
   },
   notes:[
-    ['Split',['Each road side gets a band as deep as the zone (Low: EU 30 m, US 40 m).','Cuts are perpendicular to the road. Widths come from the style\'s buildings, mixed by weight, never equal plots.','The last few parcels in a run stretch a little so nothing is left over.']],
-    ['Buildings',['A building sits on the front line plus the style\'s setback (EU 3 m, US 8 m).','Its depth is <em>up to</em> the parcel depth, so a shallow house leaves a garden.','Irregularity 0 gives tidy rectangles; higher skews side lines up to 4 m and widens the width spread.']],
+    ['Split',['Each road side gets a band as deep as the form asks (Detached 35 m, Row 28 m).','Cuts are perpendicular to the road. Widths come from the form\'s buildings, mixed by weight, never equal plots.','The last few parcels in a run stretch a little so nothing is left over.']],
+    ['Buildings',['A building sits on the front line plus the form\'s setback (Detached 5 m, Row 2 m; the US style overrides Detached to 8 m).','Its depth is <em>up to</em> the parcel depth, so a shallow house leaves a garden.','Irregularity 0 gives tidy rectangles; higher skews side lines up to 4 m and widens the width spread.']],
     ['Labels',['Numbers on the map are frontage in metres (debug draw in Z1–Z2, not shipped UI).','Hover a parcel for front, depth, zone and style.']]],
+});
+
+function cubic(p0,p1,p2,p3,n){const P=[];for(let i=0;i<=n;i++){const t=i/n,u=1-t;P.push([u*u*u*p0[0]+3*u*u*t*p1[0]+3*u*t*t*p2[0]+t*t*t*p3[0],u*u*u*p0[1]+3*u*u*t*p1[1]+3*u*t*t*p2[1]+t*t*t*p3[1]]);}return P;}
+F({id:'organic',name:'Old town',sub:'organic plots',
+  title:'Organic plots',
+  hint:'A winding old-town street. Each technique from the research can be switched off to see what it adds. They all scale with the form\'s irregularity, so a tidy form (0) stays rectangular.',
+  controls:[formCtl,styleCtl,{type:'range',id:'irrO',label:'Irregularity',min:0,max:1,step:.05,fmt:v=>(+v).toFixed(2)},
+    {type:'tech',id:'drift',label:'Coherent drift'},{type:'tech',id:'scurve',label:'Reverse-S sides'},{type:'tech',id:'rear',label:'Ragged rear line'},{type:'tech',id:'merge',label:'Merge slivers'}],
+  build(){
+    const pr={...prof(),irr:S.irrO},d=pr.depth;
+    const cl=cubic([-10,128],[110,40],[200,190],[330,82],80);
+    const B=buildChains([{key:'o:l',hint:[0,-400],runs:[{key:'o:l',pts:offsetLine(cl,-OFF),d}]},{key:'o:r',hint:[330,600],runs:[{key:'o:r',pts:offsetLine(cl,OFF),d}]}],{prof:pr,zone:zoneDefault});
+    const lots=B.parcels.filter(p=>p.kind==='lot'),sl=B.parcels.filter(p=>p.kind==='sliver').length;
+    return{B,roads:[cl],status:`<span>irregularity <b>${pr.irr.toFixed(2)}</b></span><span>plots <b>${lots.length}</b></span><span>slivers → trees <b>${sl}</b></span><span>${Object.entries(S.tech).filter(([k,v])=>v).length} of 4 techniques on</span>`};
+  },
+  notes:[
+    ['Coherent drift',['Side lines tilt a little per plot (±4°) on top of a slow ±12° drift along the street (one noise wave per ~150 m), so neighbours stay nearly parallel while the street as a whole wanders.','Off: the same amount of tilt as white noise per cut, which reads as jagged rather than old. (burgmap: ±6° tilt, ±12° field noise at ~150 m.)']],
+    ['Reverse-S sides',['Side lines bend in a gentle reverse S, up to ~3 m at irregularity 1, all in the same direction along a street.','Medieval town plots were often laid on old ploughed strips, whose reverse-S shape came from ox teams turning early; the plot lines kept it.']],
+    ['Ragged rear line',['Depth varies slowly along the run (±25% at irregularity 1, one wave per ~45 m), so the back of the band steps instead of being one offset line.','burgmap draws depth per run from a range; CityEngine\'s offset subdivision keeps it constant.']],
+    ['Merge slivers',['A plot that comes out too shallow or small (under 11 m effective depth or 60 m²) joins its better neighbour if the result is still a sensible plot; otherwise it stays trees.','CityEngine merges lots under lotAreaMin and triangles under shallowLotFrac; burgmap merges under 35 m² or 3 m frontage.']]],
 });
 
 F({id:'curve',name:'Curve',sub:'fans out',
   title:'Curved road',
   hint:'Cuts stay perpendicular to the road at their point, so parcels fan out on the outside of a bend and narrow on the inside. Widths are measured half-way back, so both sides get usable lots.',
-  controls:[styleCtl,{type:'range',id:'radius',label:'Radius',min:80,max:260,step:5,fmt:v=>v+' m'}],
+  controls:[formCtl,styleCtl,{type:'range',id:'radius',label:'Radius',min:80,max:260,step:5,fmt:v=>v+' m'}],
   build(){
     const pr=prof(),R=S.radius,c=[160,70+R],am=Math.min(Math.asin(Math.min(1,190/R)),1.45);
     const cl=arcPts(c,R,-Math.PI/2-am,-Math.PI/2+am,64);
@@ -456,7 +541,7 @@ F({id:'curve',name:'Curve',sub:'fans out',
   },
   notes:[
     ['Fanning',['A cut is the road\'s normal at that point; on a curve neighbouring cuts diverge (outside) or converge (inside).','Target widths are measured at half depth: outside lots have a narrower front, inside lots a narrower back.']],
-    ['Wedges',['A building on a wedge uses the biggest rectangle that fits square to the road at the parcel\'s middle.','Modular styles (rows, perimeter blocks) can later bend their pieces to the frontage instead.']],
+    ['Wedges',['A building on a wedge uses the biggest rectangle that fits square to the road at the parcel\'s middle.','Modular forms (rows, perimeter blocks) can later bend their pieces to the frontage instead.']],
     ['Tight bends',['On the inside the band can\'t be deeper than the radius allows; it gets shallower (shown in the status) instead of folding over itself.']]],
 });
 
@@ -472,7 +557,7 @@ function cornerAnn(B){
 F({id:'corner',name:'Corner',sub:'any angle',
   title:'Block corners',
   hint:'Two roads crossing at an angle. Bands meet on the line from the kerb corner to where the two back lines cross, so nothing overlaps and nothing is left between them. Between about 75° and 150° the two ends merge into one corner parcel.',
-  controls:[styleCtl,{type:'range',id:'angle',label:'Crossing angle',min:35,max:90,step:5,fmt:v=>v+'°'}],
+  controls:[formCtl,styleCtl,{type:'range',id:'angle',label:'Crossing angle',min:35,max:90,step:5,fmt:v=>v+'°'}],
   build(){
     const pr=prof(),O=[160,100],a=[1,0],b=[Math.cos(S.angle*DEG),-Math.sin(S.angle*DEG)],na=mul(a,-1),nb=mul(b,-1),d=pr.depth;
     const B=buildChains([quadrant(O,a,b,'q1',d),quadrant(O,b,na,'q2',d),quadrant(O,na,nb,'q3',d),quadrant(O,nb,a,'q4',d)],{prof:pr,zone:zoneDefault});
@@ -481,7 +566,7 @@ F({id:'corner',name:'Corner',sub:'any angle',
       status:`<span>angles <b>${S.angle}° / ${180-S.angle}°</b></span><span>corner lots <b>${cn}</b></span><span>slivers → trees <b>${sl}</b></span>`};
   },
   notes:[
-    ['Corner parcel',['Between about 75° and 150° one parcel takes the corner and faces both streets (corner shops, corner buildings).','Its arms are at least the style\'s corner width (EU 16 m, US 26 m) and at least as far as the other band reaches.','EU styles grow an L-shaped corner building; US styles a house facing one street with a side yard.']],
+    ['Corner parcel',['Between about 75° and 150° one parcel takes the corner and faces both streets (corner shops, corner buildings).','Its arms are at least the form\'s corner width (Detached 22 m, Row 14 m) and at least as far as the other band reaches.','Joined forms (Row, Perimeter, Shops) grow an L-shaped corner building; Detached grows a house facing one street with a side yard.']],
     ['Sharp corners',['Sharper than that the corner lot would be a long kite (over twice the corner width), so the ends are cut on the meeting line instead; pieces shallower than 11 m become trees (or parking for commercial).','Over 150° it\'s a bend, not a corner: cut on the meeting line, no corner lot.']],
     ['No dead overlap',['The meeting line goes from the kerb corner to where both back lines cross, so different depths still meet cleanly (see Depth).']]],
 });
@@ -489,7 +574,7 @@ F({id:'corner',name:'Corner',sub:'any angle',
 F({id:'t',name:'T-junction',sub:'stem side',
   title:'T-junction',
   hint:'The stem splits the near side into two corners; the far side is one unbroken band. Skew the stem to see one corner get sharper and the other wider.',
-  controls:[styleCtl,{type:'range',id:'stem',label:'Stem angle',min:50,max:130,step:5,fmt:v=>v+'°'}],
+  controls:[formCtl,styleCtl,{type:'range',id:'stem',label:'Stem angle',min:50,max:130,step:5,fmt:v=>v+'°'}],
   build(){
     const pr=prof(),O=[160,135],a=[1,0],b=[Math.cos(S.stem*DEG),-Math.sin(S.stem*DEG)],d=pr.depth;
     const B=buildChains([quadrant(O,a,b,'t1',d),quadrant(O,b,[-1,0],'t2',d),straightRun('t:bot',[-10,135+OFF],[330,135+OFF],d,[160,300])],{prof:pr,zone:zoneDefault});
@@ -498,13 +583,13 @@ F({id:'t',name:'T-junction',sub:'stem side',
   },
   notes:[
     ['Stem side',['Two block corners, each with its own corner parcel when it\'s between about 75° and 150°.','A skewed stem gives one sharp corner (trees at the tip) and one wide corner lot.']],
-    ['Far side',['Untouched by the stem: one band, mixed widths, no gap opposite the junction.','A parcel opposite the stem is an ordinary parcel. (A "vista" building there could be a style option later.)']]],
+    ['Far side',['Untouched by the stem: one band, mixed widths, no gap opposite the junction.','A parcel opposite the stem is an ordinary parcel. (A "vista" building there could be a form option later.)']]],
 });
 
 F({id:'cul',name:'Cul-de-sac',sub:'pie lots',
   title:'Cul-de-sac',
   hint:'The band follows the kerb up the stem and round the turning circle. Around the bulb the cuts are radial, so parcels become pie lots: narrow at the kerb, wide at the back.',
-  controls:[styleCtl],
+  controls:[formCtl,styleCtl],
   build(){
     const pr=prof(),d=Math.min(pr.depth,36),bc=[160,72],br=13,rr=br+2,y0=178;
     const jy=bc[1]+Math.sqrt(rr*rr-OFF*OFF),aL=Math.atan2(jy-bc[1],-OFF),aR=Math.atan2(jy-bc[1],OFF)+2*Math.PI;
@@ -524,11 +609,12 @@ F({id:'cul',name:'Cul-de-sac',sub:'pie lots',
     ['Narrow fronts',['A pie lot\'s building steps back from the kerb until the lot is wide enough for it; the front becomes a lawn.']]],
 });
 
+const MAX_PLINTH=2.2;
 const hill=(x,H)=>H/(1+Math.exp(-(x-160)/26));
 F({id:'slope',name:'Slope',sub:'pads + plinths',
   title:'Parcels on a slope',
   hint:'The hill rises to the right, along the road. Each building levels a pad at its uphill edge and stands on a plinth on the downhill side, so the terrain isn\'t cut into terraces. Too steep for the plinth: a stepped hillside variant, or a garden.',
-  controls:[styleCtl,{type:'range',id:'grade',label:'Steepest grade',min:0,max:40,step:1,fmt:v=>v+'%'},{type:'seg',id:'hillside',label:'Hillside variants',opts:[[true,'In style'],[false,'None']]}],
+  controls:[formCtl,styleCtl,{type:'range',id:'grade',label:'Steepest grade',min:0,max:40,step:1,fmt:v=>v+'%'},{type:'seg',id:'hillside',label:'Hillside variants',opts:[[true,'In style'],[false,'None']]}],
   build(){
     const pr=prof(),H=4*26*S.grade/100,d=Math.min(pr.depth,34),ry=96;
     const B=buildChains([straightRun('sl',[-10,ry-OFF],[330,ry-OFF],d,[160,0])],{prof:pr,zone:zoneDefault});
@@ -539,8 +625,8 @@ F({id:'slope',name:'Slope',sub:'pads + plinths',
     const sec=[],y0=196,VE=1.6,ys=h=>y0-h*VE;
     for(const p of B.parcels){
       if(!p.bld)continue;const xs=p.bld.map(q=>q[0]),bx0=Math.min(...xs),bx1=Math.max(...xs),rise=hill(bx1,H)-hill(bx0,H);
-      if(rise<=pr.maxPlinth){sec.push({x0:bx0,x1:bx1,pad:hill(bx1,H),z:p.zone});p.note=`plinth ${f1(rise)} m`;}
-      else if(S.hillside&&rise/2<=pr.maxPlinth){stepped++;const xm=(bx0+bx1)/2;
+      if(rise<=MAX_PLINTH){sec.push({x0:bx0,x1:bx1,pad:hill(bx1,H),z:p.zone});p.note=`plinth ${f1(rise)} m`;}
+      else if(S.hillside&&rise/2<=MAX_PLINTH){stepped++;const xm=(bx0+bx1)/2;
         sec.push({x0:bx0,x1:xm,pad:hill(xm,H),z:p.zone},{x0:xm,x1:bx1,pad:hill(bx1,H),z:p.zone});
         const[a,b,c2,e]=p.bld,m1=lerp(a,b,.5),m2=lerp(e,c2,.5);p.bld2=[[a,m1,m2,e],[m1,b,c2,m2]];p.note=`stepped · 2 × ${f1(rise/2)} m`;}
       else{steep++;p.bld=null;p.kind='steep';}
@@ -554,22 +640,22 @@ F({id:'slope',name:'Slope',sub:'pads + plinths',
     for(const b of sec){
       const tl=[];for(let x=b.x1;x>=b.x0-1e-6;x-=Math.max((b.x1-b.x0)/8,.5))tl.push([x,ys(hill(x,H))]);
       s+=`<polygon points="${pstr([[b.x0,ys(b.pad)],[b.x1,ys(b.pad)],...tl])}" style="fill:var(--plinth);stroke:var(--ink);stroke-opacity:.4;stroke-width:.25"/>`;
-      s+=`<rect x="${f1(b.x0)}" y="${f1(ys(b.pad)-8*VE)}" width="${f1(b.x1-b.x0)}" height="${f1(8*VE)}" style="fill:${zfill(b.z)};stroke:var(--ink);stroke-opacity:.5;stroke-width:.3"/>`;
+      s+=`<rect x="${f1(b.x0)}" y="${f1(ys(b.pad)-8*VE)}" width="${f1(b.x1-b.x0)}" height="${f1(8*VE)}" style="fill:var(--roof-${pr.style});stroke:var(--ink);stroke-opacity:.5;stroke-width:.3"/>`;
     }
     for(const p of B.parcels)if(p.kind==='steep'){const x=p.C[0],y=ys(hill(x,H));s+=`<circle cx="${f1(x)}" cy="${f1(y-2.4)}" r="2.2" style="fill:var(--tree)"/>`;}
     return{B,roads:[[[-10,ry],[330,ry]]],pre:cont,ann:s,
-      status:`<span>grade <b>${S.grade}%</b></span><span>plinth up to <b>${pr.maxPlinth} m</b></span><span>stepped <b>${stepped}</b></span><span>too steep → garden <b>${steep}</b></span>`};
+      status:`<span>grade <b>${S.grade}%</b></span><span>plinth up to <b>${MAX_PLINTH} m</b></span><span>stepped <b>${stepped}</b></span><span>too steep → garden <b>${steep}</b></span>`};
   },
   notes:[
-    ['Pads',['Each building flattens a pad through the terrain edit API (same undo as roads), at the footprint\'s uphill edge.','The downhill side shows a plinth (basement, foundation) up to the style\'s limit: EU 2.5 m, US 1.8 m.']],
-    ['Too steep',['A style can ship hillside variants that step in two; otherwise the parcel stays a garden with trees.','The parcel itself is still zoned. It grows a building again if the land is reshaped.']],
+    ['Pads',['Each building flattens a pad through the terrain edit API (same undo as roads), at the footprint\'s uphill edge.','The downhill side shows a plinth (basement, foundation) up to 2.2 m (shared; a style could override it).']],
+    ['Too steep',['A style\'s models can include hillside variants that step in two; otherwise the parcel stays a garden with trees.','The parcel itself is still zoned. It grows a building again if the land is reshaped.']],
     ['Not here yet',['Slope across the band (uphill away from the road) works the same way with the pad at the back; it\'s left out to keep the section readable.']]],
 });
 
 F({id:'depth',name:'Depth',sub:'handle per side',
   title:'Depth per road side',
   hint:'Drag a handle to set how deep that road side zones. Drag to 0 for one-sided zoning. What the bands don\'t take becomes back gardens (parcels deepen) or a shared courtyard.',
-  controls:[styleCtl,{type:'seg',id:'interior',label:'Block interior',opts:[['gardens','Back gardens'],['courtyard','Courtyard']]},{type:'btn',id:'resetDepth',label:'Reset depths'}],
+  controls:[formCtl,styleCtl,{type:'seg',id:'interior',label:'Block interior',opts:[['gardens','Back gardens'],['courtyard','Courtyard']]},{type:'btn',id:'resetDepth',label:'Reset depths'}],
   build(){
     const pr=prof(),x0=40+OFF,x1=280-OFF,y0=20+OFF,y1=180-OFF;
     if(!S.depths)S.depths=[pr.depth,pr.depth,pr.depth,pr.depth];
@@ -602,76 +688,73 @@ F({id:'depth',name:'Depth',sub:'handle per side',
       status:`<span>N <b>${f0(D[0])}</b></span><span>E <b>${f0(D[1])}</b></span><span>S <b>${f0(D[2])}</b></span><span>W <b>${f0(D[3])} m</b></span><span>interior <b>${S.interior==='gardens'?'back gardens':'courtyard'}</b></span>`};
   },
   notes:[
-    ['Handle',['One handle per road side, on the band\'s back line. Drag snaps to 1 m; the pill shows the depth.','0 m is one-sided zoning: that side keeps its kerb and the block interior reaches it.','The style sets the default (Low: EU 30 m, US 40 m); the handle overrides it for that road side only.']],
-    ['Interior',['Back gardens: every parcel deepens to the middle of the block along the same side lines (the straight skeleton), so no land is orphaned.','Courtyard: the interior stays shared green. Perimeter-block styles pick this; the rest default to gardens.']],
+    ['Handle',['One handle per road side, on the band\'s back line. Drag snaps to 1 m; the pill shows the depth.','0 m is one-sided zoning: that side keeps its kerb and the block interior reaches it.','The form sets the default (Detached 35 m, Row 28 m); the handle overrides it for that road side only.']],
+    ['Interior',['Back gardens: every parcel deepens to the middle of the block along the same side lines (the straight skeleton), so no land is orphaned.','Courtyard: the interior stays shared green. The Perimeter block form picks this; the rest default to gardens.']],
     ['Corners follow',['With different depths the meeting line tilts; the corner parcel stays one piece.']]],
 });
 
 // ---- zone tools
-const Z={tab:'Residential',card:'eu-low',tool:'brush',brush:12,recut:true,paint:{},corner:{},born:{},instant:true,cursor:null,last:null};
+const CHUNK=4; // free land is a row of small common chunks along the frontage
+const CHUNK_PROF={id:'chunk',name:'',widths:[[CHUNK,1]],gap:0,sb:0,bd:[0,0],bw:0,irr:0,arm:16,depth:32};
+const Z={tab:'Residential',card:'eu-low',tool:'brush',brush:12,paint:{},corner:{},born:{},instant:true,cursor:null};
+function chunkCuts(m0,m1){const c=[m0];let m=m0+CHUNK;while(m1-m>CHUNK*.5){c.push(m);m+=CHUNK;}c.push(m1);return c;}
 function paintInterval(list,a,b,card){
-  const out=[];for(const iv of list||[]){if(iv.m1<=a||iv.m0>=b){out.push(iv);continue;}
+  const out=[];for(const iv of list||[]){if(iv.m1<=a+1e-6||iv.m0>=b-1e-6){out.push(iv);continue;}
     if(iv.m0<a)out.push({m0:iv.m0,m1:a,card:iv.card});if(iv.m1>b)out.push({m0:b,m1:iv.m1,card:iv.card});}
   if(card)out.push({m0:a,m1:b,card});out.sort((x,y)=>x.m0-y.m0);
-  const mg=[];for(const iv of out){const l=mg[mg.length-1];if(l&&l.card===iv.card&&iv.m0-l.m1<.6)l.m1=Math.max(l.m1,iv.m1);else mg.push({...iv});}
+  const mg=[];for(const iv of out){const l=mg[mg.length-1];if(l&&l.card===iv.card&&iv.m0-l.m1<.01)l.m1=Math.max(l.m1,iv.m1);else mg.push({...iv});}
   return mg;
 }
 function zoneScene(){
-  const pr=prof(),d=pr.depth;
+  const d=CHUNK_PROF.depth;
   const blk=(key,x0,x1,y0,y1)=>{const c=[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];return{key,block:key,closed:true,hint:[(x0+x1)/2,(y0+y1)/2],
     runs:[0,1,2,3].map(k=>({key:key+':'+'NESW'[k],pts:[c[k],c[(k+1)%4]],d}))};};
   const chains=[blk('b1',12+OFF,172-OFF,12+OFF,188-OFF),blk('b2',172+OFF,308-OFF,12+OFF,188-OFF)];
-  const mapProf=pr;
-  const B=buildChains(chains,{prof:mapProf,zone:null,
+  const free=(a,b,grid)=>({m0:a,m1:b,prof:CHUNK_PROF,zone:null,card:null,chunk:true,cuts:[a,...grid.filter(m=>m>a+.01&&m<b-.01),b]});
+  const B=buildChains(chains,{prof:CHUNK_PROF,armProf:CHUNK_PROF,zone:null,
     stretches:(r,m0,m1)=>{
-      if(!Z.recut)return[{m0,m1,prof:mapProf,zone:null,card:null}];
-      const list=(Z.paint[r.key]||[]).map(iv=>({m0:Math.max(iv.m0,m0),m1:Math.min(iv.m1,m1),card:iv.card})).filter(iv=>iv.m1-iv.m0>.5);
+      const grid=chunkCuts(m0,m1),list=(Z.paint[r.key]||[]).map(iv=>({m0:Math.max(iv.m0,m0),m1:Math.min(iv.m1,m1),card:iv.card})).filter(iv=>iv.m1-iv.m0>.5);
       const out=[];let m=m0;
-      for(const iv of list){if(iv.m0>m+.5)out.push({m0:m,m1:iv.m0,prof:mapProf,zone:null,card:null});const c=CARD[iv.card];
-        out.push({m0:Math.max(m,iv.m0>m+.5?iv.m0:m),m1:iv.m1,prof:PROF[c.prof],zone:c.zone,card:c.id});m=iv.m1;}
-      if(m1>m+.5)out.push({m0:m,m1,prof:mapProf,zone:null,card:null});else if(out.length)out[out.length-1].m1=m1;
-      return out.length?out:[{m0,m1,prof:mapProf,zone:null,card:null}];},
-    cornerZone:k=>{const c=Z.corner[k];return c?{zone:CARD[c].zone,card:c,prof:PROF[CARD[c].prof]}:null;}});
-  if(!Z.recut)for(const p of B.parcels)if(p.kind==='lot'){const m=(p.ma+p.mb)/2,iv=(Z.paint[p.runKey]||[]).find(iv=>m>=iv.m0&&m<=iv.m1);
-    if(iv){const c=CARD[iv.card];p.zone=c.zone;p.card=c.id;}}
+      for(const iv of list){if(iv.m0>m+.01)out.push(free(m,iv.m0,grid));const c=CARD[iv.card];
+        out.push({m0:iv.m0,m1:iv.m1,prof:c.prof,zone:c.zone,card:c.id});m=iv.m1;}
+      if(m1>m+.01)out.push(free(m,m1,grid));
+      return out;},
+    cornerZone:k=>{const c=Z.corner[k];return c?{zone:CARD[c].zone,card:c,prof:CARD[c].prof}:null;}});
   return{B,chains};
 }
+// brush targets are always the chunks (and corner parcels), whatever has grown on them
 function zoneHits(B,pt){
-  const r=Z.brush;return B.parcels.filter(p=>p.kind==='lot'||p.kind==='corner'||p.kind==='sliver').filter(p=>pip(pt,p.poly)||len(sub(centroid(p.poly),pt))<r||p.poly.some(q=>len(sub(q,pt))<r*.8));
+  const r=Z.brush,near=P=>pip(pt,P)||len(sub(centroid(P),pt))<r,hits=[];
+  for(const run of B.runs){if(run.d<1||run.zm1===undefined)continue;const g=chunkCuts(run.zm0,run.zm1);
+    for(let i=0;i<g.length-1;i++){const P=stripPoly(run,g[i],g[i+1]);if(near(P))hits.push({poly:P,runKey:run.key,ma:g[i],mb:g[i+1]});}}
+  for(const p of B.parcels)if(p.kind==='corner'&&near(p.poly))hits.push(p);
+  return hits;
 }
 function applyZone(pt,click){
   const B=LAST.B,card=Z.tool==='erase'?null:Z.card;
-  let hits;
   if(Z.tool==='fill'){if(!click)return;const h=B.parcels.find(p=>pip(pt,p.poly))||(LAST.blocks||[]).find(b=>pip(pt,b.poly));if(!h)return;
-    hits=B.parcels.filter(p=>p.block===h.block);
     for(const r of B.runs)if(r.block===h.block)Z.paint[r.key]=paintInterval(Z.paint[r.key],-1,r.LM+1,card);
-    for(const p of hits)if(p.kind==='corner')Z.corner[p.key]=card;
-  }else{
-    hits=zoneHits(B,pt);
-    for(const p of hits){if(p.kind==='corner')Z.corner[p.key]=card;else Z.paint[p.runKey]=paintInterval(Z.paint[p.runKey],p.ma,p.mb,card);}
-  }
+    for(const p of B.parcels)if(p.block===h.block&&p.kind==='corner')Z.corner[p.key]=card;
+  }else for(const p of zoneHits(B,pt)){if(p.kind==='corner')Z.corner[p.key]=card;else Z.paint[p.runKey]=paintInterval(Z.paint[p.runKey],p.ma,p.mb,card);}
   render();
 }
 function seedZones(){
-  const s=zoneScene();LAST={B:s.B};
-  const run=k=>s.B.runs.find(r=>r.key===k);
-  Z.paint['b1:N']=[{m0:0,m1:run('b1:N').LM,card:'eu-low'}];
-  Z.paint['b1:W']=[{m0:0,m1:run('b1:W').LM*.7,card:'eu-row'}];
-  Z.paint['b2:N']=[{m0:0,m1:run('b2:N').LM,card:'eu-high'}];
-  Z.paint['b2:E']=[{m0:0,m1:run('b2:E').LM,card:'eu-walk'}];
-  Z.corner['b2:c0']='eu-high';Z.corner['b1:c3']='eu-row';
+  const s=zoneScene(),run=k=>s.B.runs.find(r=>r.key===k),all=(k,c,f=1)=>{const r=run(k),g=chunkCuts(r.zm0,r.zm1);
+    Z.paint[k]=[{m0:r.zm0,m1:g[Math.round((g.length-1)*f)],card:c}];};
+  all('b1:N','eu-low');all('b1:W','eu-row',.6);all('b1:S','us-low',.5);all('b2:N','uk-high');all('b2:E','eu-walk');all('b2:S','uk-low');
+  Z.corner['b2:c0']='uk-high';Z.corner['b1:c3']='eu-row';
 }
 F({id:'zones',name:'Zone cards',sub:'brush · fill · erase',
   title:'Zone cards and the brush',
-  hint:'Pick a card in the tray, then paint parcels on the map. Painted parcels re-cut to the card\'s widths (row houses split into narrow lots) and grow after a short build.',
-  controls:[styleCtl],
+  hint:'Free land is a row of small chunks with no style. Pick a card and paint chunks: the card\'s form divides each painted stretch into plots (rows narrow, detached wide); its style only picks the buildings. Buildings grow after a short build.',
+  controls:[],
   build(){
     const{B,chains}=zoneScene();
     const blocks=chains.map(ch=>({block:ch.block,poly:ch.runs.map(r=>r.pts[0])}));
     let pre='';for(const b of blocks)pre+=`<polygon points="${pstr(b.poly)}" style="fill:var(--garden)"/>`;
     const now=performance.now();let pending=false,zoned=0;
     for(const p of B.parcels){
-      if(!p.zone){p.bld=null;continue;}zoned++;
+      if(!p.zone){p.bld=null;continue;}if(p.kind!=='sliver')zoned++;
       const k=p.key+'|'+p.card;if(Z.born[k]===undefined)Z.born[k]=Z.instant?-1e9:now+250+(hash(k)%900);
       const t=now-Z.born[k];if(t<0){p.grow='site';pending=true;}else if(t<700){p.grow='build';pending=true;}
     }
@@ -683,19 +766,19 @@ F({id:'zones',name:'Zone cards',sub:'brush · fill · erase',
     if(Z.cursor&&Z.tool!=='fill')for(const p of zoneHits(B,Z.cursor))ann+=`<polygon points="${pstr(p.poly)}" style="fill:none;stroke:${Z.tool==='erase'?'var(--bad)':'var(--accent)'};stroke-width:.8" pointer-events="none"/>`;
     const c=CARD[Z.card];
     return{B,pre,ann,blocks,roads:[[[-10,12],[330,12]],[[-10,188],[330,188]],[[12,-10],[12,210]],[[172,-10],[172,210]],[[308,-10],[308,210]]],
-      status:`<span>${{brush:'Brush',fill:'Fill',erase:'Erase'}[Z.tool]}${Z.tool==='fill'?'':' <b>'+Z.brush+' m</b>'}</span><span><b>${c.name}</b> · ${c.pill}</span><span>zoned <b>${zoned}</b> of ${B.parcels.filter(p=>p.kind!=='sliver').length}</span><span>re-cut <b>${Z.recut?'on':'off'}</b></span>`};
+      status:`<span>${{brush:'Brush',fill:'Fill',erase:'Erase'}[Z.tool]}${Z.tool==='fill'?'':' <b>'+Z.brush+' m</b>'}</span><span><b>${c.name}</b> · ${c.pill}</span><span>plots <b>${zoned}</b></span><span>free chunks <b>${B.parcels.filter(p=>p.kind==='chunk').length}</b> × ${CHUNK} m</span>`};
   },
   notes:[
-    ['Cards',['A card is one <code>.tres</code>: style + use + density (+ form). Tabs group cards by use, so region packs don\'t crowd one tab.','The pill (<code>Low · Res</code>) is what the simulation sees. Style and form only change what grows.','A card with a form (EU Row Houses) grows only that form; without one it mixes the style\'s forms.']],
-    ['Tools',['<span class="key">1</span> Brush paints every parcel it touches; the parcels outline as you hover. <span class="key">[</span> <span class="key">]</span> size.','<span class="key">2</span> Fill takes the whole block. <span class="key">3</span> Erase un-zones (the building is abandoned over time, not deleted).','Depth is its own handle on the map (Depth frame), always shown while a zone tool is open.']],
-    ['Re-cut',['Painting a stretch with another style re-cuts just that stretch to the card\'s widths; the cuts at its two ends stay put.','A stretch keeps its seed from where it starts, so painting further along only changes the last parcels.','Turn re-cut off to compare: parcels then keep the map style\'s widths and only change colour.']]],
+    ['Cards',['A card is one <code>.tres</code>: style + use + density (+ form). Tabs group cards by use, so region packs don\'t crowd one tab.','The pill (<code>Low · Res</code>) is what the simulation sees. The form sets the plots and footprints; the style only the models.','A card with a form (EU Row Houses) grows only that form; without one it grows the zone\'s default forms (Low · Res: Detached).','EU and UK Low Residential have the same plots; only the buildings on them look different.']],
+    ['Tools',['<span class="key">1</span> Brush paints every chunk it touches; the chunks outline as you hover. <span class="key">[</span> <span class="key">]</span> size.','<span class="key">2</span> Fill takes the whole block. <span class="key">3</span> Erase un-zones (the building is abandoned over time, not deleted).','Depth is its own handle on the map (Depth frame), always shown while a zone tool is open.']],
+    ['Chunks and plots',['Free land is cut into common 4 m chunks along each road side. They have no style and are only what you paint.','Next to each other, chunks painted with the same card form a stretch. The card\'s form divides it into plots from its building widths, so the player never draws or picks plots.','Repainting a stretch with the same form in another style (EU → UK) keeps the plots and only swaps the buildings over time.','Painting over part of a stretch with another card splits it on a chunk line; each side re-plots itself. A stretch keeps its seed from where it starts, so painting further along only changes its last plots.']]],
 });
 
 // ---- road moved
 F({id:'moved',name:'Road moved',sub:'inherit by overlap',
   title:'Road moved under parcels',
   hint:'The middle road is dragged. Its two bands are re-split; each new parcel takes the zone that covers most of it in the old layout. Buildings that still fit stay; the rest are replaced over time, and anything now on the road is demolished.',
-  controls:[styleCtl,{type:'range',id:'bend',label:'Move road',min:-30,max:30,step:1,fmt:v=>(v>0?'+':'')+v+' m'},{type:'seg',id:'showOld',label:'Old parcels',opts:[[true,'Show'],[false,'Hide']]}],
+  controls:[formCtl,styleCtl,{type:'range',id:'bend',label:'Move road',min:-30,max:30,step:1,fmt:v=>(v>0?'+':'')+v+' m'},{type:'seg',id:'showOld',label:'Old parcels',opts:[[true,'Show'],[false,'Hide']]}],
   build(){
     const pr=prof(),d=Math.min(pr.depth,34);
     let avoid=null;
@@ -726,7 +809,7 @@ F({id:'moved',name:'Road moved',sub:'inherit by overlap',
       const host=cur.B.parcels.find(p=>p.kind==='lot'&&o.bld.every(q=>pip(q,p.poly)));
       if(onRoad){demo++;bl+=`<polygon points="${pstr(o.bld)}" style="fill:none;stroke:var(--bad);stroke-width:.6;stroke-dasharray:1.2 .8"/>`+
         `<path d="M${f1(o.bld[0][0])},${f1(o.bld[0][1])}L${f1(o.bld[2][0])},${f1(o.bld[2][1])}M${f1(o.bld[1][0])},${f1(o.bld[1][1])}L${f1(o.bld[3][0])},${f1(o.bld[3][1])}" style="stroke:var(--bad);stroke-width:.5"/>`;}
-      else if(host&&host.zone===o.zone&&!host.kept){kept++;host.kept=true;bl+=bldSvg(o.bld,o.zone);}
+      else if(host&&host.zone===o.zone&&!host.kept){kept++;host.kept=true;bl+=bldSvg(o.bld,o.prof.style);}
       else{repl++;bl+=`<polygon points="${pstr(o.bld)}" style="fill:${zfill(o.zone)};fill-opacity:.25;stroke:var(--warn);stroke-width:.7;stroke-dasharray:1.6 1"/>`;}
     }
     for(const p of cur.B.parcels)if(p.kind==='lot'&&p.zone&&!p.kept&&p.newBld){grows++;
@@ -742,11 +825,12 @@ F({id:'moved',name:'Road moved',sub:'inherit by overlap',
 });
 
 const QUESTIONS=[
-  ['Widths before zoning',`Unzoned land has to be split before anyone paints it, but widths come from a style. The storyboard cuts unzoned land with the map's style and re-cuts a stretch when a card of another style is painted on it.`,'Alternatives: never re-cut (buildings squeeze into whatever lots exist), or no parcels until painted.'],
-  ['Corner range',`Corner parcels between about 75° and 150° (an arm may reach at most twice the style\'s corner width); sharper tips are cut and become trees, wider ones are treated as a bend.`,'Change the limits, or let a style choose (an EU style might want wedge-shaped corner buildings down to 45°).'],
+  ['Chunk size',`Free land is cut into 4 m chunks (paint resolution). Agreed: the player paints chunks, and the card\'s form divides its painted stretch into plots by itself.`,'Smaller chunks paint finer edges but make the brush outline busier; 8 m (a CS cell) is the coarser option.'],
+  ['Corner range',`Corner parcels between about 75° and 150° (an arm may reach at most twice the form\'s corner width); sharper tips are cut and become trees, wider ones are treated as a bend.`,'Change the limits, or let a form choose (Perimeter might want wedge-shaped corner buildings down to 45°).'],
   ['Plinth or cut',`Pads level at the uphill edge and hide the step with a plinth, never cutting into the hill.`,'Alternative: level at the middle (half cut, half plinth), which needs retaining walls in the content.'],
   ['Inherit rule',`A re-split parcel takes the majority zone of the old parcels it overlaps; old road land doesn't count, and under 25% old-parcel land it stays unzoned.`,'Or: inherit only from the parcel with the same frontage position, which is stricter but easier to predict.'],
-  ['Default interior',`Back gardens for every style except perimeter blocks, which get a courtyard.`,'Or make it a per-card setting.'],
+  ['Default interior',`Back gardens for every form except perimeter blocks, which get a courtyard.`,'Or make it a per-card setting.'],
+  ['Style overrides',`A style may override any shared field, though most won\'t. Here: ${Object.entries(STYLES).map(([k,v])=>v.short+' '+overText(v)).join(' · ')}.`,'Or lock it down: styles can only swap models and materials, never plot rules.'],
 ];
 
 // ---------------------------------------------------------------- UI
@@ -759,37 +843,38 @@ function ctlHtml(c){
   if(c.type==='seg')return`<div class="row"><span>${c.label}</span><div class="seg" role="group" aria-label="${c.label}">${c.opts.map(([v,t])=>`<button data-seg="${c.id}" data-v="${v}" aria-pressed="${String(S[c.id])===String(v)}">${t}</button>`).join('')}</div></div>`;
   if(c.type==='range'){const v=c.id==='irr'?(S.irr??prof().irr):S[c.id];
     return`<div class="row"><span>${c.label}</span><b id="v-${c.id}">${c.fmt(v)}</b></div><input type="range" id="r-${c.id}" min="${c.min}" max="${c.max}" step="${c.step}" value="${v}" aria-label="${c.label}">`;}
+  if(c.type==='tech')return`<div class="row"><span>${c.label}</span><div class="seg" role="group" aria-label="${c.label}"><button data-tech="${c.id}" data-v="1" aria-pressed="${S.tech[c.id]}">On</button><button data-tech="${c.id}" data-v="0" aria-pressed="${!S.tech[c.id]}">Off</button></div></div>`;
   if(c.type==='btn')return`<div class="row"><span></span><button class="step" id="b-${c.id}">${c.label}</button></div>`;
   return'';
 }
 function zonePanel(){
-  const c=CARD[Z.card],pr=PROF[c.prof];
+  const c=CARD[Z.card],pr=c.prof;
   return`<div class="opanel"><div class="hd"><span>${c.name}</span><span class="pillz">${c.pill}</span></div>
-  <div class="ufacts"><div>Style<b>${c.style.split(' ')[0]}</b></div><div>Form<b>${c.form.replace('Mixed forms','Mixed')}</b></div><div>Depth<b>${pr.depth} m</b></div></div>
+  <div class="ufacts"><div>Style<b>${STYLES[c.style].short}</b></div><div>Form<b>${FORMS[c.formId].name}</b></div><div>Depth<b>${pr.depth} m</b></div></div>
   <div class="lbl"><span>Tool</span><span>1–3</span></div>
   <div class="tools">${[['brush','Brush','1'],['fill','Fill','2'],['erase','Erase','3']].map(([id,t,k])=>`<button class="tool" data-tool="${id}" aria-pressed="${Z.tool===id}">${t}<i>${k}</i></button>`).join('')}</div>
   <div class="lbl"><span>Brush</span><span>${Z.brush} m · [ ]</span></div>
   <input type="range" id="r-brush" min="4" max="30" step="1" value="${Z.brush}" aria-label="Brush size">
-  <div class="utog"><span>Re-cut to card</span><div class="seg" style="border-color:var(--ui-line)"><button data-recut="1" aria-pressed="${Z.recut}" style="${Z.recut?'background:var(--ui-accent);color:#0B1012':''}">On</button><button data-recut="0" aria-pressed="${!Z.recut}" style="${!Z.recut?'background:var(--ui-accent);color:#0B1012':''}">Off</button></div></div></div>`;
+</div>`;
 }
 function thumb(c){
-  const pr=PROF[c.prof],R=rng(hash(c.id));let x=4,s=`<rect x="0" y="40" width="120" height="8" fill="#6E747C"/><rect x="0" y="38" width="120" height="2" fill="#9AA0A3"/>`;
+  const pr=c.prof,R=rng(hash(c.id));let x=4,s=`<rect x="0" y="40" width="120" height="8" fill="#6E747C"/><rect x="0" y="38" width="120" height="2" fill="#9AA0A3"/>`;
   const sc=Math.min(1.6,60/(pr.widths.reduce((a,w)=>Math.max(a,w[0]),0)*2.2));
   while(x<116){const w=pickW(pr,R)*sc*1.4,bw=Math.min(w-pr.gap*sc,pr.bw*sc*1.4),bd=(pr.bd[0]+R()*(pr.bd[1]-pr.bd[0]))*sc*1.2,sb=pr.sb*sc*1.2;
-    if(x+w>118)break;s+=`<rect x="${f1(x+(w-bw)/2)}" y="${f1(38-sb-bd)}" width="${f1(bw)}" height="${f1(bd)}" style="fill:${zfill(c.zone)};stroke:#1C2629;stroke-opacity:.5;stroke-width:.5"/>`;x+=w;}
+    if(x+w>118)break;s+=`<rect x="${f1(x+(w-bw)/2)}" y="${f1(38-sb-bd)}" width="${f1(bw)}" height="${f1(bd)}" style="fill:var(--roof-${c.style});stroke:#1C2629;stroke-opacity:.5;stroke-width:.5"/>`;x+=w;}
   return`<svg viewBox="0 0 120 50" aria-hidden="true">${s}</svg>`;
 }
 function renderTray(){
   const tray=$('#tray');if(S.frame!=='zones'){tray.hidden=true;return;}
   tray.hidden=false;const tabs=['Residential','Commercial','Office','Mixed'];
   tray.innerHTML=`<div class="utabs">${tabs.map(t=>`<button class="utab" data-tab="${t}" aria-pressed="${Z.tab===t}">${t}</button>`).join('')}</div>
-  <div class="cards">${CARDS.filter(c=>c.tab===Z.tab).map(c=>`<button class="card" data-card="${c.id}" aria-pressed="${Z.card===c.id}"><span class="chip pillz">${c.style==='US Suburban'?'US':'EU'}</span>${thumb(c)}<span class="nm">${c.name}</span><span class="ft"><span class="pillz">${c.pill}</span><span>${c.form==='Mixed forms'?'':c.form}</span></span></button>`).join('')}</div>`;
+  <div class="cards">${CARDS.filter(c=>c.tab===Z.tab).map(c=>`<button class="card" data-card="${c.id}" aria-pressed="${Z.card===c.id}"><span class="chip pillz">${STYLES[c.style].short}</span>${thumb(c)}<span class="nm">${c.name}</span><span class="ft"><span class="pillz">${c.pill}</span><span>${c.form?FORMS[c.form].name:''}</span></span></button>`).join('')}</div>`;
 }
 function renderSide(){
   const f=FRAMES.find(x=>x.id===S.frame);
   let leg=f.legend?`<div class="legend">${f.legend.map(([c,t])=>`<span><i class="sw" style="background:${c}"></i>${t}</span>`).join('')}</div>`:'';
   $('#side').innerHTML=`<h2>${f.title}</h2><p class="hint" style="font-size:13.5px">${f.hint}</p>
-    <div class="ctl">${f.controls.map(ctlHtml).join('')}</div>${S.frame==='zones'?zonePanel():''}${leg}`;
+    ${f.controls.length?`<div class="ctl">${f.controls.map(ctlHtml).join('')}</div>`:''}${S.frame==='zones'?zonePanel():''}${leg}`;
   $('#notes').innerHTML=f.notes.map(([h,li])=>`<div class="note"><h3>${h}</h3><ul>${li.map(x=>`<li>${x}</li>`).join('')}</ul></div>`).join('');
   $('#rules-h').textContent='Rules · '+f.name;
 }
@@ -799,11 +884,11 @@ function render(){
   r.B.parcels.forEach((p,i)=>{s+=parcelSvg(p,{id:i});});
   s+=svgRoads(r.roads,r.bulbs);
   r.B.parcels.forEach(p=>{
-    if(p.bld2){for(const b of p.bld2)s+=bldSvg(b,p.zone);return;}
+    if(p.bld2){for(const b of p.bld2)s+=bldSvg(b,p.prof&&p.prof.style);return;}
     if(!p.bld)return;
     if(p.grow==='site')return;
     if(p.grow==='build'){s+=`<polygon points="${pstr(p.bld)}" style="fill:none;stroke:var(--ink);stroke-opacity:.6;stroke-width:.4;stroke-dasharray:1 .8"/>`;return;}
-    s+=bldSvg(p.bld,p.zone);
+    s+=bldSvg(p.bld,p.prof&&p.prof.style);
   });
   s+=r.ann||'';
   map.innerHTML=s;
@@ -815,12 +900,12 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('button');if(!t)return;
   if(t.dataset.f){setFrame(t.dataset.f);try{history.replaceState(null,'','#'+t.dataset.f);}catch(_){}}
   else if(t.dataset.seg){const id=t.dataset.seg,v=t.dataset.v;S[id]=v==='true'?true:v==='false'?false:v;
-    if(id==='style'){S.irr=null;S.depths=null;}renderSide();render();}
+    if(id==='style'||id==='form'){S.irr=null;S.depths=null;}renderSide();render();}
+  else if(t.dataset.tech){S.tech[t.dataset.tech]=t.dataset.v==='1';renderSide();render();}
   else if(t.id==='b-resetDepth'){S.depths=null;render();}
   else if(t.dataset.tab){Z.tab=t.dataset.tab;renderTray();}
   else if(t.dataset.card){Z.card=t.dataset.card;if(Z.tool==='erase')Z.tool='brush';renderTray();renderSide();render();}
   else if(t.dataset.tool){Z.tool=t.dataset.tool;renderSide();render();}
-  else if(t.dataset.recut){Z.recut=t.dataset.recut==='1';renderSide();render();}
 });
 document.addEventListener('input',e=>{
   const id=e.target.id;if(!id.startsWith('r-'))return;const k=id.slice(2),v=+e.target.value;

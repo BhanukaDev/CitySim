@@ -1,8 +1,8 @@
 # Zoning: Plan (agreed 2026-10-06, no code yet)
 
 The player paints land use along roads and buildings grow on their own, as in Cities: Skylines. They never place a
-specific growable building (with one exception, see Player control). This file is the plan agreed so far, written before
-`ROADMAP.md`, `DESIGN.md` and a storyboard exist. All choices are settled; the user picked between options on
+specific growable building (with one exception, see Player control). This file is the agreed plan. The agreed
+storyboard `docs/zoning-grid.html` is the spec for the land and painting (§3). Earlier choices were made on
 https://claude.ai/artifact/Uec32oZaL55XkhjrRG71Tb (zone cards per style, a card per form, no place-growable tool yet).
 
 ## 1. What players say about zoning in other games
@@ -54,75 +54,101 @@ plain category it counts as (`Low · Res`), so the player can tell what any styl
 |---|---|---|---|
 | **Use** | What the land is for | Simulation | Residential, Commercial, Office, Mixed (shops + flats) |
 | **Density** | How much is built | Simulation | Low, Medium, High |
-| **Form** | The kind of building within the density | Spawner | Detached, Semi, Row (Low); Row, Walk-up, Perimeter block (Medium) |
-| **Style** | What it looks like | Spawner, visuals | Eastern Europe, US Suburban, UK, Nordic |
+| **Form** | The kind of building within the density, with its shared plot and building rules | Spawner, plots | Detached, Semi, Row (Low); Row, Walk-up, Perimeter block (Medium) |
+| **Style** | What it looks like (models, materials) | Spawner, visuals | Eastern Europe, US Suburban, UK, Nordic |
 
 - A zone card is a `.tres` content file (made in Godot, dropped in by mods/DLC) that names a style, use, density and
-  optionally a form. A card without a form mixes the style's forms by weight. A card with one (**EU Row Houses**) grows
+  optionally a form. A card without a form grows the zone's default forms (by weight). A card with one (**EU Row Houses**) grows
   only that form. That's how the player picks detached vs rows vs flats.
 - The simulation reads only Use × Density (and later Level). Style and form are content, so a new region pack adds
   cards and buildings, not new rules.
+- **Agreed (2026-10-06): a style is the look; the rules are shared.** Plot widths, depth, setback, corner rules,
+  irregularity and footprint ranges belong to the **form** (one shared config per form, e.g. Detached, Row,
+  Walk-up) and every style uses it. A style supplies the models and materials and may override a field where it
+  really needs to (for example a deeper US setback), but most styles override nothing. So EU and UK Low Residential
+  get the same plots with different buildings, and repainting a stretch with the same form in another style keeps its
+  plots and only swaps the buildings over time.
 - Tray tabs group the cards by use (Residential, Commercial, Office, Mixed), so a tab doesn't fill up as packs are
   added. (Industry is left out for now and fits the same model later.)
 - **Agreed:** 3 densities (Low, Medium, High) plus Mixed.
-- Re-zoning a parcel with another card (another style or density) replaces its building over time. That's how
+- Re-zoning cells with another card (another style or density) replaces its building over time. That's how
   "redevelop the suburb" works. A style-only brush (re-style without re-zoning) can come later.
 
 **Agreed (2026-10-05): 3 building levels.** Each level raises capacity (households, jobs) and consumption. They're
 not the focus now: the data has a `Level` field, and the visuals and rules come later.
 
-## 3. Land: freeform parcels (agreed 2026-10-05)
+## 3. Land: a freeform cell grid (agreed 2026-10-06)
 
-There's no cell grid. Land is split into **parcels**: polygons that follow the roads, their curves and the land, as
-Manor Lords' burgage plots and real cadastres do. The parcel is the unit of zoning: a zone is painted onto parcels,
-and one parcel grows one building.
+Zoning works on a **cell grid like Cities: Skylines, but the grid bends with the road** instead of being square.
+The agreed storyboard is `docs/zoning-grid.html` (published: https://claude.ai/artifact/5tdTraaJATXb796XSVgqBS).
+**It is the spec**: where this file and the storyboard disagree, the storyboard wins, and each milestone is checked
+frame by frame against it.
 
-### How parcels are made
-1. **Blocks.** The road network's faces (the areas enclosed by roads, from the splines graph) are the blocks, inset by
-   each road's half-width plus pavement. Open land beside a road without a closed block gets a strip
-   `MaxParcelDepth` deep along that side.
-2. **Frontage bands.** Each block edge facing a road gets a band of the zone's depth, cut where bands meet (on the
-   angle bisector, like a straight skeleton). Nothing is left between two roads' zones as dead overlap.
-3. **Split along the frontage.** Each band is cut into parcels by lines **perpendicular to the road at that point**,
-   so on a curve the parcels fan out like real plots. Widths are **mixed**, drawn from the style's building widths, not
-   split into equal plots.
-4. **Corners.** Where two bands meet at a block corner, one corner parcel faces both streets (corner buildings and
-   corner shops).
-5. **Interior and slivers.** A deep block's core becomes back gardens (parcels deepen) or an interior courtyard
-   (perimeter blocks). Thin triangles become gardens, trees or parking, never bare grass.
-6. **Determinism.** The same roads and settings give the same parcels (seeded), so a save stores only the inputs plus
-   the player's edits.
+### The grid
+1. **Frontage runs.** Each road side's frontage line (the outer edge of the pavement, half-width + pavement from the
+   centre line) is a run. Runs meet at block corners. Closed blocks are the road graph's faces; open land beside a
+   road just has runs with free ends.
+2. **Strips of cells.** Each run gets a strip of cells: **columns** cut square to the road at that point, **rows** as
+   offset lines parallel to it (offsets use mitred vertex normals). Columns are spread evenly: `n = round(length /
+   cell)` columns of equal width, measured **half-way back** (mid-depth), so curves fan out on the outside and
+   narrow on the inside and both stay usable. No leftover slivers.
+3. **Cell size 8 m** (as in CS), one size for the whole game. **Rows: default 5 (40 m), max set per road type
+   (1–8).** On a tight bend the inside gets fewer rows instead of folding over itself.
+4. **Corner patches.** Where two runs meet at a block corner between **60° and 150°**, the region that belongs to
+   both bands gets its own small grid with lines **parallel to each road**: squares at 90°, parallelograms when
+   skewed. Each corner cell faces both streets. The patch is the parallelogram from the kerb corner `P` to `Q`, where
+   the two bands' back lines cross: `Q − P = −tA·a + tB·b`, with `round(a / cell) × round(b / cell)` cells. A band
+   next to a skewed patch has one wedge-shaped last column, the only irregular cell. CS overlaps grids at corners and
+   leaves dead cells; this doesn't.
+5. **Sharp corners and kinks.** Under 60°, over 150°, or where a road kinks (a cul-de-sac stem meeting its bulb),
+   the strips are cut on the line from the kerb corner to `Q`. Cells left with under a quarter of their area are
+   dropped (later: trees).
+6. **Blocks.** In a closed block each side's grid stops half-way to the far side (fewer rows on a narrow block).
+   Whatever no cell reaches is the block interior (green for now; later complexes can use it).
+7. **Determinism.** The grid is a pure function of the roads and the settings. A save stores only the roads and the
+   painted cells.
 
 ### What the player does
-- **Zone brush / fill:** paint the selected zone card over an area. Every parcel the brush covers takes it, and Fill takes the
-  whole block. The parcels highlight as you paint.
-- **Depth:** a handle per road side for how deep the parcels go (one-sided zoning = 0).
-- **Parcel edits (optional, map-editor first):** drag a dividing line, split or merge parcels (Manor Lords-style
-  control). Edits are stored as overrides and survive a re-split when they still fit.
-- **Road changes:** moving or deleting a road rebuilds the parcels of the affected blocks. New parcels inherit zone and
-  style from the old ones by area overlap. A building whose parcel is gone, or whose zone or style changed, is
-  replaced over time, not instantly.
+- **Paint cells** with the picked zone card, as in CS: **Brush** (every cell it touches; cells highlight as you
+  hover), **Fill** (the whole block), **Erase**. Keys 1–3, `[ ]` brush size. **Depth is painted too**: paint 2 rows for
+  shallow plots, all rows for deep ones, one side for one-sided zoning. No separate depth handle.
+- **Plots come from painted cells.** Neighbouring front-connected columns with the same card form a stretch; the
+  card's **form** groups its columns into plots by its plot widths in cells (Detached 2–3, Row 1, Walk-up 2–3,
+  Shops 1–2, Tower 4–5…), seeded from where the stretch starts. A leftover narrower than the smallest plot joins the
+  last one. A plot needs its **front cell** painted (road access) and is as deep as its **shallowest painted
+  column**. In a corner patch, painting the corner cell makes one corner plot from the painted rectangle it starts.
+- **Road changes:** the moved road's grid is rebuilt; every other road's cells stay as they are. Each new cell takes
+  the card painted under its **centre** in the old grid (old road land is unpainted). A building still standing on
+  cells painted with the same card stays; otherwise it's replaced over time; anything now on the road is demolished
+  with the edit (same undo).
+- Re-zoning cells with another card replaces their building over time. Repainting with the same form in another
+  style keeps the plots and only swaps the buildings.
 
-### Buildings on parcels
-- A building's footprint must fit inside the parcel, with its front on the frontage line (or set back by the style's
-  setback). The rest of the parcel is the building's yard (garden, driveway, parking), drawn from the style.
-- Depth is **up to** the parcel depth (CS1's rule, not CS2's), so a shallow house leaves a garden instead of a deep copy.
-- Wedge-shaped parcels (curves) use the inner rectangle. Later, styles can supply **modular** buildings (row houses,
-  perimeter blocks made of pieces that follow the frontage), which fixes curves and repetition for European blocks.
-- **Slopes:** each parcel levels a pad through the terrain edit API (the same undo as roads). A building has a
-  `MaxSlope` and a **plinth** (a basement or foundation mesh) to hide the step, so it doesn't cut the terrain into
-  terraces. Parcels that are too steep stay as gardens, or grow a style's hillside variant.
+### Buildings on plots (for now)
+- Placeholder boxes per form and style: a footprint fitted inside the plot square to the road at its middle, front on
+  the frontage line plus the form's setback, depth **up to** the plot depth (CS1's rule), the rest is yard.
+- **Slopes:** each plot levels a pad through the terrain edit API at the footprint's uphill edge, with a **plinth**
+  (basement) on the downhill side up to 2.2 m; steeper plots grow a stepped hillside variant or stay garden (see the
+  slope frame of the old `docs/zoning-storyboard.html`).
+- **Later: procedural buildings on the cells** (Townscaper-style: filled/empty cells, modules picked by their
+  corners and deformed to fit each cell, a style is a module kit). Not now.
 
 ### Data
-- Parcels are polygons in `System.Numerics` with no Godot types (like `HeightMap`). Each holds its block, its
-  frontage edge(s), its zone, style, building and lock flag. The simulation reads parcels, not meshes.
-- **Agreed (2026-10-05): mostly rectangular, organic where the land asks for it.** On straight roads and regular
-  blocks, parcels come out rectangular (players like them). On curves, odd angles, block corners and around obstacles
-  they take organic shapes, never forced into rectangles that leave gaps. Each style has an **irregularity** setting
-  (0 = tidy rectangles, like a US suburb; higher = uneven widths and slightly skewed side lines, like an old European
-  town).
-- Default sizes, set per road type and style: depth Low 30–45 m, Medium 25–40 m, High 30–60 m. Widths come from the
-  style's buildings (Low ~12–25 m, rows ~5–8 m).
+- Cells, strips, patches and plots are `System.Numerics` polygons with no Godot types (like `HeightMap`). The
+  simulation reads plots (zone, form, style, level), not meshes.
+- A cell's key is `run:column:row` or `patch:i:j`; keys change when a road changes, which is why painted cells move
+  across by centre, not by key.
+
+### Defaults to revisit in the play-test
+Cell 8 m; rows 5 (max 8); corner patches 60°–150°; plots need the front cell. These were the storyboard's open
+questions and were left at their defaults (2026-10-06).
+
+### Superseded (kept for the record)
+Before the grid we tried free parcels (2026-10-05), then 4 m chunks with style-made plots, then "organic" noise
+(drifting, reverse-S and ragged plot lines from burgmap and CityEngine). The user found the noise just made the same
+layout wavy and ugly, and chose the CS-style grid that follows the road instead. What carried over: plot rules belong
+to the form, a style is the look, the player paints and never draws plots, corners face both streets, and the slope
+rules. `docs/zoning-storyboard.html` is that earlier storyboard.
 
 ## 4. Buildings as content
 
@@ -132,24 +158,25 @@ A `.tres` file per building (or per set), like roads:
   houses).
 - `MaxSlope`, corner-capable, plinth mesh.
 - Variations (materials, colours, mirroring) plus a spawn weight. Spawning avoids the same model next door.
-- Footprints in metres (no cells), with a front side and a setback.
+- Footprints in metres, with a front side and a setback, fitted to plots made of cells (procedural buildings on the
+  cells come later and may replace whole models).
 - Simulation numbers (households, jobs) kept separate, in Godot-free data like `HeightMap`.
 
 ## 5. Player control (the things people install mods for)
 
-- **Zone tools:** brush, block fill and erase on parcels, depth per side.
+- **Zone tools:** brush, block fill and erase on cells; depth is painted.
 - **Lock:** a building stops levelling and is never replaced (the *Plop the Growables* need).
-- **Swap variant:** cycle a building to another model that fits the same parcel (*Asset Variation Changer*).
-- **Place a growable (not now, agreed 2026-10-05):** pick a specific building for a parcel (Find It + Plop). Not built
-  yet, but the data supports it from the start: a parcel can hold a `PinnedBuilding` that the spawner never replaces.
+- **Swap variant:** cycle a building to another model that fits the same plot (*Asset Variation Changer*).
+- **Place a growable (not now, agreed 2026-10-05):** pick a specific building for a plot (Find It + Plop). Not built
+  yet, but the data supports it from the start: a plot can hold a `PinnedBuilding` that the spawner never replaces.
 - **Limits per style area:** maximum height and density (district height limits).
-- Large buildings (RICO's job): parcels can merge, so High density has no size cap.
+- Large buildings (RICO's job): a form's plots can be many cells wide, so High density has no size cap.
 
 ## 6. Growth (kept minimal in the experiment)
 
 Feel over accuracy. The experiment needs only:
 - A demand value per Use × Density (debug sliders, no economy yet).
-- A spawn rate: empty parcels pick a building, play a short construction phase, then become occupied.
+- A spawn rate: empty plots pick a building, play a short construction phase, then become occupied.
 - Optional: level-ups that swap the model.
 
 The real economy, citizens, land value and abandonment come with the simulation later.
@@ -165,24 +192,19 @@ Two new packages, moved out of `experiments/roads` (moved, not rewritten):
 - `experiments/roads` keeps working on top of both packages (all its `--demo-*` checks still pass), and
   `experiments/zoning/` uses terrain + splines + roads + build UI.
 
-## 8. Draft milestones
+## 8. Milestones
+See `ROADMAP.md` (rewritten for the grid on 2026-10-06).
 
-- **Z0:** move to packages: build UI and roads into packages, with `experiments/roads` unchanged in behaviour.
-- **Z0.5:** storyboard (HTML, one frame per control and case: straight, curve, corner, T, cul-de-sac, slope, depth
-  handle, zone cards, road moved under parcels). Agreed before parcel code, as with splines.
-- **Z1:** blocks and frontage bands from the road graph, debug draw, rebuilt on road edits.
-- **Z2:** parcel split: mixed widths, perpendicular cuts on curves, corners, slivers, determinism.
-- **Z3:** zone tools (brush, fill, erase, depth handle) and zone cards from `.tres`, inheriting across road
-  edits.
-- **Z4:** buildings from content: placeholder boxes per style and form, fitting, setbacks, yards, pads with plinths,
-  variation.
-- **Z5:** zone cards in the tray (style + use + density + form, `Low · Res` pill), two test styles ("Eastern Europe"
-  and "US Suburban") with box sets of different shapes.
-- **Z6:** growth: demand sliders, spawn, construction, replacement on re-zone.
-- **Z7:** control: lock, swap variant, height limit, parcel edits. (Place growable later; the data is ready for it.)
-- Later: Mixed use, levels, modular buildings, industry, performance at scale.
-
-## References for parcel generation
+## References for parcel generation (background; the grid replaced the parcel approach)
+- burgmap, pre-modern settlement generator (frontage runs, skeleton strips, ±6° tilt and ±12° field noise, stochastic
+  depth, sliver merging, burgage-cycle infill): https://github.com/dunkean/burgmap (`web/URBAN_GEOMETRY.md`)
+- CityEngine block parameters (irregularity, corner angle/width, lotAreaMin, shallowLotFrac):
+  https://doc.arcgis.com/en/cityengine/latest/help/help-layers-block-parameters.htm
+- Lot subdivision write-up (OBB parcelling, area/access/aspect/frontage rules):
+  https://martindevans.me/game-development/2015/12/27/Procedural-Generation-For-Dummies-Lots/
+- Reverse-S fields: https://hlamap.org.uk/types/1/agriculture-and-settlement/medievalpost-medieval-reverse-s-shaped-fields
+- Burgage plots in Scottish medieval towns (measured widths, later splits and merges):
+  https://www.researchgate.net/publication/370248143_The_archaeology_of_burgage_plots_in_Scottish_medieval_towns_a_review
 - Vanegas et al., "Procedural Generation of Parcels in Urban Modeling" (Eurographics 2012): OBB and straight-skeleton
   block subdivision, the method behind CityEngine's lot splitting.
 - CityEngine block parameters (lot area min/max, irregularity, corner alignment): https://doc.arcgis.com/en/cityengine/latest/help/help-block-parameters.htm

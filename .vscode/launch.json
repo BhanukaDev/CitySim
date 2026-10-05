@@ -117,6 +117,64 @@
       "stopAtEntry": false
     },
     {
+      // Draw roads from the Roads tray; the zoning grid follows them.
+      "name": "Zoning: Play (flat map)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "zoning: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/zoning", "--", "--flat"],
+      "cwd": "${workspaceFolder}/experiments/zoning",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Zoning: Play",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "zoning: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/zoning"],
+      "cwd": "${workspaceFolder}/experiments/zoning",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // The storyboard's straight frame, seen from above.
+      "name": "Zoning: Storyboard straight",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "zoning: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/zoning", "--", "--flat", "--storyboard=straight", "--cam=560,500,195,90,0"],
+      "cwd": "${workspaceFolder}/experiments/zoning",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      // The storyboard's curve frame; add "--radius=80" for a tighter bend (the frame's slider).
+      "name": "Zoning: Storyboard curve",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "zoning: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/zoning", "--", "--flat", "--storyboard=curve", "--cam=560,500,195,90,0"],
+      "cwd": "${workspaceFolder}/experiments/zoning",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Zoning: Open Godot editor",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "zoning: build",
+      "program": "/Applications/Godot_mono.app/Contents/MacOS/Godot",
+      "args": ["--path", "${workspaceFolder}/experiments/zoning", "--editor"],
+      "cwd": "${workspaceFolder}/experiments/zoning",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
       // Attach to a game you started from the Godot editor (pick the Godot process).
       "name": "Attach to Godot",
       "type": "coreclr",

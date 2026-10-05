@@ -38,7 +38,7 @@ Four kinds of file, each a `.tres` you can make and edit in the Godot inspector 
 |---|---|---|
 | `BuildCategory` | bottom-bar button | `Id`, `DisplayName`, `Icon` (white SVG), `Order` |
 | `BuildTab` | tab in a category's tray | `Id`, `Category` (a category id), `DisplayName`, `Order`, `DividerBefore` |
-| `RoadType` (a `BuildItem`) | road card | `Id`, `DisplayName`, `Description`, `Tab` (a tab id), `Order`, `Icon` (optional), `Lanes`, `OneWay`, `ForwardLanes` (asymmetric split, 0 = even), `Surface`, `Sidewalks`, `Median`, lane/strip/sidewalk/median widths (`StripWidth`: each side, between the outer lane and the kerb) |
+| `RoadType` (a `BuildItem`) | road card | `Id`, `DisplayName`, `Description`, `Tab` (a tab id), `Order`, `Icon` (optional), `Lanes`, `OneWay`, `ForwardLanes` (asymmetric split, 0 = even), `Surface`, `Sidewalks`, `Median`, lane/strip/sidewalk/median widths (`StripWidth`: each side, between the outer lane and the kerb), `ZoneRows` (zoning cells each side, 0–8; highways 0) |
 | `RoadTool` (a `BuildItem`) | tool card (Crossings, Lane Links) | `Id`, `DisplayName`, `Description`, `Tab`, `Icon`, `Tool` (which tool the game runs: `crossings` or `lane_links`), `Usage` (mouse hints for the options panel) |
 | `RoadStyle` (an `IContent`) | look of every road | `Id` (`default`), kerb height and top width, crown, gutter width, skirt depth, line width, centre and lane dash : gap, materials (asphalt, gravel, gutter, kerb, sidewalk, paint) |
 

@@ -135,6 +135,27 @@
       },
       "dependsOn": "roads: build",
       "problemMatcher": []
+    },
+    {
+      "label": "zoning: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "-nologo", "-v", "q", "/property:GenerateFullPaths=true"],
+      "options": { "cwd": "${workspaceFolder}/experiments/zoning" },
+      "problemMatcher": "$msCompile",
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "zoning: grid check",
+      "detail": "Run --demo-grid (prints \"Demo grid: all ok\")",
+      "type": "shell",
+      "command": "\"$GODOT\" --headless --path . --quit-after 300 -- --flat --demo-grid",
+      "options": {
+        "cwd": "${workspaceFolder}/experiments/zoning",
+        "env": { "GODOT": "/Applications/Godot_mono.app/Contents/MacOS/Godot" }
+      },
+      "dependsOn": "zoning: build",
+      "problemMatcher": []
     }
   ]
 }

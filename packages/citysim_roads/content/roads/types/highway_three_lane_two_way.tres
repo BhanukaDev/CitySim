@@ -17,3 +17,4 @@ OneWay = false
 Sidewalks = 0
 LaneWidth = 3.75
 ForwardLanes = 2
+ZoneRows = 0

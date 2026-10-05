@@ -49,6 +49,11 @@ public partial class RoadType : BuildItem
     /// <summary>Highest the road may be raised above the ground under it, in metres; higher is red.</summary>
     [Export(PropertyHint.Range, "0,30,0.5,suffix:m")] public float MaxFill { get; set; } = 4f;
 
+    // How deep the land beside the road can be zoned. Highways have none.
+    [ExportGroup("Zoning")]
+    /// <summary>Rows of zoning cells on each side (8 m each); 0 = the road can't be zoned along.</summary>
+    [Export(PropertyHint.Range, "0,8,1")] public int ZoneRows { get; set; } = 5;
+
     public RoadDef ToDef() => new()
     {
         Id = Id,
@@ -62,6 +67,7 @@ public partial class RoadType : BuildItem
         SidewalkWidth = SidewalkWidth,
         StripWidth = StripWidth,
         MedianWidth = MedianWidth,
+        ZoneRows = ZoneRows,
     };
 
     public override string Badge => $"{Lanes} {(OneWay ? "→" : "⇄")}";
