@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CitySim.Roads;
+using CitySim.Splines.Godot;
 using Godot;
 
 namespace CitySim.UI;
@@ -53,7 +54,7 @@ public partial class RoadOptionsPanel : PanelContainer
     private readonly CheckButton _snapping = new() { Text = "Snapping", FocusMode = FocusModeEnum.None };
     private readonly Dictionary<RoadSnaps, Button> _snapButtons = new();
     private readonly CheckButton _anarchy = new() { Text = "Anarchy", FocusMode = FocusModeEnum.None };
-    private readonly Label _usage = UiTheme.Label("", 12);
+    private readonly RichTextLabel _usage = new() { FitContent = true, ScrollActive = false, SelectionEnabled = false };
     private readonly VBoxContainer _drawBox = new(); // everything for drawing roads, hidden while a tool is picked
 
     public RoadToolOptions Options { get; } = new();
@@ -75,7 +76,7 @@ public partial class RoadOptionsPanel : PanelContainer
         _comes.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
         col.AddChild(_comes);
         col.AddChild(new HSeparator());
-        _usage.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _usage.AddThemeFontSizeOverride("normal_font_size", 12);
         _usage.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
         _usage.Visible = false;
         col.AddChild(_usage);
@@ -188,6 +189,27 @@ public partial class RoadOptionsPanel : PanelContainer
         SetMode(Options.Mode);
     }
 
+    /// <summary>The tool's usage lines. A line's first word that's an input (<c>LMB</c>, <c>Shift+click</c>) is drawn
+    /// as icons (<see cref="KeyGlyphs"/>); the rest stays text.</summary>
+    private void ShowUsage(string usage)
+    {
+        _usage.Clear();
+        var lines = usage.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (i > 0) _usage.Newline();
+            var line = lines[i];
+            int space = line.IndexOf(' ');
+            string first = space < 0 ? line : line[..space];
+            if (KeyGlyphs.Known(first))
+            {
+                KeyGlyphs.Append(_usage, first, 16, UiTheme.Accent);
+                line = line[first.Length..];
+            }
+            _usage.AddText(line);
+        }
+    }
+
     /// <summary>Shows the picked card: a road (with the draw options) or a road tool (with its usage).</summary>
     public void SetItem(Content.BuildItem? item)
     {
@@ -196,7 +218,7 @@ public partial class RoadOptionsPanel : PanelContainer
             _name.Text = tool.Label;
             _name.AddThemeColorOverride("font_color", UiTheme.Text);
             _comes.Text = tool.Description;
-            _usage.Text = tool.Usage;
+            ShowUsage(tool.Usage);
         }
         else SetRoad(item as RoadType);
         _usage.Visible = item is RoadTool;

@@ -21,10 +21,12 @@ Needs the terrain package (`citysim_terrain`) in the same project.
   `GridLayout`, `Geometry/` (`Alignment`, `Curve`, segments, `FreehandFit`, `RibbonGeometry`), `Snapping/`,
   `Graph/` (`SplineGraph`, `Junctions`, `Validation`, `Vertical`, `GroundShaping`).
 - `icons/`: Tabler icons the overlay draws in place of symbols in tag text (∡ ↔ ↗ ↘ ⤓ ⤒; `SplineOverlay.Icons`). Core
-  writes the symbols, so its wording stays engine-free.
+  writes the symbols, so its wording stays engine-free. Also the mouse and keycap icons (`mouse-*`, `key-*`) that
+  `KeyGlyphs` draws for an input string (`"Shift+wheel"`, `"RMB"`, `"[ ] · Shift+[ ]"`): the overlay's mouse hints
+  use it, and consumers can too (`KeyGlyphs.Draw` on any `CanvasItem`, `KeyGlyphs.Append` into a `RichTextLabel`).
 - `src/Godot/`: `SplineProfile` (the `.tres` per network type), `SplineNetwork` (the built graph, undo, issues,
   footprints, visuals), `SplineDrawTool`, `SplineEditTool`, `RibbonRenderer` (draw previews and the placeholder
-  flat-ribbon network), `SplineOverlay`, `SplineOptionsBar` (the testbed's bar), `SplineIssueList`, `TerrainGround`,
+  flat-ribbon network), `SplineOverlay`, `KeyGlyphs`, `SplineOptionsBar` (the testbed's bar), `SplineIssueList`, `TerrainGround`,
   `TerrainHeightGrid`.
 
 ## Heights and ground shaping

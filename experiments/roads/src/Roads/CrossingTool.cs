@@ -42,6 +42,8 @@ public partial class CrossingTool : Node
     private Control _overlay = null!;
     private Control _tags = null!; // the mouse tag, on a layer above the HUD so the tray never hides it
     private string? _tag;
+    /// <summary>The input drawn as icons before <see cref="_tag"/>'s first line (<see cref="KeyGlyphs"/>), or null.</summary>
+    private string? _tagKey;
     private Target? _hover;
     /// <summary><see cref="Refusal"/> per place, until the network changes.</summary>
     private readonly Dictionary<string, string?> _refusals = new();
@@ -295,7 +297,7 @@ public partial class CrossingTool : Node
 
     private void DrawOverlay()
     {
-        _tag = null;
+        _tag = _tagKey = null;
         if (!Active) return;
         var g = Network!.Graph;
         var visual = Host!.Visual!;
@@ -327,18 +329,19 @@ public partial class CrossingTool : Node
 
         if (_hover is not { } t) return;
         string text;
+        string? key = null;
         if (t.SplitAt is not null)
         {
             var why = Refusal(t);
             var c = why is null ? SplineOverlay.Accent : SplineOverlay.Bad;
             Fill(t.Quad!, c with { A = 0.35f });
             Outline(t.Quad!, c, dashed: false, width: 3f);
-            text = why ?? "LMB  add crossing";
+            (key, text) = why is null ? ("LMB", "Add crossing") : (null, why);
         }
         else if (t.ArmEdge < 0)
         {
             if (t.Node == Selected) return;
-            text = "LMB  select";
+            (key, text) = ("LMB", "Select");
         }
         else
         {
@@ -354,9 +357,12 @@ public partial class CrossingTool : Node
             // The other side of a crossing along a road: a crossing there too makes one twice as wide.
             bool widen = mode == CrossingMode.Auto && !Crossings.AtJunction(e, t.AtStart, Network.Footprints)
                 && g.Arms(t.Node).Any(a => a.EdgeId != e.Id && visual.Marks.TryGetValue((a.EdgeId, a.AtStart), out var o) && o.Zebra);
-            text = mode != CrossingMode.Yes && Refusal(t) is { } why ? $"{state}\n{why}" : widen ? "LMB  widen crossing" : state;
+            if (mode != CrossingMode.Yes && Refusal(t) is { } why) text = $"{state}\n{why}";
+            else if (widen) (key, text) = ("LMB", "Widen crossing");
+            else text = state;
         }
         _tag = text;
+        _tagKey = key;
     }
 
     private void DrawTag()
@@ -365,10 +371,12 @@ public partial class CrossingTool : Node
         var mouse = _view.MouseScreen() + new Vector2(18, 14);
         var font = ThemeDB.FallbackFont;
         var lines = _tag.Split('\n');
-        float w = lines.Max(l => font.GetStringSize(l, HorizontalAlignment.Left, -1, 13).X) + 16;
+        float keyWidth = _tagKey is null ? 0 : KeyGlyphs.Width(_tagKey, font, 13, 18) + 6;
+        float w = lines.Select((l, i) => font.GetStringSize(l, HorizontalAlignment.Left, -1, 13).X + (i == 0 ? keyWidth : 0)).Max() + 16;
         _tags.DrawRect(new Rect2(mouse, new Vector2(w, lines.Length * 18 + 8)), new Color("#1C2629", 0.92f));
+        if (_tagKey is not null) KeyGlyphs.Draw(_tags, mouse + new Vector2(8, 19), _tagKey, font, 13, 18, SplineOverlay.Accent);
         for (int i = 0; i < lines.Length; i++)
-            _tags.DrawString(font, mouse + new Vector2(8, 19 + i * 18), lines[i], HorizontalAlignment.Left, -1, 13, new Color("#F4F1E6"));
+            _tags.DrawString(font, mouse + new Vector2(8 + (i == 0 ? keyWidth : 0), 19 + i * 18), lines[i], HorizontalAlignment.Left, -1, 13, new Color("#F4F1E6"));
     }
 
     /// <summary>A ring on the ground round a node, out past its arms' crossing places.</summary>

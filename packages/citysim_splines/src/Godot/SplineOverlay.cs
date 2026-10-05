@@ -657,10 +657,10 @@ public partial class SplineOverlay : Control
 
     /// <summary>A dark rounded pill with white text, placed at (or centred on) its anchor, nudged down past any tag
     /// already placed this frame and kept on screen. A <see cref="PendingTag.Key"/> is drawn first in the accent colour
-    /// ("LMB Place"). The <see cref="Icons"/> characters in the text are drawn as icons at text height.</summary>
+    /// as mouse and keycap icons (<see cref="KeyGlyphs"/>). The <see cref="Icons"/> characters in the text are drawn as icons at text height.</summary>
     private void Tag(PendingTag t)
     {
-        float keyWidth = t.Key is null ? 0 : _font.GetStringSize(t.Key, HorizontalAlignment.Left, -1, FontSize).X + 7;
+        float keyWidth = t.Key is null ? 0 : KeyGlyphs.Width(t.Key, _font, FontSize, KeyPx) + 7;
         var size = new Vector2(TextWidth(t.Text) + keyWidth + 14, FontSize + 10);
         var box = new Rect2(t.Centered ? t.At - size / 2 : t.At, size);
         for (int guard = 0; guard < 10 && _placedTags.Exists(r => r.Grow(1).Intersects(box)); guard++)
@@ -676,7 +676,7 @@ public partial class SplineOverlay : Control
         var pen = box.Position + new Vector2(7, FontSize + 3);
         if (t.Key is not null)
         {
-            DrawString(_font, pen, t.Key, HorizontalAlignment.Left, -1, FontSize, Accent);
+            KeyGlyphs.Draw(this, pen, t.Key, _font, FontSize, KeyPx, Accent);
             pen.X += keyWidth;
         }
         DrawText(pen, t.Text, textColor, textColor);
@@ -716,9 +716,9 @@ public partial class SplineOverlay : Control
         ['⤓'] = "arrow-bar-to-down",
         ['⤒'] = "arrow-bar-to-up",
     };
-    private const string IconDir = "res://addons/citysim_splines/icons/";
     private const int IconPx = 14;
-    private readonly Dictionary<char, Texture2D?> _icons = new();
+    /// <summary>Size of a tag's mouse and keycap icons.</summary>
+    private const int KeyPx = 18;
 
     /// <summary>The text cut into plain runs and the icon characters (<see cref="Icons"/>).</summary>
     private static IEnumerable<(string Part, char? Glyph)> Split(string text)
@@ -737,19 +737,7 @@ public partial class SplineOverlay : Control
     /// <summary>An icon at text height, tinted, its left edge at the pen.</summary>
     private void Glyph(Vector2 baseline, char glyph, Color color)
     {
-        if (Icon(glyph) is { } tex) DrawTextureRect(tex, new Rect2(baseline + new Vector2(0, -IconPx + 3), new Vector2(IconPx, IconPx)), false, color);
-    }
-
-    /// <summary>The icon rasterised once at its drawn size (crisper than scaling an imported 64 px texture down).</summary>
-    private Texture2D? Icon(char glyph)
-    {
-        if (_icons.TryGetValue(glyph, out var tex)) return tex;
-        string path = IconDir + Icons[glyph] + ".svg";
-        var image = new Image();
-        tex = FileAccess.FileExists(path) && image.LoadSvgFromString(FileAccess.GetFileAsString(path), IconPx / 64f) == Error.Ok
-            ? ImageTexture.CreateFromImage(image) : null;
-        if (tex is null) GD.PushWarning($"SplineOverlay: no icon {path}");
-        return _icons[glyph] = tex;
+        if (KeyGlyphs.Icon(Icons[glyph], IconPx) is { } tex) DrawTextureRect(tex, new Rect2(baseline + new Vector2(0, -IconPx + 3), new Vector2(IconPx, IconPx)), false, color);
     }
 
     private Vector2? ScreenOf(NumVector2 plan) => Project?.Invoke(plan);
