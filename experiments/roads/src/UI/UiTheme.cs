@@ -18,6 +18,10 @@ public static class UiTheme
     public static readonly Color Text = new(0.92f, 0.94f, 0.96f);
     public static readonly Color TextDim = new(0.62f, 0.67f, 0.72f);
     public static readonly Color Warn = new(0.95f, 0.70f, 0.30f);
+    public static readonly Color TooltipBg = new(0.08f, 0.09f, 0.11f, 0.97f);
+    /// <summary>Faint fill for tiles on a dark panel (the hover card's detail cells).</summary>
+    public static readonly Color Tile = new(1f, 1f, 1f, 0.045f);
+    public static readonly Color Hairline = new(1f, 1f, 1f, 0.08f);
 
     public const float BarHeight = 72f;
     public const float Gap = 10f;
@@ -63,7 +67,10 @@ public static class UiTheme
     {
         var t = new Theme();
         t.SetStylebox("panel", "PanelContainer", Box(PanelBg, 8, 10));
-        t.SetStylebox("panel", "TooltipPanel", Box(new Color(0.08f, 0.09f, 0.11f, 0.97f), 6, 10));
+        var tip = Box(TooltipBg, 8, 12);
+        tip.SetBorderWidthAll(1);
+        tip.BorderColor = Hairline;
+        t.SetStylebox("panel", "TooltipPanel", tip);
 
         t.SetStylebox("normal", "Button", Box(ButtonBg, 5, 6));
         t.SetStylebox("hover", "Button", Box(ButtonHover, 5, 6));

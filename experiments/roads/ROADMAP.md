@@ -101,6 +101,9 @@ Tabs with no visible roads are hidden too.
   quays and bridges.
 - Bottom bar, tray (tabs show names only, search over all tabs with "in <tab>" labels, horizontal card scroll), hover card,
   roads options panel (modes, grid blocks/fit, snapping master + 4 groups, Anarchy). Keys: 1–4, Ctrl+A, `/`, Esc.
+- Card look (2026-10-05): picture edge to edge with a lanes badge (`BuildItem.Badge`, "2 ⇄"), name, a dim line
+  (`BuildItem.Summary`, the width) and a MOD pill; picked = accent outline + tick. Hover card is 340 px with a 12:7
+  picture, description, `Details()` as a two-column tile grid ("None" dimmed), tab chip and a Source footer.
 - Options are UI state only (`RoadToolOptions`); nothing draws yet.
 
 ### ⬜ R2: The small two-lane road (built 2026-10-05, waiting for the user's play-test)

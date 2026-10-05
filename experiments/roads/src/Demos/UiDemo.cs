@@ -14,7 +14,7 @@ namespace CitySim.Demos;
 ///   (or the problems) and quits.</item>
 /// <item><c>--ui=open:roads,tab:medium,pick:four_lane,hover:four_lane,search:lane,mode:grid,anarchy</c>: puts the UI in that
 ///   state (in that order) for a <c>--screenshot</c>. <c>hover</c> shows the item's hover card above its card, since a
-///   real tooltip needs the mouse.</item>
+///   real tooltip needs the mouse. <c>tooltip</c> opens the real tooltip with a fake mouse move instead.</item>
 /// </list>
 /// </summary>
 public partial class UiDemo : Node
@@ -60,10 +60,30 @@ public partial class UiDemo : Node
         GetTree().Quit(problems.Count == 0 ? 0 : 1);
     }
 
+    /// <summary>Moves a fake mouse onto the item's card so Godot opens its real tooltip window (sized by Godot, not
+    /// by us), to check the hover card the way the player sees it.</summary>
+    private async System.Threading.Tasks.Task ShowTooltip(GameHud hud, string id)
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        if (hud.Library.Item(id) is not { } item || hud.Tray.CardFor(item) is not { } card)
+        {
+            GD.PushError($"--ui tooltip: {id} has no card on screen");
+            return;
+        }
+        // Re-sent for a few frames, since a real mouse move over the window would close it; then the tooltip delay runs.
+        var at = card.GetGlobalRect().GetCenter();
+        for (int i = 0; i < 20; i++)
+        {
+            GetViewport().PushInput(new InputEventMouseMotion { Position = at, GlobalPosition = at });
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+    }
+
     private async void ApplyUi(string spec)
     {
         var hud = Hud!;
-        string? hover = null;
+        string? hover = null, tooltip = null;
         foreach (string part in spec.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             var kv = part.Split(':', 2);
@@ -77,9 +97,11 @@ public partial class UiDemo : Node
                 case "mode": hud.RoadOptions.SetMode(Enum.Parse<RoadDrawMode>(value, ignoreCase: true)); break;
                 case "anarchy": hud.RoadOptions.ToggleAnarchy(); break;
                 case "hover": hover = value; break;
+                case "tooltip": tooltip = value; break;
                 default: GD.PushError($"--ui: unknown part \"{part}\""); break;
             }
         }
+        if (tooltip is not null) await ShowTooltip(hud, tooltip);
         if (hover is null || hud.Library.Item(hover) is not { } item) return;
 
         // Wait for the cards to lay out, then place the card above the item's card like a tooltip.
@@ -88,7 +110,7 @@ public partial class UiDemo : Node
         if (hud.Tray.CardFor(item) is not { } card) { GD.PushError($"--ui hover: {hover} has no card on screen"); return; }
         var panel = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         panel.AddThemeStyleboxOverride("panel", UiTheme.Theme.GetStylebox("panel", "TooltipPanel"));
-        panel.AddChild(DetailCard.Create(item, hud.Tray.Searching ? hud.Library.TabOf(item)?.Label : null));
+        panel.AddChild(DetailCard.Create(item, hud.Library.TabOf(item)?.Label));
         hud.Root.AddChild(panel);
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         var r = card.GetGlobalRect();

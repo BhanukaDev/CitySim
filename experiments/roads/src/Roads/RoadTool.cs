@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CitySim.Content;
 using Godot;
 
@@ -18,6 +17,4 @@ public partial class RoadTool : BuildItem
     [Export] public string Tool { get; set; } = "";
     /// <summary>The mouse hints shown in the options panel while the tool is picked, one per line.</summary>
     [Export(PropertyHint.MultilineText)] public string Usage { get; set; } = "";
-
-    public override IEnumerable<(string Label, string Value)> Details() => [("Tool", Label)];
 }

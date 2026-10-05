@@ -71,6 +71,11 @@ public partial class RoadType : BuildItem
         Median == MedianKind.Raised ? "raised median" : OneWay ? "one-way markings" : Surface == RoadSurface.Gravel ? "no markings" : "painted centre line",
     }.Where(s => s != ""));
 
+    public override string Badge => $"{Lanes} {(OneWay ? "→" : "⇄")}";
+    public override string Summary => WidthText(ToDef());
+
+    private static string WidthText(RoadDef d) => d.Width.ToString("0.#", CultureInfo.InvariantCulture) + " m";
+
     public override IEnumerable<(string Label, string Value)> Details()
     {
         var d = ToDef();
@@ -78,7 +83,8 @@ public partial class RoadType : BuildItem
         yield return ("Surface", Surface == RoadSurface.Gravel ? "Gravel" : "Asphalt");
         yield return ("Sidewalks", Sidewalks == SidewalkLayout.Both ? "Both sides" : "None");
         yield return ("Median", Median == MedianKind.Raised ? "Raised" : "None");
-        yield return ("Width", d.Width.ToString("0.#", CultureInfo.InvariantCulture) + " m");
+        yield return ("Width", WidthText(d));
+        yield return ("Max grade", MaxGrade.ToString("0.#", CultureInfo.InvariantCulture) + "%");
     }
 
     protected override Control CreateThumbnail() => new RoadThumbnail { Road = ToDef() };

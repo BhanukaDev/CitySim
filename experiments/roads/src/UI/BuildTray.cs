@@ -159,14 +159,14 @@ public partial class BuildTray : PanelContainer
         if (query == "")
         {
             var tab = _lib.Tabs.FirstOrDefault(t => t.Id == openTab);
-            cards = tab is null ? [] : _lib.ItemsOf(tab).Select(i => new ItemCard(i)).ToList();
+            cards = tab is null ? [] : _lib.ItemsOf(tab).Select(i => new ItemCard(i, tab.Label)).ToList();
             _info.Text = "";
         }
         else
         {
             cards = _lib.ItemsOf(_category)
                 .Where(i => i.Label.Contains(query, StringComparison.OrdinalIgnoreCase) || i.Id.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .Select(i => new ItemCard(i, _lib.TabOf(i)?.Label)).ToList();
+                .Select(i => new ItemCard(i, _lib.TabOf(i)?.Label, inSearch: true)).ToList();
             _info.Text = cards.Count == 0 ? $"Nothing matches \"{query}\"" : $"{cards.Count} found across all tabs";
         }
 
