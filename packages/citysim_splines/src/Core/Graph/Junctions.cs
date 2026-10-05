@@ -76,8 +76,13 @@ public sealed record KerbKnob(int EdgeId, bool AtStart, int OtherEdgeId, bool Ot
 /// <c>Junctions.MaxFlare</c> times its near end.</summary>
 public enum KerbLimit { Fit, Radius, Flare }
 
-/// <summary>How far an arm's edge is cut back from the node centre so the curb corners fit.</summary>
-public readonly record struct ArmCut(int EdgeId, bool AtStart, float CutBack);
+/// <summary>How far an arm's edge is cut back from the node centre so the curb corners fit. <see cref="Squeezed"/>: its
+/// corners wanted more of the edge than it has (a sharp angle, or another junction close by), so it's cut back as far as
+/// it can be and they don't fit.</summary>
+public readonly record struct ArmCut(int EdgeId, bool AtStart, float CutBack)
+{
+    public bool Squeezed { get; init; }
+}
 
 /// <summary>
 /// A <see cref="JunctionKind.Node"/> junction's footprint (DESIGN.md → Junctions), as data for the consumer to draw:
@@ -300,7 +305,7 @@ public static class Junctions
             // Whether arm a tapers on its side toward the run-on pair k (arms k and k + 1): it's the wider of the two.
             bool Tapers(int k, int a) => taper[a] > 0 && Half(a) > Half(a == k ? (k + 1) % n : k) + 0.01f;
         }
-        var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
+        var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i]) { Squeezed = f.Squeezed[i] }).ToList();
         return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline))
             { Bend = n == 2 };
     }
@@ -311,7 +316,7 @@ public static class Junctions
     /// <c>Legs[i]</c>: for a curb, where its two sides' tangents meet as a station along each arm, and the tangent of half
     /// the angle there, so an end radius R starts it at <c>X + R / TanHalf</c>.</summary>
     private sealed record Layout(List<(Arm Arm, float Gap)> Sorted, ArmPath[] Paths, float[] Cut, Curb?[] Curbs, (float From, float To)[] CurbAt, bool[] Corner,
-        (float XA, float XB, float TanHalf)?[] Legs);
+        (float XA, float XB, float TanHalf)?[] Legs, bool[] Squeezed);
 
     /// <summary>The curbs and cut-backs of a <see cref="JunctionKind.Node"/> junction with three or more arms, or a
     /// <see cref="IsBend"/> (see <see cref="Footprint"/>), null for any other node.</summary>
@@ -420,9 +425,13 @@ public static class Junctions
             cut[i] = MathF.Max(cut[i], curbAt[i].From);
             cut[j] = MathF.Max(cut[j], curbAt[i].To);
         }
+        var squeezed = new bool[n];
         for (int i = 0; i < n; i++)
+        {
+            squeezed[i] = cut[i] > paths[i].Cap + 1e-3f;
             cut[i] = Math.Clamp(cut[i], 0, paths[i].Cap);
-        return new Layout(sorted, paths, cut, curbs, curbAt, corner, legs);
+        }
+        return new Layout(sorted, paths, cut, curbs, curbAt, corner, legs, squeezed);
     }
 
     /// <summary>

@@ -46,6 +46,7 @@ public partial class RoadDemo : Node
             }
             else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
             else if (arg == "--demo-grid") Callable.From(RunGrid).CallDeferred();
+            else if (arg == "--demo-cluster") Callable.From(RunCluster).CallDeferred();
             else if (arg == "--demo-crossings")
             {
                 var at = OS.GetCmdlineUserArgs().FirstOrDefault(x => x.StartsWith("--crossing-cursor="))?["--crossing-cursor=".Length..].Split(',');
@@ -92,6 +93,9 @@ public partial class RoadDemo : Node
                  $"{Network.Issues.Count} issues");
         foreach (var i in Network.Issues) GD.Print($"  issue: {i.Severity} {i.Code} {i.Message}");
         if (Network.Footprints.Count < 3) problems.Add($"{Network.Footprints.Count} junction footprints, want at least 3");
+        // Junctions with room between them stay apart (--demo-cluster has ones that don't).
+        if (JunctionClusters.Find(g, Network.Footprints) is { Count: > 0 } cls)
+            problems.Add($"{cls.Count} junction clusters, want none (nodes {string.Join(" | ", cls.Select(c => string.Join(",", c.Nodes)))})");
 
         var sec = visual.SectionOf(g.Edges.First());
         GD.Print($"  section: half width {sec.HalfWidth}, half carriageway {sec.HalfCarriageway}");

@@ -71,11 +71,13 @@ public static class Crossings
     public static bool Crossable(RoadSection sec) =>
         sec.HasSidewalks && sec.Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt);
 
-    /// <summary>The markings at every end of every edge that has some, by (edge, at start).</summary>
+    /// <summary>The markings at every end of every edge that has some, by (edge, at start). <paramref name="inner"/>: edges
+    /// inside a junction cluster (<see cref="JunctionClusters"/>), which have no road of their own to mark.</summary>
     public static Dictionary<(int Edge, bool AtStart), EndMarks> Resolve(SplineGraph g,
-        IReadOnlyDictionary<int, JunctionFootprint> footprints, Func<GraphEdge, RoadSection> sectionOf, SectionStyle st)
+        IReadOnlyDictionary<int, JunctionFootprint> footprints, Func<GraphEdge, RoadSection> sectionOf, SectionStyle st,
+        IReadOnlySet<int>? inner = null)
     {
-        bool Paved(GraphEdge e) => sectionOf(e).Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt);
+        bool Paved(GraphEdge e) => inner?.Contains(e.Id) != true && sectionOf(e).Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt);
         float Free(GraphEdge e)
         {
             var (c0, c1) = Junctions.CutBacks(e, footprints);
@@ -89,7 +91,7 @@ public static class Crossings
             {
                 int node = atStart ? e.Start : e.End;
                 int arms = g.Node(node).Edges.Count;
-                if (arms < 2 || !Crossable(sectionOf(e))) continue;
+                if (arms < 2 || inner?.Contains(e.Id) == true || !Crossable(sectionOf(e))) continue;
                 var mode = ModeOf(e, atStart);
                 if (mode == CrossingMode.Yes || (mode == CrossingMode.Auto && AtJunction(e, atStart, footprints)))
                     wants.Add((e, atStart, mode == CrossingMode.Yes, arms, node));

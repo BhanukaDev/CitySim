@@ -345,6 +345,12 @@ Each snap and each guide type toggles in the options bar, as in CS2. A profile c
   kept through moves, splits, merges and reconnects; one that no longer fits is squeezed to the road's limit. A joint of
   two arms has no kerbs (it gets the bend fill). Double-click a knob or road handle to reset it; the junction's radial
   menu has **Reset kerbs** in Smooth's place. One undo step each.
+- **Clusters** (`JunctionClusters.Find`): junctions too close to fit apart are one. Two footprints on one edge join
+  when their outlines overlap, when less than 1 m of the edge is left between their cut-backs, or when either arm is
+  **squeezed** on it (`ArmCut.Squeezed`: its corners wanted more of the edge than the cap allows; only for an edge up
+  to 4 × its width long). A `JunctionCluster` lists its nodes, its **inner** edges (no road of their own left) and the
+  arms leading in. The consumer draws it as one area; the space the inner edges close in on is an island. Kerb
+  handles still edit each node's own footprint, which a cluster doesn't draw.
 - `Turnout` kind: a branch has to leave tangentially, within `TurnoutMaxAngle` (every arm must run along another
   arm's line within that angle). A square attempt shows red, and the tool offers the nearest legal turnout as a
   ghost: leaving along the line, curving at `MinRadius`, the arc starting at the switch. A click takes it.

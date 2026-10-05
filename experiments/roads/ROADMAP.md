@@ -47,6 +47,9 @@ $G --path . -- --flat --demo-lane-links=pick --cam=700,512,48,70,0 --screenshot=
 $G --path . -- --flat --demo-lane-links=add --cam=700,512,48,70,0 --screenshot=screenshots/lanelinks_add.png      # mid-drag over a lane out
 $G --path . -- --flat --demo-lane-links --cam=500,505,32,85,0 --screenshot=screenshots/lanelinks_chevrons.png     # T without a right turn: chevrons
 $G --path . -- --flat --demo-grid --cam=600,500,40,60,30 --screenshot=screenshots/grid_corner.png       # a grid's 90° corner
+$G --headless --path . --quit-after 300 -- --flat --demo-cluster      # 3 junctions as one, island, undo; "Demo cluster: all ok"
+$G --path . -- --flat --demo-cluster --cam=712,490,70,89,0 --screenshot=screenshots/cluster_top.png     # 3 junctions as one, island
+$G --path . -- --flat --demo-cluster --cam=708,492,28,35,210 --screenshot=screenshots/cluster_low.png   # the island, low
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
@@ -308,6 +311,28 @@ like the TM:PE lane connector in CS1).
   back into one road (`TryMerge` refuses ends with data). To fix when it bites.
 - For the play-test: is RMB-anywhere for the picked link right, or should it be RMB on the link? Are the dots big enough
   at a normal zoom? Should a lane left with no links be refused instead of shown red?
+
+### ⬜ R7: Junction clusters (built 2026-10-05, waiting for the user's play-test)
+User report: a 4-way with a road crossing its east arm 20 m on and joining its north arm 36 m up drew three
+footprints over each other (stray sidewalk blocks, crossings in the middle of the road). Wanted: one shape, a small
+sidewalk island with crossings, chevrons for the rest.
+- Splines addon: `JunctionClusters.Find` groups junctions whose footprints overlap or are squeezed on the edge between
+  them (`ArmCut.Squeezed`, new: the corner wanted more of the edge than it has). Generic, so rails and canals get it too.
+- `RoadVisual.Clusters`: a cluster is drawn instead of its footprints and inner edges. Asphalt = every carriageway in it
+  (inner edges node to node, arms to their cuts, a disc per node), outside corners rounded at the kerb radius (a
+  closing); sidewalk = that grown by the sidewalk width, so it keeps its width round every corner. A hole the
+  carriageways close in on is a raised island (kerb, gutter round it, tips rounded up to 1.5 m as far as fits; under
+  1.5 m across it stays asphalt). A zebra goes from the island across each road beside it, at the nearest place where
+  the far side is sidewalk for the crossing's width (none if there's no such place). Wear along every lane through
+  it; the chevrons cover what no lane uses, cut round the islands and zebras. Level between its nodes' heights.
+- Inner edges get no crossings, stop lines or lane lines (`Crossings.Resolve(..., inner)`); arms leading in keep theirs.
+- Offsets in clusters run at 16× scale: Godot's round joins were visibly faceted at a kerb's few metres.
+- `--demo-cluster` builds the reported shape and checks it (`RoadDemo.Cluster.cs`): one cluster of 3 nodes, 3 inner
+  edges and 5 arms, one island with one zebra, chevrons, no markings on inner edges, every surface drawn, and undo /
+  redo. `--demo-road` now also fails if any of its junctions cluster.
+- Not yet: kerb handles and the Lane Links tool still work per node (a cluster ignores set kerb radii); stop lines at
+  island crossings; a big block closed in by a cluster is paved all over, not grass.
+- For the play-test: does the island sit where you'd expect, and should the island crossings bring stop lines?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking. Lane arrows painted from the lane links.

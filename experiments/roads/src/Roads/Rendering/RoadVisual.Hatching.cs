@@ -17,9 +17,9 @@ public sealed partial class RoadVisual
     /// <see cref="SectionStyle.HatchClearance"/> each side). What's left at least <see cref="SectionStyle.HatchMinWidth"/>
     /// across gets a border line and chevrons inside it along its length, pointing to its narrow end, so a skewed
     /// junction's dead space reads as road markings instead of spare asphalt. Corners between a turn and the kerb are
-    /// slivers and drop out.
+    /// slivers and drop out. <paramref name="holes"/>: what's left of the asphalt is cut round these (a cluster's islands).
     /// </summary>
-    private void Hatching(RoadMesh rm, IEnumerable<Vector2[]> asphalt, List<TrackPath> paths)
+    private void Hatching(RoadMesh rm, IEnumerable<Vector2[]> asphalt, List<TrackPath> paths, IEnumerable<Vector2[]>? holes = null)
     {
         var st = _sectionStyle;
         if (paths.Count == 0 || st.HatchStripe <= 0) return;
@@ -35,6 +35,13 @@ public sealed partial class RoadVisual
                 // that's only an odd footprint. Leave the island whole then.
                 return cut.Select(Geometry2D.IsPolygonClockwise).Distinct().Count() > 1 ? new[] { i } : cut.ToArray();
             }).ToList();
+        }
+        if (holes is not null)
+        {
+            // Round the islands of a cluster, and drop the slivers left between a hole and a path.
+            float r = st.HatchMinWidth / 4;
+            islands = MinusAll(islands, holes).SelectMany(i => Solid(Offset(i, -r)))
+                .SelectMany(i => Solid(Offset(i, r))).ToList();
         }
         foreach (var island in islands)
         {

@@ -39,6 +39,9 @@ public sealed partial class RoadVisual : INetworkVisual
     /// <summary>The height <see cref="Point"/> builds on: the height line at the station being drawn, or the junction's
     /// node. NaN drapes on the ground (an edge or node with no height yet).</summary>
     private float _level = float.NaN;
+    /// <summary>When set, the height <see cref="Point"/> builds on at each point instead of <see cref="_level"/> (a
+    /// junction cluster, between its nodes' heights).</summary>
+    private Func<NumVector2, float>? _levelAt;
 
     public RoadVisual(Node3D parent, IGround ground, RoadStyle style, Func<string, RoadDef?> defOf)
     {
@@ -67,19 +70,28 @@ public sealed partial class RoadVisual : INetworkVisual
         _node?.QueueFree();
         _node = null;
         var rm = new RoadMesh { Wear = DefaultWear };
-        Hatches = 0;
-        Marks = Crossings.Resolve(graph, footprints, SectionOf, _sectionStyle);
+        Hatches = Islands = IslandCrossings = 0;
+        var clusters = JunctionClusters.Find(graph, footprints);
+        var innerEdges = clusters.SelectMany(c => c.Inner).ToHashSet();
+        var clustered = clusters.SelectMany(c => c.Nodes).ToHashSet();
+        Marks = Crossings.Resolve(graph, footprints, SectionOf, _sectionStyle, innerEdges);
         foreach (var e in graph.Edges)
-            if (hidden?.Contains(e.Id) != true)
+            if (hidden?.Contains(e.Id) != true && !innerEdges.Contains(e.Id))
             {
                 rm.Age = Age(e);
                 Segment(rm, graph, e, footprints);
             }
         foreach (var f in footprints.Values)
-            if (!f.Cuts.Any(c => hidden?.Contains(c.EdgeId) == true))
+            if (!clustered.Contains(f.NodeId) && !f.Cuts.Any(c => hidden?.Contains(c.EdgeId) == true))
             {
                 rm.Age = f.Cuts.Max(c => Age(graph.Edge(c.EdgeId)));
                 Junction(rm, graph, f);
+            }
+        foreach (var cl in clusters)
+            if (!cl.Nodes.SelectMany(n => graph.Node(n).Edges).Any(id => hidden?.Contains(id) == true))
+            {
+                rm.Age = cl.Nodes.SelectMany(n => graph.Node(n).Edges).Max(id => Age(graph.Edge(id)));
+                Cluster(rm, graph, cl, footprints);
             }
         foreach (var n in graph.Nodes)
             if (!n.Edges.Any(e => hidden?.Contains(e) == true))
@@ -338,7 +350,7 @@ public sealed partial class RoadVisual : INetworkVisual
 
     /// <summary>A plan point at a height above <see cref="_level"/> (or the ground, with no level).</summary>
     private Vector3 Point(NumVector2 plan, float height) =>
-        new(plan.X, (float.IsNaN(_level) ? _ground.GetHeight(plan) : _level) + Lift + height, plan.Y);
+        new(plan.X, (_levelAt?.Invoke(plan) ?? (float.IsNaN(_level) ? _ground.GetHeight(plan) : _level)) + Lift + height, plan.Y);
 
     private static float LevelAt(GraphEdge e, float s) => e.Heights?.At(s) ?? float.NaN;
 
