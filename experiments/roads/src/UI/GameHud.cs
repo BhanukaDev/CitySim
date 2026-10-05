@@ -57,7 +57,7 @@ public partial class GameHud : CanvasLayer
 
         Tray = new BuildTray(Library);
         Tray.CloseRequested += Close;
-        Tray.ItemPicked += RoadOptions.SetItem;
+        Tray.ItemPicked += i => RoadOptions.SetItem(i, TabLabel(i));
         _dock.AddChild(Tray);
     }
 
@@ -72,8 +72,10 @@ public partial class GameHud : CanvasLayer
         if (category is null) return;
         foreach (var (id, panel) in _optionPanels) panel.Visible = id == category.Id;
         Tray.Open(category);
-        RoadOptions.SetItem(Tray.Picked);
+        RoadOptions.SetItem(Tray.Picked, TabLabel(Tray.Picked));
     }
+
+    private string? TabLabel(BuildItem? item) => item is null ? null : Library.TabOf(item)?.Label;
 
     public void OpenById(string categoryId) => Open(Library.Categories.FirstOrDefault(c => c.Id == categoryId));
 

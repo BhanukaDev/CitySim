@@ -19,7 +19,10 @@ public partial class BuildBar : PanelContainer
         SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide);
         OffsetTop = -UiTheme.BarHeight;
         GrowVertical = GrowDirection.Begin;
-        AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.BarBg, 0, 6));
+        var bg = UiTheme.Box(UiTheme.BarBg, 0, 6);
+        bg.BorderWidthTop = 1;
+        bg.BorderColor = UiTheme.Hairline;
+        AddThemeStyleboxOverride("panel", bg);
         _row.AddThemeConstantOverride("separation", 4);
         AddChild(_row);
     }

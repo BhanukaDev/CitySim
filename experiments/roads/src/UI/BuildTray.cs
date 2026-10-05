@@ -21,9 +21,9 @@ public partial class BuildTray : PanelContainer
     {
         PlaceholderText = "Search",
         ClearButtonEnabled = true,
-        CustomMinimumSize = new Vector2(280, 0),
+        CustomMinimumSize = new Vector2(230, 0),
     };
-    private readonly Label _info = UiTheme.Label("", 12, dim: true);
+    private readonly Label _info = UiTheme.Label("", 11, dim: true);
     private readonly ScrollContainer _scroll = new()
     {
         HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
@@ -55,24 +55,25 @@ public partial class BuildTray : PanelContainer
         col.AddThemeConstantOverride("separation", 8);
         AddChild(col);
 
+        // Header: title, text tabs (the open one underlined in accent), result count, search, close; a hairline under it.
+        var top = new VBoxContainer();
+        top.AddThemeConstantOverride("separation", 0);
+        col.AddChild(top);
         var header = new HBoxContainer();
-        header.AddThemeConstantOverride("separation", 4);
-        col.AddChild(header);
-        _title.CustomMinimumSize = new Vector2(80, 0);
+        header.AddThemeConstantOverride("separation", 8);
+        top.AddChild(header);
+        _title.CustomMinimumSize = new Vector2(70, 0);
+        _title.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         header.AddChild(_title);
-        _tabsRow.AddThemeConstantOverride("separation", 4);
+        _tabsRow.AddThemeConstantOverride("separation", 2);
         _tabsRow.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         header.AddChild(_tabsRow);
-        var close = new Button { Icon = UiTheme.Icon("x"), Flat = true, ExpandIcon = true, TooltipText = "Close (Esc)", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(30, 30) };
-        close.AddThemeConstantOverride("icon_max_width", 18);
-        close.Pressed += () => CloseRequested?.Invoke();
-        header.AddChild(close);
+        _info.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        header.AddChild(_info);
 
-        col.AddChild(new ColorRect { Color = UiTheme.Accent, CustomMinimumSize = new Vector2(0, 2) });
-
-        var searchRow = new HBoxContainer();
-        searchRow.AddThemeConstantOverride("separation", 10);
-        col.AddChild(searchRow);
+        _search.RightIcon = UiTheme.Icon("search", 15);
+        _search.AddThemeColorOverride("clear_button_color", UiTheme.TextDim);
+        _search.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         _search.TextChanged += _ => RebuildCards();
         _search.GuiInput += e =>
         {
@@ -84,11 +85,14 @@ public partial class BuildTray : PanelContainer
                 _search.AcceptEvent();
             }
         };
-        searchRow.AddChild(_search);
-        _info.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-        _info.HorizontalAlignment = HorizontalAlignment.Right;
-        _info.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-        searchRow.AddChild(_info);
+        header.AddChild(_search);
+        var close = new Button { Icon = UiTheme.Icon("x"), Flat = true, ExpandIcon = true, TooltipText = "Close (Esc)", FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(28, 28) };
+        close.AddThemeConstantOverride("icon_max_width", 16);
+        close.AddThemeColorOverride("icon_normal_color", UiTheme.TextDim);
+        close.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        close.Pressed += () => CloseRequested?.Invoke();
+        header.AddChild(close);
+        top.AddChild(UiTheme.Rule());
 
         _cards.AddThemeConstantOverride("separation", 8);
         _scroll.AddChild(_cards);
@@ -108,8 +112,9 @@ public partial class BuildTray : PanelContainer
         var group = new ButtonGroup();
         foreach (var tab in tabs)
         {
-            if (tab.DividerBefore) _tabsRow.AddChild(new VSeparator());
-            var b = new Button { Text = tab.Label, ToggleMode = true, ButtonGroup = group, FocusMode = FocusModeEnum.None };
+            if (tab.DividerBefore) _tabsRow.AddChild(new VSeparator { CustomMinimumSize = new Vector2(12, 16), SizeFlagsVertical = SizeFlags.ShrinkCenter });
+            var b = Tab(tab.Label);
+            b.ButtonGroup = group;
             b.Pressed += () => OpenTab(tab.Id);
             _tabsRow.AddChild(b);
             _tabButtons[tab.Id] = b;
@@ -167,7 +172,7 @@ public partial class BuildTray : PanelContainer
             cards = _lib.ItemsOf(_category)
                 .Where(i => i.Label.Contains(query, StringComparison.OrdinalIgnoreCase) || i.Id.Contains(query, StringComparison.OrdinalIgnoreCase))
                 .Select(i => new ItemCard(i, _lib.TabOf(i)?.Label, inSearch: true)).ToList();
-            _info.Text = cards.Count == 0 ? $"Nothing matches \"{query}\"" : $"{cards.Count} found across all tabs";
+            _info.Text = cards.Count switch { 0 => "No results", 1 => "1 result", var n => $"{n} results" };
         }
 
         var picked = Picked;
@@ -177,5 +182,23 @@ public partial class BuildTray : PanelContainer
             card.Pressed += () => Pick(card.Item);
             _cards.AddChild(card);
         }
+    }
+
+    /// <summary>A text tab: dim, white on hover, and an accent underline when open.</summary>
+    private static Button Tab(string text)
+    {
+        var b = new Button { Text = text, ToggleMode = true, FocusMode = FocusModeEnum.None };
+        var plain = new StyleBoxEmpty { ContentMarginLeft = 9, ContentMarginRight = 9, ContentMarginTop = 6, ContentMarginBottom = 8 };
+        var open = new StyleBoxFlat { BgColor = Colors.Transparent, BorderColor = UiTheme.Accent, BorderWidthBottom = 2 };
+        open.ContentMarginLeft = open.ContentMarginRight = 9;
+        open.ContentMarginTop = 6;
+        open.ContentMarginBottom = 8;
+        b.AddThemeStyleboxOverride("normal", plain);
+        b.AddThemeStyleboxOverride("hover", plain);
+        b.AddThemeStyleboxOverride("pressed", open);
+        b.AddThemeStyleboxOverride("hover_pressed", open);
+        b.AddThemeColorOverride("font_color", UiTheme.TextDim);
+        b.SizeFlagsVertical = SizeFlags.ShrinkEnd;
+        return b;
     }
 }

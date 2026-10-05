@@ -37,24 +37,27 @@ public sealed class RoadToolOptions
 }
 
 /// <summary>
-/// The always-open panel next to the Roads tray: the picked road and what it comes with, tool mode, grid blocks (Grid
-/// mode only), snapping and Anarchy. Only options the splines tool already supports.
+/// The always-open panel next to the Roads tray, in the hover card's look: the picked road's name, tab chip and a row of
+/// fact tiles; tool mode, grid blocks (Grid mode only), snapping and Anarchy. A picked road tool shows its usage instead.
+/// Only options the splines tool already supports.
 /// </summary>
 public partial class RoadOptionsPanel : PanelContainer
 {
     public const float PanelWidth = 300f;
 
-    private readonly Label _name = UiTheme.Label("", 16);
-    private readonly Label _comes = UiTheme.Label("", 12, dim: true);
+    private readonly Label _name = UiTheme.Label("", 17);
+    private readonly HBoxContainer _head = new();
+    private PanelContainer? _chip;
+    private readonly GridContainer _facts = new() { Columns = 3 };
     private readonly Dictionary<RoadDrawMode, Button> _modes = new();
     private readonly VBoxContainer _gridBox = new();
     private readonly SpinBox _cols = Spin(1, 40);
     private readonly SpinBox _rows = Spin(1, 40);
-    private readonly OptionButton _fit = new() { FocusMode = FocusModeEnum.None };
-    private readonly CheckButton _snapping = new() { Text = "Snapping", FocusMode = FocusModeEnum.None };
+    private readonly Dictionary<RoadGridFit, Button> _fits = new();
+    private readonly CheckButton _snapping = new() { FocusMode = FocusModeEnum.None };
     private readonly Dictionary<RoadSnaps, Button> _snapButtons = new();
-    private readonly CheckButton _anarchy = new() { Text = "Anarchy", FocusMode = FocusModeEnum.None };
-    private readonly RichTextLabel _usage = new() { FitContent = true, ScrollActive = false, SelectionEnabled = false };
+    private readonly CheckButton _anarchy = new() { FocusMode = FocusModeEnum.None };
+    private readonly VBoxContainer _usage = new();
     private readonly VBoxContainer _drawBox = new(); // everything for drawing roads, hidden while a tool is picked
 
     public RoadToolOptions Options { get; } = new();
@@ -68,25 +71,28 @@ public partial class RoadOptionsPanel : PanelContainer
         SizeFlagsVertical = SizeFlags.ShrinkEnd;
 
         var col = new VBoxContainer();
-        col.AddThemeConstantOverride("separation", 6);
+        col.AddThemeConstantOverride("separation", 8);
         AddChild(col);
 
-        col.AddChild(_name);
-        _comes.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        _comes.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
-        col.AddChild(_comes);
+        _head.AddThemeConstantOverride("separation", 8);
+        _name.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _name.ClipText = true;
+        _name.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        _head.AddChild(_name);
+        col.AddChild(_head);
+        _facts.AddThemeConstantOverride("h_separation", 6);
+        col.AddChild(_facts);
         col.AddChild(new HSeparator());
-        _usage.AddThemeFontSizeOverride("normal_font_size", 12);
-        _usage.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
+        _usage.AddThemeConstantOverride("separation", 4);
         _usage.Visible = false;
         col.AddChild(_usage);
-        _drawBox.AddThemeConstantOverride("separation", 6);
+        _drawBox.AddThemeConstantOverride("separation", 8);
         col.AddChild(_drawBox);
         col = _drawBox;
 
-        col.AddChild(UiTheme.Section("Tool mode"));
+        col.AddChild(UiTheme.Section("Mode", "1–4"));
         var modeRow = new HBoxContainer();
-        modeRow.AddThemeConstantOverride("separation", 4);
+        modeRow.AddThemeConstantOverride("separation", 6);
         col.AddChild(modeRow);
         var modeGroup = new ButtonGroup();
         (RoadDrawMode Mode, string Label, string Icon, string Tip)[] modes =
@@ -109,7 +115,7 @@ public partial class RoadOptionsPanel : PanelContainer
                 ExpandIcon = true,
                 IconAlignment = HorizontalAlignment.Center,
                 VerticalIconAlignment = VerticalAlignment.Top,
-                CustomMinimumSize = new Vector2(66, 56),
+                CustomMinimumSize = new Vector2(64, 56),
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
             };
             b.AddThemeConstantOverride("icon_max_width", 22);
@@ -119,43 +125,61 @@ public partial class RoadOptionsPanel : PanelContainer
             _modes[mode] = b;
         }
 
-        _gridBox.AddThemeConstantOverride("separation", 4);
+        _gridBox.AddThemeConstantOverride("separation", 6);
         col.AddChild(_gridBox);
+        var blocksTile = UiTheme.Chip(UiTheme.Tile, 5, 9, 4);
+        _gridBox.AddChild(blocksTile);
         var blocks = new HBoxContainer();
         blocks.AddThemeConstantOverride("separation", 6);
-        _gridBox.AddChild(blocks);
-        var bl = UiTheme.Label("Blocks", 13);
+        blocksTile.AddChild(blocks);
+        var bl = UiTheme.Label("BLOCKS", 10, dim: true);
         bl.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        bl.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         blocks.AddChild(bl);
         _cols.Value = Options.GridCols;
         _rows.Value = Options.GridRows;
         _cols.TooltipText = "Blocks along the first edge ([ ])";
         _rows.TooltipText = "Blocks across (Shift+[ ])";
         blocks.AddChild(_cols);
-        blocks.AddChild(UiTheme.Label("×", 13, dim: true));
+        var times = UiTheme.Label("×", 13, dim: true);
+        times.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        blocks.AddChild(times);
         blocks.AddChild(_rows);
         _cols.ValueChanged += v => { Options.GridCols = (int)v; Changed(); };
         _rows.ValueChanged += v => { Options.GridRows = (int)v; Changed(); };
-        _fit.AddItem("Even split", (int)RoadGridFit.Even);
-        _fit.AddItem("Lot steps", (int)RoadGridFit.LotSteps);
-        _fit.TooltipText = "Even split: equal blocks.\nLot steps: every block holds whole lots.";
-        _fit.ItemSelected += i => { Options.GridFit = (RoadGridFit)_fit.GetItemId((int)i); Changed(); };
-        _gridBox.AddChild(_fit);
+        var fitRow = new HBoxContainer();
+        fitRow.AddThemeConstantOverride("separation", 4);
+        _gridBox.AddChild(fitRow);
+        var fitGroup = new ButtonGroup();
+        (RoadGridFit Fit, string Label, string Tip)[] fits =
+        [
+            (RoadGridFit.Even, "Even", "Equal blocks"),
+            (RoadGridFit.LotSteps, "Lot steps", "Every block holds whole lots"),
+        ];
+        foreach (var (fit, label, tip) in fits)
+        {
+            var b = new Button { Text = label, ToggleMode = true, ButtonGroup = fitGroup, TooltipText = tip, FocusMode = FocusModeEnum.None, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            b.AddThemeFontSizeOverride("font_size", 12);
+            b.SetPressedNoSignal(fit == Options.GridFit);
+            b.Pressed += () => { Options.GridFit = fit; Changed(); };
+            fitRow.AddChild(b);
+            _fits[fit] = b;
+        }
 
         col.AddChild(new HSeparator());
         var snapHead = new HBoxContainer();
         col.AddChild(snapHead);
         var sl = UiTheme.Section("Snapping");
         sl.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        sl.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         snapHead.AddChild(sl);
         _snapping.ButtonPressed = Options.Snapping;
-        _snapping.Text = "";
         _snapping.TooltipText = "All snapping on or off";
         _snapping.Toggled += on => { Options.Snapping = on; RefreshSnaps(); Changed(); };
         snapHead.AddChild(_snapping);
         var chips = new HFlowContainer();
-        chips.AddThemeConstantOverride("h_separation", 4);
-        chips.AddThemeConstantOverride("v_separation", 4);
+        chips.AddThemeConstantOverride("h_separation", 6);
+        chips.AddThemeConstantOverride("v_separation", 6);
         col.AddChild(chips);
         (RoadSnaps Flag, string Label, string Tip)[] snaps =
         [
@@ -167,21 +191,31 @@ public partial class RoadOptionsPanel : PanelContainer
         foreach (var (flag, label, tip) in snaps)
         {
             var b = new Button { Text = label, ToggleMode = true, ButtonPressed = true, TooltipText = tip, FocusMode = FocusModeEnum.None };
+            b.AddThemeFontSizeOverride("font_size", 12);
             b.Toggled += on => { Options.Snaps = on ? Options.Snaps | flag : Options.Snaps & ~flag; Changed(); };
             chips.AddChild(b);
             _snapButtons[flag] = b;
         }
-        col.AddChild(UiTheme.Label("Hold Ctrl for 15° steps, Ctrl+Shift for 5°.", 11, dim: true));
+        var steps = new HBoxContainer();
+        steps.AddThemeConstantOverride("separation", 4);
+        col.AddChild(steps);
+        steps.AddChild(UiTheme.Keys("Ctrl"));
+        steps.AddChild(UiTheme.Label("15°", 11, dim: true));
+        steps.AddChild(new Control { CustomMinimumSize = new Vector2(8, 0) });
+        steps.AddChild(UiTheme.Keys("Ctrl+Shift"));
+        steps.AddChild(UiTheme.Label("5°", 11, dim: true));
 
         col.AddChild(new HSeparator());
         var anarchyRow = new HBoxContainer();
+        anarchyRow.AddThemeConstantOverride("separation", 6);
+        anarchyRow.TooltipText = "Ignore overlap and curve limits";
         col.AddChild(anarchyRow);
-        var al = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        al.AddThemeConstantOverride("separation", 0);
-        al.AddChild(UiTheme.Label("Anarchy", 13));
-        al.AddChild(UiTheme.Label("Ignore overlap and curve limits · Ctrl+A", 11, dim: true));
+        var al = UiTheme.Label("Anarchy", 13);
+        al.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        al.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         anarchyRow.AddChild(al);
-        _anarchy.Text = "";
+        anarchyRow.AddChild(UiTheme.Keys("Ctrl+A"));
+        _anarchy.TooltipText = "Ignore overlap and curve limits";
         _anarchy.Toggled += on => { Options.Anarchy = on; Changed(); };
         anarchyRow.AddChild(_anarchy);
 
@@ -189,48 +223,70 @@ public partial class RoadOptionsPanel : PanelContainer
         SetMode(Options.Mode);
     }
 
-    /// <summary>The tool's usage lines. A line's first word that's an input (<c>LMB</c>, <c>Shift+click</c>) is drawn
-    /// as icons (<see cref="KeyGlyphs"/>); the rest stays text.</summary>
+    /// <summary>The tool's usage lines (<c>"LMB junction  select"</c>) as tiles: the input's icons, the target, and the
+    /// action dim on the right. A line whose first word isn't an input stays plain text.</summary>
     private void ShowUsage(string usage)
     {
-        _usage.Clear();
-        var lines = usage.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
+        foreach (var child in _usage.GetChildren()) child.QueueFree();
+        foreach (var line in usage.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (i > 0) _usage.Newline();
-            var line = lines[i];
+            var tile = UiTheme.Chip(UiTheme.Tile, 5, 9, 5);
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 8);
+            tile.AddChild(row);
+            _usage.AddChild(tile);
+
             int space = line.IndexOf(' ');
             string first = space < 0 ? line : line[..space];
+            string rest = line;
             if (KeyGlyphs.Known(first))
             {
-                KeyGlyphs.Append(_usage, first, 16, UiTheme.Accent);
-                line = line[first.Length..];
+                row.AddChild(UiTheme.Keys(first));
+                rest = line[first.Length..].Trim();
             }
-            _usage.AddText(line);
+            int split = rest.IndexOf("  ", StringComparison.Ordinal);
+            string target = split < 0 ? rest : rest[..split].Trim();
+            var t = UiTheme.Label(target.Length > 0 ? char.ToUpperInvariant(target[0]) + target[1..] : "", 13);
+            t.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            row.AddChild(t);
+            if (split >= 0) row.AddChild(UiTheme.Label(rest[split..].Trim(), 12, dim: true));
         }
     }
 
     /// <summary>Shows the picked card: a road (with the draw options) or a road tool (with its usage).</summary>
-    public void SetItem(Content.BuildItem? item)
+    public void SetItem(Content.BuildItem? item, string? tabLabel = null)
     {
         if (item is RoadTool tool)
         {
-            _name.Text = tool.Label;
-            _name.AddThemeColorOverride("font_color", UiTheme.Text);
-            _comes.Text = tool.Description;
+            SetHead(tool.Label, tabLabel);
+            _facts.Visible = false;
             ShowUsage(tool.Usage);
         }
-        else SetRoad(item as RoadType);
+        else SetRoad(item as RoadType, tabLabel);
         _usage.Visible = item is RoadTool;
         _drawBox.Visible = item is not RoadTool;
     }
 
     /// <summary>Shows the picked road in the header (null = nothing picked).</summary>
-    public void SetRoad(RoadType? road)
+    public void SetRoad(RoadType? road, string? tabLabel = null)
     {
-        _name.Text = road?.Label ?? "No road picked";
+        SetHead(road?.Label ?? "No road", road is null ? null : tabLabel);
         _name.AddThemeColorOverride("font_color", road is null ? UiTheme.TextDim : UiTheme.Text);
-        _comes.Text = road is null ? "Pick a road from the tray." : $"Comes with {road.ComesWith}.";
+        foreach (var child in _facts.GetChildren()) child.QueueFree();
+        _facts.Visible = road is not null;
+        if (road is null) return;
+        _facts.AddChild(UiTheme.Cell("Lanes", road.Badge));
+        _facts.AddChild(UiTheme.Cell("Width", road.Summary));
+        _facts.AddChild(UiTheme.Cell("Sidewalks", road.Sidewalks == SidewalkLayout.Both ? "Both" : "None"));
+    }
+
+    private void SetHead(string name, string? tabLabel)
+    {
+        _name.Text = name;
+        _name.AddThemeColorOverride("font_color", UiTheme.Text);
+        _chip?.QueueFree();
+        _chip = tabLabel is null ? null : UiTheme.TagChip(tabLabel);
+        if (_chip is not null) _head.AddChild(_chip);
     }
 
     public void SetMode(RoadDrawMode mode)
@@ -265,6 +321,6 @@ public partial class RoadOptionsPanel : PanelContainer
         MinValue = min,
         MaxValue = max,
         Step = 1,
-        CustomMinimumSize = new Vector2(70, 0),
+        CustomMinimumSize = new Vector2(64, 0),
     };
 }

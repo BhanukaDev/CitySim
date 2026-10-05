@@ -64,13 +64,6 @@ public partial class RoadType : BuildItem
         MedianWidth = MedianWidth,
     };
 
-    /// <summary>"sidewalks both sides · raised median", for the hover card and the options panel.</summary>
-    public string ComesWith => string.Join(" · ", new[] {
-        Surface == RoadSurface.Gravel ? "gravel surface" : "",
-        Sidewalks == SidewalkLayout.Both ? "sidewalks both sides" : "no sidewalks",
-        Median == MedianKind.Raised ? "raised median" : OneWay ? "one-way markings" : Surface == RoadSurface.Gravel ? "no markings" : "painted centre line",
-    }.Where(s => s != ""));
-
     public override string Badge => $"{Lanes} {(OneWay ? "→" : "⇄")}";
     public override string Summary => WidthText(ToDef());
 

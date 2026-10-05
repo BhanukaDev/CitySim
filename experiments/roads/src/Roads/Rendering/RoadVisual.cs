@@ -67,6 +67,7 @@ public sealed partial class RoadVisual : INetworkVisual
         _node?.QueueFree();
         _node = null;
         var rm = new RoadMesh { Wear = DefaultWear };
+        Hatches = 0;
         Marks = Crossings.Resolve(graph, footprints, SectionOf, _sectionStyle);
         foreach (var e in graph.Edges)
             if (hidden?.Contains(e.Id) != true)

@@ -77,6 +77,7 @@ public partial class RoadDemo : Node
         Road(new Pi(V(700, 350)), new Pi(V(700, 700)));                                     // a 4-way at 700, dead end north
         Road(new Pi(V(820, 500)), new Pi(V(820 + 80, 500 + 138.56f)));                      // a 60° skewed T at 820
         Road(new Pi(V(500, 700)), new Pi(V(600, 800), 40), new Pi(V(700, 700)));            // a curve; hard corners at both ends
+        Road(new Pi(V(600, 500)), new Pi(V(600 - 120 * 0.866f, 500 - 120 * 0.5f)));         // a 30° Y at 600: spare asphalt, hatched
 
         var g = Network.Graph;
         GD.Print($"Demo road: {roadId}, {g.EdgeCount} edges, {g.Nodes.Count()} nodes, {Network.Footprints.Count} junctions, " +
@@ -101,6 +102,8 @@ public partial class RoadDemo : Node
             if (MathF.Abs(crown - 0.1f) > 1e-3f) problems.Add($"crown {crown}, want 0.1 (2 % over 5 m)");
         }
         foreach (var (kind, n) in visual.Counts) GD.Print($"  {kind}: {n} triangles");
+        GD.Print($"  {visual.Hatches} hatched islands");
+        if (roadId == "two_lane" && visual.Hatches == 0) problems.Add("no hatching (want some at the 30° Y)");
         foreach (var kind in new[] { SurfaceKind.Asphalt, SurfaceKind.Gutter, SurfaceKind.Kerb, SurfaceKind.Sidewalk, SurfaceKind.Paint })
             if (sec.HasSidewalks && (kind != SurfaceKind.Gutter || sec.GutterWidth > 0) && visual.Counts.GetValueOrDefault(kind) == 0)
                 problems.Add($"no {kind} drawn");

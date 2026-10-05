@@ -54,6 +54,19 @@ public partial class RoadStyle : Resource
     /// <summary>An automatic crossing closer than this along the road to another crossing is left out (the busier
     /// junction's, or one the player placed, stays).</summary>
     [Export(PropertyHint.Range, "0,100,1")] public float CrossingMinGap { get; set; } = 25f;
+    // Chevron hatching on junction asphalt no car drives over (a skewed junction's dead space), instead of a kerbed island.
+    /// <summary>Width of each chevron stripe (0 = no hatching).</summary>
+    [Export(PropertyHint.Range, "0,1,0.05")] public float HatchStripe { get; set; } = 0.5f;
+    /// <summary>Gap between chevron stripes.</summary>
+    [Export(PropertyHint.Range, "0.2,3,0.1")] public float HatchGap { get; set; } = 1f;
+    /// <summary>Angle of the chevron arms to the island's long axis, in degrees.</summary>
+    [Export(PropertyHint.Range, "20,70,1")] public float HatchAngle { get; set; } = 45f;
+    /// <summary>The line round a hatched island.</summary>
+    [Export(PropertyHint.Range, "0.05,0.5,0.01")] public float HatchBorder { get; set; } = 0.15f;
+    /// <summary>Room kept clear either side of the lane a car takes across the junction.</summary>
+    [Export(PropertyHint.Range, "0,2,0.05")] public float HatchClearance { get; set; } = 0.5f;
+    /// <summary>Spare asphalt narrower than this is left plain.</summary>
+    [Export(PropertyHint.Range, "0.5,10,0.1")] public float HatchMinWidth { get; set; } = 2f;
 
     [ExportGroup("Materials")]
     [Export] public Material? Asphalt { get; set; }
@@ -87,6 +100,12 @@ public partial class RoadStyle : Resource
         StopLineGap = StopLineGap,
         SolidApproach = SolidApproach,
         CrossingMinGap = CrossingMinGap,
+        HatchStripe = HatchStripe,
+        HatchGap = HatchGap,
+        HatchAngle = HatchAngle,
+        HatchBorder = HatchBorder,
+        HatchClearance = HatchClearance,
+        HatchMinWidth = HatchMinWidth,
     };
 
     /// <summary>The material for a surface kind (null = left to the renderer's fallback).</summary>

@@ -29,6 +29,12 @@ public sealed record SectionStyle
     public float StopLineGap { get; init; } = 1f;
     public float SolidApproach { get; init; } = 15f;
     public float CrossingMinGap { get; init; } = 25f;
+    public float HatchStripe { get; init; } = 0.5f;
+    public float HatchGap { get; init; } = 1f;
+    public float HatchAngle { get; init; } = 45f;
+    public float HatchBorder { get; init; } = 0.15f;
+    public float HatchClearance { get; init; } = 0.5f;
+    public float HatchMinWidth { get; init; } = 2f;
 }
 
 /// <summary>A traffic lane: its centre's offset from the centre line, and whether it runs along the road's curve

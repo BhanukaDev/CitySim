@@ -21,13 +21,14 @@ public sealed partial class RoadVisual
     {
         var sec = f.Cuts.Select(c => SectionOf(g.Edge(c.EdgeId))).MaxBy(s => s.HalfWidth)!;
         _level = LevelOf(g.Node(f.NodeId));
-        Tracks(rm, g, f);
+        var paths = Tracks(rm, g, f);
         var outline = f.Outline.Select(p => new Vector2(p.X, p.Y)).ToArray();
         var mouths = f.Cuts.Select(c => MouthCentre(g, c)).ToList();
         float sw = sec.HasSidewalks ? sec.HalfWidth - sec.HalfCarriageway : 0f;
         if (sw < 0.01f)
         {
             Fill(rm, sec.Bands[0].Surface, outline, 0);
+            if (sec.Bands[0].Surface == SurfaceKind.Asphalt) Hatching(rm, new[] { outline }, paths);
             return;
         }
 
@@ -45,12 +46,21 @@ public sealed partial class RoadVisual
         float kh = _sectionStyle.KerbHeight;
         // The gutter runs on round the kerb line, inset the same way so it stays open across the mouths.
         var gutterLine = sec.GutterWidth > 0 ? Largest(Geometry2D.OffsetPolygon(merged, -(sw + sec.GutterWidth))) : null;
+        var cores = new List<Vector2[]>();
         foreach (var asphalt in Geometry2D.IntersectPolygons(kerbLine, outline))
         {
-            if (gutterLine is null) Fill(rm, SurfaceKind.Asphalt, asphalt, 0);
+            if (gutterLine is null)
+            {
+                Fill(rm, SurfaceKind.Asphalt, asphalt, 0);
+                cores.Add(asphalt);
+            }
             else
             {
-                foreach (var core in Geometry2D.IntersectPolygons(gutterLine, asphalt)) Fill(rm, SurfaceKind.Asphalt, core, 0);
+                foreach (var core in Geometry2D.IntersectPolygons(gutterLine, asphalt))
+                {
+                    Fill(rm, SurfaceKind.Asphalt, core, 0);
+                    cores.Add(core);
+                }
                 foreach (var gutter in Geometry2D.ClipPolygons(asphalt, gutterLine)) Fill(rm, SurfaceKind.Gutter, gutter, 0);
             }
             // A kerb face along the kerb line, facing the road; none across a mouth, where the arm's asphalt carries on.
@@ -63,6 +73,7 @@ public sealed partial class RoadVisual
                 rm.Quad(SurfaceKind.Kerb, Point(a, 0), Point(b, 0), Point(b, kh), Point(a, kh), new Vector3(inward.X, 0, inward.Y));
             });
         }
+        Hatching(rm, cores, paths);
         foreach (var top in Geometry2D.IntersectPolygons(kerbBack, outline))
             foreach (var kerb in Geometry2D.ClipPolygons(top, kerbLine))
                 Fill(rm, SurfaceKind.Kerb, kerb, kh);
@@ -93,9 +104,10 @@ public sealed partial class RoadVisual
     /// cuts. They carry the lanes' wheel tracks and oil stripe on across the junction (a <see cref="SurfaceKind.Wear"/>
     /// overlay), so wear fans out into the turns instead of stopping at the junction's edge. Each ribbon's UV2.y is its
     /// lane's share of traffic for that movement (the shares of a lane add up to its own wear), UV2.x across it from
-    /// −0.5 to 0.5 and UV = (metres along, how hard it turns 0..1).
+    /// −0.5 to 0.5 and UV = (metres along, how hard it turns 0..1). Returns the paths, for <see cref="Hatching"/>; none
+    /// when an arm has no lanes (nothing to tell where cars go).
     /// </summary>
-    private void Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f)
+    private List<TrackPath> Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f)
     {
         var arms = f.Cuts.Select(c =>
         {
@@ -112,6 +124,7 @@ public sealed partial class RoadVisual
             return new { In = into, Out = Lanes(false), Outward = outward, Kerb = kerb, sec.LaneWidth };
         }).ToList();
 
+        var paths = new List<TrackPath>();
         foreach (var a in arms)
         {
             if (a is null || a.In.Count == 0) continue;
@@ -128,29 +141,61 @@ public sealed partial class RoadVisual
             }
             var total = moves.GroupBy(m => m.Lane).ToDictionary(x => x.Key, x => x.Sum(m => m.Share));
             foreach (var m in moves)
-                Ribbon(rm, a.In[m.Lane], dirIn, m.To, m.Dir, a.LaneWidth / 2, rm.Wear * m.Share / total[m.Lane], m.Turn);
+            {
+                var path = new TrackPath(a.In[m.Lane], dirIn, m.To, m.Dir, a.LaneWidth / 2, m.Turn);
+                Ribbon(rm, path, rm.Wear * m.Share / total[m.Lane]);
+                paths.Add(path);
+            }
+        }
+        return arms.Any(a => a is null) ? new List<TrackPath>() : paths;
+    }
+
+    /// <summary>A path cars take across a junction: from <see cref="P0"/> heading <see cref="D0"/> to <see cref="P3"/>
+    /// heading <see cref="D3"/>, a lane (<see cref="Half"/> its half width) wide, turning 0..1.</summary>
+    private readonly record struct TrackPath(Vector2 P0, Vector2 D0, Vector2 P3, Vector2 D3, float Half, float Turn)
+    {
+        /// <summary>Points along the path's centre with its heading, about a metre apart (none for a path under half a
+        /// metre): a cubic curve leaving and joining the lanes square to the cuts.</summary>
+        public IEnumerable<(Vector2 P, Vector2 D)> Points()
+        {
+            float chord = P0.DistanceTo(P3);
+            if (chord < 0.5f) yield break;
+            // 0.39 of the chord is a circle's arc for a right angle; a third for a straight run.
+            float h = chord * (Turn > 0 ? 0.39f : 1f / 3f);
+            Vector2 p0 = P0, p1 = P0 + D0 * h, p2 = P3 - D3 * h, p3 = P3;
+            int n = Math.Max(6, (int)MathF.Ceiling(chord));
+            for (int i = 0; i <= n; i++)
+            {
+                float t = i / (float)n, u = 1 - t;
+                yield return (u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3,
+                    (3 * u * u * (p1 - p0) + 6 * u * t * (p2 - p1) + 3 * t * t * (p3 - p2)).Normalized());
+            }
+        }
+
+        /// <summary>The ground the path sweeps, <paramref name="half"/> either side of its centre, run on a metre past
+        /// both ends so it cuts clean through a junction's mouths.</summary>
+        public Vector2[] Swept(float half)
+        {
+            var pts = Points().ToList();
+            if (pts.Count == 0) return Array.Empty<Vector2>();
+            pts.Insert(0, (pts[0].P - pts[0].D, pts[0].D));
+            pts.Add((pts[^1].P + pts[^1].D, pts[^1].D));
+            var left = pts.Select(x => x.P + new Vector2(-x.D.Y, x.D.X) * half);
+            var right = pts.Select(x => x.P - new Vector2(-x.D.Y, x.D.X) * half).Reverse();
+            return left.Concat(right).ToArray();
         }
     }
 
-    /// <summary>One wear ribbon from <paramref name="p0"/> heading <paramref name="d0"/> to <paramref name="p3"/> heading
-    /// <paramref name="d3"/> (see <see cref="Tracks"/>).</summary>
-    private void Ribbon(RoadMesh rm, Vector2 p0, Vector2 d0, Vector2 p3, Vector2 d3, float half, float share, float turn)
+    /// <summary>One wear ribbon along a <see cref="TrackPath"/> (see <see cref="Tracks"/>).</summary>
+    private void Ribbon(RoadMesh rm, TrackPath path, float share)
     {
-        float chord = p0.DistanceTo(p3);
-        if (chord < 0.5f) return;
-        // 0.39 of the chord is a circle's arc for a right angle; a third for a straight run.
-        float h = chord * (turn > 0 ? 0.39f : 1f / 3f);
-        Vector2 p1 = p0 + d0 * h, p2 = p3 - d3 * h;
-        int n = Math.Max(6, (int)MathF.Ceiling(chord));
+        float turn = path.Turn;
         RoadMesh.Vertex? l0 = null, r0 = null;
         float along = 0;
-        var last = p0;
-        for (int i = 0; i <= n; i++)
+        var last = path.P0;
+        foreach (var (p, d) in path.Points())
         {
-            float t = i / (float)n, u = 1 - t;
-            var p = u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
-            var d = (3 * u * u * (p1 - p0) + 6 * u * t * (p2 - p1) + 3 * t * t * (p3 - p2)).Normalized();
-            var side = new Vector2(-d.Y, d.X) * half;
+            var side = new Vector2(-d.Y, d.X) * path.Half;
             along += p.DistanceTo(last);
             last = p;
             var l1 = new RoadMesh.Vertex(Point(p + side, TrackLift), new Vector2(along, turn), new Vector2(-0.5f, share));

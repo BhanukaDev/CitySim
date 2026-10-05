@@ -33,10 +33,11 @@ public partial class ItemCard : Button
         // Children are clipped to the card's rounded box, so the picture can run to the edges.
         ClipChildren = ClipChildrenMode.AndDraw;
 
-        AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.ButtonBg, Radius, 0));
-        AddThemeStyleboxOverride("hover", UiTheme.Box(UiTheme.ButtonHover, Radius, 0));
-        AddThemeStyleboxOverride("pressed", UiTheme.Box(UiTheme.AccentDim, Radius, 0));
-        AddThemeStyleboxOverride("hover_pressed", UiTheme.Box(UiTheme.AccentDim, Radius, 0));
+        // Opaque fills: the clip masks children by the box's alpha.
+        AddThemeStyleboxOverride("normal", UiTheme.Box(UiTheme.OnPanel(UiTheme.Tile), Radius, 0));
+        AddThemeStyleboxOverride("hover", UiTheme.Box(UiTheme.OnPanel(UiTheme.TileHover), Radius, 0));
+        AddThemeStyleboxOverride("pressed", UiTheme.Box(UiTheme.OnPanel(UiTheme.AccentTint), Radius, 0));
+        AddThemeStyleboxOverride("hover_pressed", UiTheme.Box(UiTheme.OnPanel(UiTheme.AccentTint), Radius, 0));
 
         var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         col.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -66,7 +67,7 @@ public partial class ItemCard : Button
         var meta = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         meta.AddThemeConstantOverride("separation", 6);
         text.AddChild(meta);
-        string line = inSearch && tabLabel is not null ? $"in {tabLabel}" : item.Summary;
+        string line = inSearch && tabLabel is not null ? tabLabel : item.Summary;
         if (line != "")
         {
             var l = UiTheme.Label(line, 11, dim: true);

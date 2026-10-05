@@ -29,4 +29,6 @@ profiled hot paths.
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the
   `--screenshot=` run (see ROADMAP), and look at the PNG.
 - Don't commit until the user has tried the change in Godot.
+- UI copy is terse: labels, values, chips and key glyphs, never narrated sentences ("Pick a road from the tray.",
+  "Click to build"). Prose only in content descriptions.
 - Keep simulation-facing data (such as `HeightMap`) free of Godot types so it ports to the main game cleanly.

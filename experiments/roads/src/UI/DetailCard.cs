@@ -5,7 +5,7 @@ namespace CitySim.UI;
 
 /// <summary>
 /// The hover card for a tray item: name with its tab, a large picture, the description, its
-/// <see cref="BuildItem.Details"/> as a two-column grid of tiles, and where it came from. Shown as the card's tooltip,
+/// <see cref="BuildItem.Details"/> as a two-column grid of tiles (<see cref="UiTheme.Cell"/>), and where it came from. Shown as the card's tooltip,
 /// so it only informs and never acts.
 /// </summary>
 public static partial class DetailCard
@@ -30,15 +30,12 @@ public static partial class DetailCard
         head.AddChild(name);
         if (tabLabel is not null)
         {
-            var chip = Chip(UiTheme.Tile, 4, 7, 2);
-            chip.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
-            chip.AddChild(UiTheme.Label(tabLabel, 11, dim: true));
-            head.AddChild(chip);
+            head.AddChild(UiTheme.TagChip(tabLabel));
         }
         col.AddChild(head);
 
         // The picture at the thumbnails' own 12:7, clipped to rounded corners (the mask is the box's alpha, so opaque).
-        var hero = Chip(Colors.Black, 5, 0, 0);
+        var hero = UiTheme.Chip(Colors.Black, 5, 0, 0);
         hero.ClipChildren = CanvasItem.ClipChildrenMode.AndDraw;
         var pic = item.CreatePicture();
         if (pic is TextureRect tr) tr.StretchMode = TextureRect.StretchModeEnum.KeepAspectCovered;
@@ -65,11 +62,11 @@ public static partial class DetailCard
         var grid = new GridContainer { Columns = 2 };
         grid.AddThemeConstantOverride("h_separation", 6);
         grid.AddThemeConstantOverride("v_separation", 6);
-        foreach (var (label, value) in item.Details()) grid.AddChild(Cell(label, value));
+        foreach (var (label, value) in item.Details()) grid.AddChild(UiTheme.Cell(label, value));
         if (grid.GetChildCount() > 0) body.AddChild(grid);
         if (body.GetChildCount() == 0) capped.Visible = false;
 
-        col.AddChild(new ColorRect { Color = UiTheme.Hairline, CustomMinimumSize = new Vector2(0, 1) });
+        col.AddChild(UiTheme.Rule());
         var foot = new HBoxContainer();
         foot.AddThemeConstantOverride("separation", 4);
         foot.AddChild(UiTheme.Label("Source", 11, dim: true));
@@ -78,41 +75,8 @@ public static partial class DetailCard
         if (!baseGame) src.AddThemeColorOverride("font_color", UiTheme.Warn);
         foot.AddChild(src);
         if (!baseGame) foot.AddChild(UiTheme.Label("(mod)", 11, dim: true));
-        var hint = UiTheme.Label("Click to build", 11, dim: true);
-        hint.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        hint.HorizontalAlignment = HorizontalAlignment.Right;
-        foot.AddChild(hint);
         col.AddChild(foot);
         return col;
-    }
-
-    /// <summary>One detail: a small upper-case label over the value. "2 · two-way" shows "two-way" smaller and dim;
-    /// "None" is dimmed so the item's actual features stand out.</summary>
-    private static Control Cell(string label, string value)
-    {
-        var cell = Chip(UiTheme.Tile, 5, 9, 6);
-        cell.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-        var v = new VBoxContainer();
-        v.AddThemeConstantOverride("separation", 0);
-        cell.AddChild(v);
-        v.AddChild(UiTheme.Label(label.ToUpperInvariant(), 10, dim: true));
-
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 5);
-        int split = value.IndexOf(" · ", System.StringComparison.Ordinal);
-        string main = split < 0 ? value : value[..split];
-        row.AddChild(UiTheme.Label(main, 14, dim: main == "None"));
-        if (split >= 0)
-        {
-            var rest = UiTheme.Label(value[(split + 3)..], 12, dim: true);
-            rest.SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
-            rest.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
-            rest.ClipText = true;
-            rest.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-            row.AddChild(rest);
-        }
-        v.AddChild(row);
-        return cell;
     }
 
     /// <summary>
@@ -167,15 +131,5 @@ public static partial class DetailCard
             _fade.Visible = full > Size.Y + 0.5f;
             FitChildInRect(_fade, new Rect2(0, Size.Y - FadeHeight, Size.X, FadeHeight));
         }
-    }
-
-    private static PanelContainer Chip(Color bg, int radius, int padX, int padY)
-    {
-        var sb = UiTheme.Box(bg, radius, 0);
-        sb.ContentMarginLeft = sb.ContentMarginRight = padX;
-        sb.ContentMarginTop = sb.ContentMarginBottom = padY;
-        var p = new PanelContainer();
-        p.AddThemeStyleboxOverride("panel", sb);
-        return p;
     }
 }

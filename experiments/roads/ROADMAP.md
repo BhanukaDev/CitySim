@@ -11,6 +11,9 @@ the research and wireframe at https://claude.ai/artifact/9btto4m8pVJzZD3jNTCbzP 
 - Content is `.tres` resources read from folders (`ContentLibrary`), so mods add or replace roads without code.
 - Details show on hover (the card's tooltip). The options panel is always open next to the tray.
 - Only options the splines Draw tool already has: modes 1–4, grid blocks and fit, snap groups, Anarchy.
+- One look, taken from the hover card (v4, https://claude.ai/artifact/XCHdpm4MNCRBA1XDc6qoQa): near-black panels with a
+  hairline border, controls as faint tiles, selected = accent tint + accent outline, text tabs with an accent underline.
+- Terse copy: labels, values, chips and key icons, no narrated sentences. Prose only in content descriptions.
 
 ## How to build / verify
 
@@ -21,10 +24,12 @@ $G --headless --path . --import                                   # after adding
 $G --headless --path . -- --flat --demo-content                   # lists content, prints "Demo content: all ok"
 $G --path . -- --flat --ui=open:roads,tab:small,pick:two_lane,hover:two_lane --screenshot=screenshots/ui_small.png
 $G --path . -- --flat --ui=open:roads,pick:two_lane,search:lane,mode:grid --screenshot=screenshots/ui_search.png
+$G --path . -- --flat --ui=open:roads,tab:services,pick:crossings --screenshot=screenshots/ui_tool.png
 $G --headless --path . --quit-after 300 -- --flat --demo-road        # builds a test network, prints "Demo road: all ok"
 $G --path . -- --flat --demo-road --cam=650,560,420,70,0 --screenshot=screenshots/road_top.png        # overview
 $G --path . -- --flat --demo-road --cam=700,500,30,35,35 --screenshot=screenshots/road_junction.png   # the 4-way, low
 $G --path . -- --flat --demo-road --cam=830,515,45,45,0 --screenshot=screenshots/road_skew.png        # the 60° T
+$G --path . -- --flat --demo-road --cam=585,492,45,80,0 --screenshot=screenshots/road_hatch.png       # the 30° Y, hatched
 $G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip, hillside T, undo, sculpt; "Demo shape: all ok"
 $G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
 $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
@@ -193,6 +198,12 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   lanes coming in, every line ending at the stop line, and the centre line and lines between lanes coming in solid for
   the last 15 m. All numbers in `RoadStyle` (Markings group). Paint UVs fixed, so the sides of lines fray now, and a wide
   line follows the crown.
+- **Hatched islands** (`RoadVisual.Hatching`): junction asphalt no car needs (the junction's asphalt minus every wear
+  path, a lane wide plus 0.5 m each side) gets a 0.15 m border and chevrons (0.5 m stripes, 1 m gaps, 45°) along its
+  long axis pointing to its narrow end, instead of a kerbed island. Spare asphalt under 2 m across is left plain, so
+  square junctions get none; a skewed Y gets the triangle between the turns and a wedge along the obtuse kerb. Numbers
+  in `RoadStyle` (Markings group, `HatchStripe` 0 = off). The demo has a 30° Y at 600 for it.
+  For the play-test: should the wedge along the kerb be hatched too, or only islands traffic passes on every side?
 - Straight is the default draw mode. Closing the Roads tray turns the road tools off (Draw gets no road, Edit goes back
   to Draw, `M` only works with the tray open); before, the picked road kept drawing after the tray closed.
 - **Colours**: asphalt to measured values (worn ≈ albedo 0.12, sRGB ~90, slightly warm), concrete a touch warmer; the
