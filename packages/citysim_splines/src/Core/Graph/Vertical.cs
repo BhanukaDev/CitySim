@@ -155,6 +155,24 @@ public static class Vertical
         return Measured(e, h0, h1, cutStart, cutEnd, h, raw, ds);
     }
 
+    /// <summary>
+    /// A height line for <paramref name="alignment"/> read off lines it was cut from or joined out of
+    /// (<paramref name="at"/>: the height at a station along it), so splitting a road or joining it back at a node of
+    /// its own (a crossing) leaves its line exactly as it was: no kink where a new line would be made for each piece.
+    /// Its deepest cut and highest fill are the ones given (from the old lines, where they fall on this one).
+    /// </summary>
+    internal static EdgeHeights Carried(Alignment alignment, ProfileRules rules, float start, float end, float cutStart, float cutEnd,
+        Func<float, float> at, (float Depth, float S) cut, (float Depth, float S) fill)
+    {
+        float len = alignment.Length;
+        int n = Math.Max(1, (int)MathF.Ceiling(len / Spacing));
+        var h = new float[n + 1];
+        for (int i = 0; i <= n; i++) h[i] = at(len * i / n);
+        h[0] = start;
+        h[n] = end;
+        return new EdgeHeights(alignment, rules, start, end, cutStart, cutEnd, h) { DeepestCut = cut, HighestFill = fill };
+    }
+
     /// <summary>The line, with its deepest cut and highest fill against the natural ground.</summary>
     private static EdgeHeights Measured(GraphEdge e, float h0, float h1, float cutStart, float cutEnd, float[] h, float[] raw, float ds)
     {

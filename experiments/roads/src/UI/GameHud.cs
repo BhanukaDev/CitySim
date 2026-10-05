@@ -24,6 +24,8 @@ public partial class GameHud : CanvasLayer
 
     /// <summary>Whether the Roads tray is open (the road tools only work while it is).</summary>
     public bool RoadsOpen => _dock.Visible && Tray.Category?.Id == "roads";
+    /// <summary>The road tool picked in the open Roads tray (Crossings), if any.</summary>
+    public RoadTool? PickedRoadTool => RoadsOpen ? Tray.Picked as RoadTool : null;
     /// <summary>A category's tray was opened, or the tray closed (null).</summary>
     public event System.Action<BuildCategory?>? CategoryOpened;
 
@@ -55,7 +57,7 @@ public partial class GameHud : CanvasLayer
 
         Tray = new BuildTray(Library);
         Tray.CloseRequested += Close;
-        Tray.ItemPicked += item => RoadOptions.SetRoad(item as RoadType);
+        Tray.ItemPicked += RoadOptions.SetItem;
         _dock.AddChild(Tray);
     }
 
@@ -70,7 +72,7 @@ public partial class GameHud : CanvasLayer
         if (category is null) return;
         foreach (var (id, panel) in _optionPanels) panel.Visible = id == category.Id;
         Tray.Open(category);
-        RoadOptions.SetRoad(Tray.Picked as RoadType);
+        RoadOptions.SetItem(Tray.Picked);
     }
 
     public void OpenById(string categoryId) => Open(Library.Categories.FirstOrDefault(c => c.Id == categoryId));

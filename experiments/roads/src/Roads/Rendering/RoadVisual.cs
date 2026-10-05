@@ -56,12 +56,18 @@ public sealed partial class RoadVisual : INetworkVisual
     /// <summary>Triangles in the last build, per surface kind (for the demo's checks).</summary>
     public IReadOnlyDictionary<SurfaceKind, int> Counts { get; private set; } = new Dictionary<SurfaceKind, int>();
 
+    /// <summary>The crossings and stop lines of the last build, per edge end (<see cref="Crossings.Resolve"/>).</summary>
+    public IReadOnlyDictionary<(int Edge, bool AtStart), EndMarks> Marks { get; private set; } = new Dictionary<(int, bool), EndMarks>();
+
+    public SectionStyle SectionStyle => _sectionStyle;
+
     public void SetNetwork(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints,
         IReadOnlyList<Issue> issues, IReadOnlySet<int>? hidden)
     {
         _node?.QueueFree();
         _node = null;
         var rm = new RoadMesh { Wear = DefaultWear };
+        Marks = Crossings.Resolve(graph, footprints, SectionOf, _sectionStyle);
         foreach (var e in graph.Edges)
             if (hidden?.Contains(e.Id) != true)
             {
@@ -111,16 +117,16 @@ public sealed partial class RoadVisual : INetworkVisual
         float Crown(float s) => MathF.Min(
             atStart ? Math.Clamp((s - s0) / CrownTaper, 0, 1) : 1,
             atEnd ? Math.Clamp((s1 - s) / CrownTaper, 0, 1) : 1);
-        // Junction mouths on a paved road get a crossing, a stop line and solid approach lines (European), and the
-        // lanes coming in are stained where cars queue for the stop line.
+        // Junction mouths on a paved road get a stop line and solid approach lines (European), and a crossing where
+        // Crossings.Resolve puts one; a crossing anywhere else gets stop lines on both sides. The lanes coming into a
+        // junction are stained where cars queue for the stop line.
         var st = _sectionStyle;
-        bool paved = sec.Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt);
-        float uStop = sec.HasSidewalks ? st.CrossingSetback + st.CrossingWidth + st.StopLineGap : st.CrossingSetback;
-        float uLines = uStop + st.StopLineWidth;
+        var markA = Marks.TryGetValue((e.Id, true), out var ma) ? ma : (EndMarks?)null;
+        var markB = Marks.TryGetValue((e.Id, false), out var mb) ? mb : (EndMarks?)null;
+        float uA = markA?.LinesFrom(st) ?? 0, uB = markB?.LinesFrom(st) ?? 0;
+        bool queueA = markA?.Junction == true, queueB = markB?.Junction == true;
         float split = RoadMesh.SplitCode(sec.Split);
-        Vector3 QueueAt(float s) => paved
-            ? new Vector3(atEnd ? Queue(s1 - s - uLines) : 0, atStart ? Queue(s - s0 - uLines) : 0, split)
-            : new Vector3(0, 0, split);
+        Vector3 QueueAt(float s) => new(queueB ? Queue(s1 - s - uB) : 0, queueA ? Queue(s - s0 - uA) : 0, split);
 
         if (s1 - s0 > 1e-3f)
         {
@@ -165,14 +171,14 @@ public sealed partial class RoadVisual : INetworkVisual
             // At a junction every line stops at the stop line; the centre line and lines between lanes coming in are
             // solid on the approach (no overtaking or lane changes just before a junction).
             float solidA = 0, solidB = 0;
-            if (paved && atStart)
+            if (markA is not null)
             {
-                a = s0 + uLines;
+                a = s0 + uA;
                 if (Approach(sec, line, forward: false)) solidA = st.SolidApproach;
             }
-            if (paved && atEnd)
+            if (markB is not null)
             {
-                b = s1 - uLines;
+                b = s1 - uB;
                 if (Approach(sec, line, forward: true)) solidB = st.SolidApproach;
             }
             if (b - a <= 1e-3f) continue;
@@ -182,9 +188,8 @@ public sealed partial class RoadVisual : INetworkVisual
             Dashes(rm, sec, e, a + solidA, b - solidB, line, Crown);
         }
 
-        if (!paved) return;
-        if (atStart && s1 - s0 > uLines) Mouth(rm, sec, e, s0, +1, forward: false, Crown);
-        if (atEnd && s1 - s0 > uLines) Mouth(rm, sec, e, s1, -1, forward: true, Crown);
+        if (markA is { } mA && s1 - s0 > uA) Mouth(rm, sec, e, s0, +1, forward: false, mA, Crown);
+        if (markB is { } mB && s1 - s0 > uB) Mouth(rm, sec, e, s1, -1, forward: true, mB, Crown);
     }
 
     /// <summary>How much cars stand at a distance past the stop line: most right behind it, fading over a queue's length.</summary>
@@ -223,26 +228,26 @@ public sealed partial class RoadVisual : INetworkVisual
     }
 
     /// <summary>
-    /// The markings where a road meets a junction at <paramref name="cut"/> (<paramref name="inward"/> +1 = the road runs
-    /// on along the curve from there): a zebra crossing between the sidewalks, bars along the road across the whole
-    /// carriageway, and a stop line behind it across the lanes coming in (those running <paramref name="forward"/>).
+    /// The markings at one end of a road, from <paramref name="cut"/> (<paramref name="inward"/> +1 = the road runs on
+    /// along the curve from there), as <paramref name="marks"/> places them: a zebra crossing between the sidewalks,
+    /// bars along the road across the whole carriageway, and a stop line across the lanes coming in (those running
+    /// <paramref name="forward"/>).
     /// </summary>
-    private void Mouth(RoadMesh rm, RoadSection sec, GraphEdge e, float cut, int inward, bool forward, Func<float, float> crown)
+    private void Mouth(RoadMesh rm, RoadSection sec, GraphEdge e, float cut, int inward, bool forward, EndMarks marks, Func<float, float> crown)
     {
         var st = _sectionStyle;
         float At(float u) => cut + inward * u;
         (float, float) Span(float u0, float u1) => inward > 0 ? (At(u0), At(u1)) : (At(u1), At(u0));
-        float uStop = st.CrossingSetback;
-        if (sec.HasSidewalks)
+        if (marks.Zebra)
         {
             float reach = sec.HalfCarriageway - sec.GutterWidth - 0.2f, pitch = st.CrossingBar + st.CrossingGap;
             int bars = (int)((2 * reach + st.CrossingGap) / pitch);
             float first = (bars * pitch - st.CrossingGap) / 2 - st.CrossingBar / 2;
-            var (a, b) = Span(st.CrossingSetback, st.CrossingSetback + st.CrossingWidth);
+            var (a, b) = Span(marks.ZebraFrom, marks.ZebraFrom + st.CrossingWidth);
             for (int k = 0; k < bars; k++)
                 Paint(rm, sec, e, a, b, new SectionLine(first - k * pitch, st.CrossingBar, 0, 0), crown);
-            uStop += st.CrossingWidth + st.StopLineGap;
         }
+        if (marks.StopAt is not { } uStop) return;
         var lanes = sec.Lanes.Where(l => l.Forward == forward).ToList();
         if (lanes.Count == 0) return;
         float hw = sec.LaneWidth / 2;

@@ -33,7 +33,8 @@ After every change `SplineNetwork` gives each node a `Height` and each edge an `
 the ground along the centre, averaged over the profile's `GroundSmoothing`, held level over each junction's cut-back,
 eased from level to its grade over `JunctionCurve` metres past it (a vertical curve: the allowed grade rises from 0),
 limited to `MaxGrade` and rounded at crests and sags. A new or moved node takes the ground exactly where it was put; it
-is never moved to make a grade fit. Lines stay until their edge, nodes or
+is never moved to make a grade fit. Splitting an edge at a new node (`SplitEdge`) hands its line on to the pieces, and
+`TryMerge` joins two fitting lines back, so a node of the consumer's own on a road (a crossing) never bends it. Lines stay until their edge, nodes or
 junctions change: **splines never move with the ground**.
 
 Profiles with `Shaping = Section` then shape the ground round what changed (`GroundShaping`): level under the corridor
@@ -59,4 +60,9 @@ pills show each leg's slope. Ends too far apart in height for `MaxGrade` get one
   `Junctions.BendFill`. Leave `hidden` edges out. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
   is an example. Build on the stored heights, not the ground: `edge.Heights.At(s)` (level across, so no roll) and
   `node.Height` for junctions. Either is null only before the network has conformed that graph.
+- **Per-end data**: `GraphEdge.DataStart` / `DataEnd` hold the consumer's own data for each end of an edge (the roads
+  experiment keeps each arm's crossing setting there). Set with `SplineGraph.SetEndData` inside `SplineNetwork.Apply`, so
+  it's undone with the graph. The graph never reads it, but keeps it with its end like the kerb radii (split, merge,
+  continue, edit), and never merges away a node where an end carries some, so a consumer can keep a node of its own on a
+  straight road.
 - Still to come (S10): batched events, costs, `CustomData` policy, save/load.

@@ -27,17 +27,21 @@ public readonly record struct NodeLevel(Vector2 At, float Height);
 /// profile it was drawn with, and the consumer's <see cref="CustomData"/>, which the graph copies across split and
 /// merge but never reads. <see cref="KerbStart"/> / <see cref="KerbEnd"/>: the kerb radii set at each end by the Edit
 /// tool's kerb knobs and road handles (DESIGN.md → Junctions → Kerb handles). They stay with the end while it's on the
-/// same road.
+/// same road. <see cref="DataStart"/> / <see cref="DataEnd"/>: the consumer's data at each end (a road's crossing), kept
+/// with the end the same way; the graph never reads it, but a node where an end carries some is never merged away.
 /// </summary>
 public sealed record GraphEdge(int Id, ProfileRules Rules, Alignment Alignment, int Start, int End)
 {
     public object? CustomData { get; init; }
     public KerbEnds KerbStart { get; init; }
     public KerbEnds KerbEnd { get; init; }
+    public object? DataStart { get; init; }
+    public object? DataEnd { get; init; }
     /// <summary>The height line (<see cref="Vertical.Conform"/>); stale or null once the edge changes.</summary>
     public EdgeHeights? Heights { get; init; }
 
     public KerbEnds KerbAt(bool atStart) => atStart ? KerbStart : KerbEnd;
+    public object? DataAt(bool atStart) => atStart ? DataStart : DataEnd;
 }
 
 /// <summary>
@@ -184,11 +188,11 @@ public sealed partial class SplineGraph
     /// both, wherever the two profiles <see cref="Connects"/>. Where they don't, nothing joins (validation reports the
     /// crossing or overlap). <paramref name="continueAt"/> limits which ends may continue a dead end (an edit re-adding
     /// a junction's arms one by one mustn't merge them), and the new edges carry <paramref name="data"/>. An edit
-    /// re-adding an edge passes its <paramref name="kerbs"/>: they go to the new spline's ends, unless an end continued
-    /// a dead end (it's a corner now).
+    /// re-adding an edge passes its <paramref name="kerbs"/> and <paramref name="endData"/>: they go to the new spline's
+    /// ends, unless an end continued a dead end (it's a corner now).
     /// </summary>
     public AddResult AddSpline(Alignment alignment, ProfileRules rules, Ends continueAt = Ends.Both, object? data = null,
-        (KerbEnds Start, KerbEnds End) kerbs = default)
+        (KerbEnds Start, KerbEnds End) kerbs = default, (object? Start, object? End) endData = default)
     {
         var (drawnStart, drawnEnd) = (alignment.Pis[0].Position, alignment.Pis[^1].Position);
         var continued = new List<int>();
@@ -278,10 +282,10 @@ public sealed partial class SplineGraph
         }
         edges.Add(NewEdge(rules, rest, from, endNode, data));
         nodes.Add(endNode);
-        if (kerbs.Start.IsSet && Vector2.Distance(alignment.Pis[0].Position, drawnStart) < NodeTolerance)
-            _edges[edges[0]] = _edges[edges[0]] with { KerbStart = kerbs.Start };
-        if (kerbs.End.IsSet && Vector2.Distance(alignment.Pis[^1].Position, drawnEnd) < NodeTolerance)
-            _edges[edges[^1]] = _edges[edges[^1]] with { KerbEnd = kerbs.End };
+        if (Vector2.Distance(alignment.Pis[0].Position, drawnStart) < NodeTolerance)
+            _edges[edges[0]] = _edges[edges[0]] with { KerbStart = kerbs.Start, DataStart = endData.Start };
+        if (Vector2.Distance(alignment.Pis[^1].Position, drawnEnd) < NodeTolerance)
+            _edges[edges[^1]] = _edges[edges[^1]] with { KerbEnd = kerbs.End, DataEnd = endData.End };
         foreach (int n in emptied)
             if (_nodes.TryGetValue(n, out var left) && left.Edges.Count == 0) _nodes.Remove(n);
         if (continued.Count > 0)
@@ -376,8 +380,8 @@ public sealed partial class SplineGraph
             int far = atStart ? e.End : e.Start;
             int cut = NewNode(fromCut ? part.Pis[0].Position : part.Pis[^1].Position);
             var piece = atStart == fromCut ? part : AlignmentOps.Reversed(part);
-            kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData, kerbEnd: e.KerbEnd)
-                : NewEdge(e.Rules, piece, far, cut, e.CustomData, kerbStart: e.KerbStart));
+            kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData, kerbEnd: e.KerbEnd, dataEnd: e.DataEnd)
+                : NewEdge(e.Rules, piece, far, cut, e.CustomData, kerbStart: e.KerbStart, dataStart: e.DataStart));
             emptied.Add(atStart ? e.Start : e.End);
         }
 
@@ -396,7 +400,9 @@ public sealed partial class SplineGraph
 
     /// <summary>
     /// Splits an edge at station <paramref name="s"/> with a new node. Within <see cref="NodeTolerance"/> of an end it
-    /// returns that end's node instead and splits nothing (<c>Left</c>/<c>Right</c> null).
+    /// returns that end's node instead and splits nothing (<c>Left</c>/<c>Right</c> null). An edge with its height line
+    /// passes it on: the node takes the line's height there and each piece its part, so the road doesn't move (a
+    /// junction made there gets new lines anyway, as its footprint cuts them back).
     /// </summary>
     public (int Node, int? Left, int? Right) SplitEdge(int edgeId, float s)
     {
@@ -406,8 +412,25 @@ public sealed partial class SplineGraph
         var (l, r) = AlignmentOps.SplitAt(e.Alignment, s);
         int node = NewNode(l.Pis[^1].Position);
         DetachEdge(edgeId);
-        int left = NewEdge(e.Rules, l, e.Start, node, e.CustomData, kerbStart: e.KerbStart);
-        int right = NewEdge(e.Rules, r, node, e.End, e.CustomData, kerbEnd: e.KerbEnd);
+        int left = NewEdge(e.Rules, l, e.Start, node, e.CustomData, kerbStart: e.KerbStart, dataStart: e.DataStart);
+        int right = NewEdge(e.Rules, r, node, e.End, e.CustomData, kerbEnd: e.KerbEnd, dataEnd: e.DataEnd);
+        if (e.Heights is { } h && ReferenceEquals(h.Alignment, e.Alignment))
+        {
+            float mid = h.At(s), len = e.Alignment.Length;
+            _nodes[node].Level = new NodeLevel(_nodes[node].Position, mid);
+            (float, float) Part((float Depth, float S) m, float from, float to) => m.S >= from && m.S <= to ? (m.Depth, m.S - from) : (0, 0);
+            var (ll, rl) = (_edges[left].Alignment.Length, _edges[right].Alignment.Length);
+            _edges[left] = _edges[left] with
+            {
+                Heights = Vertical.Carried(_edges[left].Alignment, e.Rules, h.Start, mid, h.CutStart, 0,
+                    t => h.At(t * s / ll), Part(h.DeepestCut, 0, s), Part(h.HighestFill, 0, s)),
+            };
+            _edges[right] = _edges[right] with
+            {
+                Heights = Vertical.Carried(_edges[right].Alignment, e.Rules, mid, h.End, 0, h.CutEnd,
+                    t => h.At(s + t * (len - s) / rl), Part(h.DeepestCut, s, len), Part(h.HighestFill, s, len)),
+            };
+        }
         return (node, left, right);
     }
 
@@ -469,7 +492,8 @@ public sealed partial class SplineGraph
         return merged;
     }
 
-    /// <summary>Merges the two edges at a node into one, if they share a profile and run straight through.</summary>
+    /// <summary>Merges the two edges at a node into one, if they share a profile and run straight through, and neither
+    /// end there carries the consumer's data (<see cref="GraphEdge.DataStart"/>).</summary>
     public int? TryMerge(int nodeId)
     {
         var node = _nodes[nodeId];
@@ -478,6 +502,7 @@ public sealed partial class SplineGraph
         var a = _edges[arms[0].EdgeId];
         var b = _edges[arms[1].EdgeId];
         if (a.Rules.Id != b.Rules.Id) return null;
+        if (a.DataAt(arms[0].AtStart) is not null || b.DataAt(arms[1].AtStart) is not null) return null;
         if (Vector2.Dot(arms[0].Direction, arms[1].Direction) > -MathF.Cos(StraightDegrees * MathF.PI / 180f)) return null;
 
         // Orient a to end at the node and b to start there.
@@ -488,8 +513,30 @@ public sealed partial class SplineGraph
         DetachEdge(a.Id);
         DetachEdge(b.Id);
         _nodes.Remove(nodeId);
-        return NewEdge(a.Rules, AlignmentOps.Join(aa, bb), aFar, bFar, a.CustomData,
-            arms[0].AtStart ? a.KerbEnd : a.KerbStart, arms[1].AtStart ? b.KerbEnd : b.KerbStart);
+        int merged = NewEdge(a.Rules, AlignmentOps.Join(aa, bb), aFar, bFar, a.CustomData,
+            arms[0].AtStart ? a.KerbEnd : a.KerbStart, arms[1].AtStart ? b.KerbEnd : b.KerbStart,
+            arms[0].AtStart ? a.DataEnd : a.DataStart, arms[1].AtStart ? b.DataEnd : b.DataStart);
+        // Both lines still fit their edges: the joined road keeps them (undoing a split at a node of its own).
+        if (a.Heights is { } ha && ReferenceEquals(ha.Alignment, a.Alignment) && b.Heights is { } hb && ReferenceEquals(hb.Alignment, b.Alignment))
+        {
+            var m = _edges[merged];
+            float la = a.Alignment.Length, lb = b.Alignment.Length, len = m.Alignment.Length;
+            bool ra = arms[0].AtStart, rb = !arms[1].AtStart; // a runs backwards along the merged edge / b does
+            float At(float t)
+            {
+                float u = t * (la + lb) / len;
+                return u <= la ? ha.At(ra ? la - u : u) : hb.At(rb ? lb - (u - la) : u - la);
+            }
+            (float, float) Worst((float Depth, float S) x, (float Depth, float S) y, bool rx, bool ry) =>
+                x.Depth >= y.Depth ? (x.Depth, rx ? la - x.S : x.S) : (y.Depth, la + (ry ? lb - y.S : y.S));
+            _edges[merged] = m with
+            {
+                Heights = Vertical.Carried(m.Alignment, m.Rules, ra ? ha.End : ha.Start, rb ? hb.Start : hb.End,
+                    ra ? ha.CutEnd : ha.CutStart, rb ? hb.CutStart : hb.CutEnd, At,
+                    Worst(ha.DeepestCut, hb.DeepestCut, ra, rb), Worst(ha.HighestFill, hb.HighestFill, ra, rb)),
+            };
+        }
+        return merged;
     }
 
     // --- Helpers ---
@@ -518,10 +565,11 @@ public sealed partial class SplineGraph
     }
 
     private int NewEdge(ProfileRules rules, Alignment alignment, int start, int end, object? data = null,
-        KerbEnds kerbStart = default, KerbEnds kerbEnd = default)
+        KerbEnds kerbStart = default, KerbEnds kerbEnd = default, object? dataStart = null, object? dataEnd = null)
     {
         int id = _nextEdge++;
-        _edges[id] = new GraphEdge(id, rules, alignment, start, end) { CustomData = data, KerbStart = kerbStart, KerbEnd = kerbEnd };
+        _edges[id] = new GraphEdge(id, rules, alignment, start, end)
+            { CustomData = data, KerbStart = kerbStart, KerbEnd = kerbEnd, DataStart = dataStart, DataEnd = dataEnd };
         _nodes[start].Edges.Add(id);
         _nodes[end].Edges.Add(id);
         return id;

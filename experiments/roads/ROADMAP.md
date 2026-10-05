@@ -31,7 +31,11 @@ $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshot
 $G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screenshots/shape_junction.png # T on the hillside
 $G --path . -- --flat --demo-road --road-age=0.6 --cam=700,505,10,75,20 --screenshot=screenshots/road_age.png  # cracks close up
 $G --headless --path . -- --flat --bake-road-textures              # only after changing RoadTextureBaker; then --import
-$G --path . -- --flat --bake-road-thumbnails[=<id>]                # card pictures, after a road or its look changes; imports itself
+$G --path . -- --flat --bake-road-thumbnails[=<id>]                # card pictures (roads and road tools), after a road or its look changes; imports itself
+$G --headless --path . --quit-after 300 -- --flat --demo-crossings   # auto rules + Crossings tool clicks + undo; "Demo crossings: all ok"
+$G --path . -- --flat --demo-crossings --crossing-cursor=760,503 --cam=640,500,190,70,0 --screenshot=screenshots/crossings_overview.png
+$G --path . -- --flat --demo-crossings --crossing-cursor=699.5,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_midblock.png
+$G --path . -- --flat --demo-crossings --crossing-cursor=708,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_refused.png
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
@@ -202,6 +206,48 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   material still is.
 - For the play-test: is the angle/zoom right? Should the thumbnail show a junction (crossing, stop line) instead of
   a straight piece?
+
+### ⬜ R5: Crossings tool (built 2026-10-05, waiting for the user's play-test)
+- Roads → **Services** tab (after a divider, next to Small) → **Crossings**: a `RoadTool` card (`content/roads/tools/`),
+  not a road. While it's picked, Draw idles and `M` does nothing; the options panel shows its mouse hints instead of the
+  draw options.
+- Every arm of a node is a crossing place (where the junction crossing already went). Three states per arm
+  (`CrossingMode`): **Auto** (untouched), **Yes** (LMB), **No** (RMB). Yes and No stay; there's no way back to Auto
+  (user decision, 2026-10-05) other than Undo.
+- **LMB anywhere along a road** splits it with a node there and sets a crossing on it, centred on the mouse (3 m kept
+  clear of the road's ends for stop lines). Auto never puts crossings along a road. RMB on that crossing takes it and its
+  node away again, and the road is one edge again. A crossing along a road paints the zebra, a stop line on each side and
+  solid centre lines on the approach (user decision), like a junction mouth.
+- Auto rules (`Crossings.Resolve`): a crossing on every arm of a junction; none at a dead end, a road's own node or a
+  change of road width (these had a stop line and crossing before; now only if set to Yes). An auto crossing closer than
+  `RoadStyle.CrossingMinGap` (25 m, zebra to zebra) along the road to another crossing is dropped: a forced one stays, else
+  the busier junction's. A crossing that doesn't fit between two junctions isn't drawn (forced ones too: there's no room
+  to paint it); a junction arm keeps its stop line either way. Only paved roads with sidewalks get crossings.
+- Stored in the splines graph as per-end data (`GraphEdge.DataStart` / `DataEnd`, new in the addon), so it goes through
+  undo/redo, splits, merges and Edit drags with its end.
+- **Select, then edit** (play-test feedback): LMB on a junction (or a crossing's node) selects it; only the selected
+  node's arms are outlined and take LMB / RMB. Hovering a node shows a dashed ring and "LMB select junction". LMB along a
+  road away from nodes adds a crossing and selects its node. Esc or a click on nothing clears the selection. The overlay
+  draws one node, so it costs the same on any size of network (the mouse pick still checks every edge: S11 spatial index).
+- Overlay on the selected node: white outline = auto crossing, dashed = auto arm with none, green = Yes, amber = Yes
+  without room, red with an X = No; blue ghost = a new crossing along the road. Hover tag says the arm's state.
+- **No kink on slopes** (play-test feedback): splitting a road for a crossing used to give each piece a new height line,
+  which bent the road at the node (1.09 m on the demo's 10 % hill). The splines addon's `SplitEdge` now hands the old
+  line on (the node takes its height there, each piece its part) and `TryMerge` joins two fitting lines back, so the road
+  doesn't move (0.5 cm, resampling). Not the junction ease-in: that would put a level spot at the crossing with humps
+  either side. Editing one side later still makes that piece a new line.
+- **Can't place, can't** (play-test feedback): LMB tries the change on a copy of the network first. It's refused (red
+  ghost, a tag saying why, the click does nothing) when it would raise an issue the road didn't have (a short piece
+  between two crossings showed as a red "overlaps" halo that stayed after closing the tool), when the zebra wouldn't
+  fit, when it would push a crossing you set off its road, or when it's within 12 m of another crossing that stays.
+  Setting Yes on a junction arm with no room is refused the same way. Automatic crossings still give way by their rules.
+- **Wider crossings**: the dashed place on the other side of a crossing along a road is a real arm. LMB there ("LMB
+  widen crossing") puts a second zebra back to back: one 6 m crossing.
+- Options panel text cut down to four mouse hints; the description is one line.
+- Card picture: a real render (a two-lane road with a crossing, closer in than the road cards), made by `--bake-road-thumbnails[=crossings]`, which now
+  also renders the cards in `content/roads/tools/`.
+- For the play-test: is 25 m the right "too close"? Should Auto also skip crossings on very short side roads, or on
+  junctions of small roads only? Should the tool show every arm's place, not just junctions' (now: on hover)?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking.

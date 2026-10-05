@@ -53,6 +53,8 @@ public partial class RoadOptionsPanel : PanelContainer
     private readonly CheckButton _snapping = new() { Text = "Snapping", FocusMode = FocusModeEnum.None };
     private readonly Dictionary<RoadSnaps, Button> _snapButtons = new();
     private readonly CheckButton _anarchy = new() { Text = "Anarchy", FocusMode = FocusModeEnum.None };
+    private readonly Label _usage = UiTheme.Label("", 12);
+    private readonly VBoxContainer _drawBox = new(); // everything for drawing roads, hidden while a tool is picked
 
     public RoadToolOptions Options { get; } = new();
 
@@ -73,6 +75,13 @@ public partial class RoadOptionsPanel : PanelContainer
         _comes.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
         col.AddChild(_comes);
         col.AddChild(new HSeparator());
+        _usage.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _usage.CustomMinimumSize = new Vector2(PanelWidth - 24, 0);
+        _usage.Visible = false;
+        col.AddChild(_usage);
+        _drawBox.AddThemeConstantOverride("separation", 6);
+        col.AddChild(_drawBox);
+        col = _drawBox;
 
         col.AddChild(UiTheme.Section("Tool mode"));
         var modeRow = new HBoxContainer();
@@ -177,6 +186,21 @@ public partial class RoadOptionsPanel : PanelContainer
 
         SetRoad(null);
         SetMode(Options.Mode);
+    }
+
+    /// <summary>Shows the picked card: a road (with the draw options) or a road tool (with its usage).</summary>
+    public void SetItem(Content.BuildItem? item)
+    {
+        if (item is RoadTool tool)
+        {
+            _name.Text = tool.Label;
+            _name.AddThemeColorOverride("font_color", UiTheme.Text);
+            _comes.Text = tool.Description;
+            _usage.Text = tool.Usage;
+        }
+        else SetRoad(item as RoadType);
+        _usage.Visible = item is RoadTool;
+        _drawBox.Visible = item is not RoadTool;
     }
 
     /// <summary>Shows the picked road in the header (null = nothing picked).</summary>

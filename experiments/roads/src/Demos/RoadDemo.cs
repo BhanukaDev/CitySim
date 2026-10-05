@@ -17,6 +17,7 @@ namespace CitySim.Demos;
 /// <c>--cam</c> to look at it; run headless with <c>--quit-after</c> for the checks alone.
 /// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>). <c>--demo-slope</c>: a draw left open up a
 /// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>).
+/// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
 /// <c>--bake-road-thumbnails[=&lt;road id&gt;]</c>: renders the road cards' pictures (<see cref="RoadThumbnailBaker"/>) and quits.
 /// <c>--bake-road-textures</c>: rewrites the road shaders' noise textures (<see cref="RoadTextureBaker"/>) and quits.
@@ -42,6 +43,13 @@ public partial class RoadDemo : Node
                 Callable.From(() => Run(id)).CallDeferred();
             }
             else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
+            else if (arg == "--demo-crossings")
+            {
+                var at = OS.GetCmdlineUserArgs().FirstOrDefault(x => x.StartsWith("--crossing-cursor="))?["--crossing-cursor=".Length..].Split(',');
+                NumVector2? cursor = at is { Length: 2 } ? new NumVector2(float.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture)) : null;
+                Callable.From(() => RunCrossings(cursor)).CallDeferred();
+            }
             else if (arg == "--demo-slope") Callable.From(RunSlope).CallDeferred();
             else if (arg == "--bake-road-thumbnails" || arg.StartsWith("--bake-road-thumbnails="))
                 AddChild(new RoadThumbnailBaker(arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : null));

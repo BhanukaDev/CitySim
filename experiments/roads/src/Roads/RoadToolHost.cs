@@ -57,6 +57,8 @@ public partial class RoadToolHost : Node, ISplineToolHost
         }
 
         Hud.CategoryOpened += c => { if (c?.Id != "roads" && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
+        // A road tool (Crossings) takes the mouse: Edit stands down, and Draw idles with no road picked.
+        Hud.Tray.ItemPicked += item => { if (item is RoadTool && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
         _mode = Options!.Mode;
         Hud.RoadOptions.OptionsChanged += o =>
         {
@@ -69,7 +71,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.M } key || key.IsCommandOrControlPressed()) return;
-        if (Hud?.RoadsOpen != true) return;
+        if (Hud?.RoadsOpen != true || Hud.PickedRoadTool is not null) return;
         SetTool(Tool == SplineTool.Edit ? SplineTool.Draw : SplineTool.Edit);
         GetViewport().SetInputAsHandled();
     }

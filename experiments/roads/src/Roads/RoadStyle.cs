@@ -51,6 +51,9 @@ public partial class RoadStyle : Resource
     [Export(PropertyHint.Range, "0,5,0.1")] public float StopLineGap { get; set; } = 1f;
     /// <summary>How far before the stop line the centre line and lines between lanes coming in are solid.</summary>
     [Export(PropertyHint.Range, "0,60,1")] public float SolidApproach { get; set; } = 15f;
+    /// <summary>An automatic crossing closer than this along the road to another crossing is left out (the busier
+    /// junction's, or one the player placed, stays).</summary>
+    [Export(PropertyHint.Range, "0,100,1")] public float CrossingMinGap { get; set; } = 25f;
 
     [ExportGroup("Materials")]
     [Export] public Material? Asphalt { get; set; }
@@ -83,6 +86,7 @@ public partial class RoadStyle : Resource
         CrossingGap = CrossingGap,
         StopLineGap = StopLineGap,
         SolidApproach = SolidApproach,
+        CrossingMinGap = CrossingMinGap,
     };
 
     /// <summary>The material for a surface kind (null = left to the renderer's fallback).</summary>

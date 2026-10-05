@@ -16,11 +16,15 @@ namespace CitySim.Roads;
 /// <see cref="Content.BuildItem.Icon"/> at it. A road whose Icon is already something else (hand-made art) gets its
 /// PNG but keeps its Icon. Needs a window (not <c>--headless</c>), and runs <c>--import</c> at the end, since a road
 /// type linked to a PNG Godot hasn't imported yet won't load. The PNGs are checked in, so the game never renders thumbnails itself.
+/// Road tools in <c>content/roads/tools/</c> get one too, showing what they make: Crossings is a two-lane road with a
+/// zebra crossing across it.
 /// </summary>
 public partial class RoadThumbnailBaker : Node
 {
     public const string Folder = "res://content/roads/thumbnails";
     public const string TypesFolder = "res://content/roads/types";
+    public const string ToolsFolder = "res://content/roads/tools";
+    private const string ToolRoad = "two_lane"; // the road a tool's picture is shown on
     private const string StylePath = "res://content/roads/styles/default.tres";
     // Twice the card's picture (120 × 70), so it stays sharp when scaled down.
     private static readonly Vector2I Size = new(240, 140);
@@ -47,10 +51,18 @@ public partial class RoadThumbnailBaker : Node
             return;
         }
         var roads = new List<(RoadType Road, string Path)>();
+        var allRoads = new List<RoadType>();
         foreach (string file in DirAccess.GetFilesAt(TypesFolder).Order())
-            if (file.EndsWith(".tres") && ResourceLoader.Load($"{TypesFolder}/{file}") is RoadType r && (_only is null || r.Id == _only))
-                roads.Add((r, $"{TypesFolder}/{file}"));
-        if (roads.Count == 0)
+            if (file.EndsWith(".tres") && ResourceLoader.Load($"{TypesFolder}/{file}") is RoadType r)
+            {
+                allRoads.Add(r);
+                if (_only is null || r.Id == _only) roads.Add((r, $"{TypesFolder}/{file}"));
+            }
+        var tools = new List<(RoadTool Tool, string Path)>();
+        foreach (string file in DirAccess.GetFilesAt(ToolsFolder).Order())
+            if (file.EndsWith(".tres") && ResourceLoader.Load($"{ToolsFolder}/{file}") is RoadTool t && (_only is null || t.Id == _only))
+                tools.Add((t, $"{ToolsFolder}/{file}"));
+        if (roads.Count == 0 && tools.Count == 0)
         {
             GD.PrintErr($"Road thumbnails: no road types{(_only is null ? "" : $" with id \"{_only}\"")}");
             GetTree().Quit(1);
@@ -59,31 +71,39 @@ public partial class RoadThumbnailBaker : Node
 
         var (viewport, stage, camera) = Studio();
         DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(Folder));
-        string[] ids = roads.Select(r => r.Road.Id).ToArray();
-        var defs = roads.ToDictionary(r => r.Road.Id, r => r.Road.ToDef());
+        string[] ids = allRoads.Select(r => r.Id).ToArray();
+        var defs = allRoads.ToDictionary(r => r.Id, r => r.ToDef());
         int linked = 0;
-        foreach (var (road, path) in roads)
+        var jobs = roads.Select(r => (r.Road.Id, r.Path, Road: r.Road, Crossing: false))
+            .Concat(tools.Select(t => (t.Tool.Id, t.Path, Road: allRoads.First(r => r.Id == ToolRoad), Crossing: t.Tool.Tool == RoadTool.CrossingsTool)));
+        foreach (var (id, path, road, crossing) in jobs)
         {
             foreach (var child in stage.GetChildren()) child.Free();
             var def = defs[road.Id];
             var graph = new SplineGraph();
             graph.AddSpline(new Alignment([new Pi(new NumVector2(-Length / 2, 0)), new Pi(new NumVector2(Length / 2, 0))]),
                 RoadProfiles.From(road, ids).ToRules());
-            var visual = new RoadVisual(stage, new FlatGround(), style, id => defs.GetValueOrDefault(id));
+            var visual = new RoadVisual(stage, new FlatGround(), style, x => defs.GetValueOrDefault(x));
+            if (crossing)
+            {
+                // A crossing along the road, as the tool makes one: its zebra centred in the frame.
+                var (_, _, right) = graph.SplitEdge(graph.Edges.Single().Id, Length / 2 - style.CrossingWidth / 2);
+                graph.SetEndData(right!.Value, true, new RoadEnd(CrossingMode.Yes));
+            }
             visual.SetNetwork(graph, new Dictionary<int, JunctionFootprint>(), [], null);
-            Frame(camera, def.Width);
+            Frame(camera, crossing ? def.Width * 0.55f : def.Width); // a tool's picture is closer in, on what it makes
 
             // One frame to build the scene, one to render it with everything (shaders compiled, shadows) in place.
             for (int i = 0; i < 3; i++) await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             var image = viewport.GetTexture().GetImage();
-            string png = $"{Folder}/{road.Id}.png";
+            string png = $"{Folder}/{id}.png";
             image.SavePng(ProjectSettings.GlobalizePath(png));
             bool link = LinkIcon(path, png);
             if (link) linked++;
-            GD.Print($"Road thumbnails: {road.Id} → {png}{(link ? "" : " (keeps its own Icon)")}");
+            GD.Print($"Road thumbnails: {id} → {png}{(link ? "" : " (keeps its own Icon)")}");
         }
         // A road type whose Icon points at a PNG Godot hasn't imported yet doesn't load at all, so import right away.
-        GD.Print($"Road thumbnails: {roads.Count} rendered, {linked} linked as Icon; importing");
+        GD.Print($"Road thumbnails: {roads.Count + tools.Count} rendered, {linked} linked as Icon; importing");
         int code = OS.Execute(OS.GetExecutablePath(), ["--headless", "--path", ProjectSettings.GlobalizePath("res://"), "--import"]);
         GD.Print(code == 0 ? "Road thumbnails: done" : $"Road thumbnails: --import exited with {code}, run it by hand");
         GetTree().Quit(code);

@@ -10,6 +10,7 @@
 [ext_resource type="Script" path="res://addons/citysim_splines/src/Godot/SplineEditTool.cs" id="14_edittool"]
 [ext_resource type="Script" path="res://src/Roads/RoadToolHost.cs" id="15_host"]
 [ext_resource type="Script" path="res://src/Demos/RoadDemo.cs" id="16_roaddemo"]
+[ext_resource type="Script" path="res://src/Roads/CrossingTool.cs" id="17_crossings"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
@@ -117,7 +118,16 @@ CityCamera = NodePath("../CityCamera")
 HostNode = NodePath("../RoadToolHost")
 Network = NodePath("../SplineNetwork")
 
-[node name="RoadDemo" type="Node" parent="." node_paths=PackedStringArray("Host", "Network")]
+[node name="RoadDemo" type="Node" parent="." node_paths=PackedStringArray("Host", "Network", "CrossingTool")]
 script = ExtResource("16_roaddemo")
 Host = NodePath("../RoadToolHost")
 Network = NodePath("../SplineNetwork")
+CrossingTool = NodePath("../CrossingTool")
+
+[node name="CrossingTool" type="Node" parent="." node_paths=PackedStringArray("Hud", "Host", "Network", "Terrain", "CityCamera")]
+script = ExtResource("17_crossings")
+Hud = NodePath("../GameHud")
+Host = NodePath("../RoadToolHost")
+Network = NodePath("../SplineNetwork")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
