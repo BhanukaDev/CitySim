@@ -18,7 +18,8 @@ namespace CitySim.Demos;
 /// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>). <c>--demo-slope</c>: a draw left open up a
 /// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>). <c>--demo-continue</c>: a draw
 /// left open from a short dead end off a 4-way (<see cref="RunContinue"/>; with <c>--ui=open:roads,pick:two_lane</c>).
-/// <c>--demo-grid</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
+/// <c>--demo-grid[=&lt;road id&gt;]</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
+/// <c>--demo-mixed</c>: the four-lane road with the two-lane one: lane drops, mixed junctions (<see cref="RunMixed"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
 /// <c>--demo-lane-links[=links|pick|add]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
@@ -46,7 +47,12 @@ public partial class RoadDemo : Node
                 Callable.From(() => Run(id)).CallDeferred();
             }
             else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
-            else if (arg == "--demo-grid") Callable.From(RunGrid).CallDeferred();
+            else if (arg == "--demo-grid" || arg.StartsWith("--demo-grid="))
+            {
+                string id = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : "two_lane";
+                Callable.From(() => RunGrid(id)).CallDeferred();
+            }
+            else if (arg == "--demo-mixed") Callable.From(RunMixed).CallDeferred();
             else if (arg == "--demo-cluster") Callable.From(RunCluster).CallDeferred();
             else if (arg == "--demo-crossings")
             {
@@ -115,6 +121,15 @@ public partial class RoadDemo : Node
             if (MathF.Abs(top - 0.15f) > 1e-3f) problems.Add($"sidewalk top {top}, want 0.15");
             if (MathF.Abs(crown - 0.1f) > 1e-3f) problems.Add($"crown {crown}, want 0.1 (2 % over 5 m)");
         }
+        if (roadId == "four_lane")
+        {
+            if (MathF.Abs(sec.HalfWidth - 12) > 1e-3f) problems.Add($"half width {sec.HalfWidth}, want 12 (24 m road)");
+            if (MathF.Abs(sec.HalfCarriageway - 9) > 1e-3f) problems.Add($"half carriageway {sec.HalfCarriageway}, want 9");
+            if (sec.Lines.Count != 5) problems.Add($"{sec.Lines.Count} lines, want 5 (centre + 2 lane + 2 edges)");
+            if (!sec.Lines.Any(l => l.Centre && MathF.Abs(l.Offset) < 1e-3f && l.Dash == 0)) problems.Add("no solid centre line at 0");
+            if (sec.Lines.Count(l => !l.Centre && l.Dash > 0 && MathF.Abs(MathF.Abs(l.Offset) - 3.5f) < 1e-3f) != 2)
+                problems.Add("no dashed lane lines at ±3.5");
+        }
         foreach (var (kind, n) in visual.Counts) GD.Print($"  {kind}: {n} triangles");
         GD.Print($"  {visual.Hatches} hatched islands");
         if (roadId == "two_lane" && visual.Hatches == 0) problems.Add("no hatching (want some at the 30° Y)");
@@ -128,11 +143,11 @@ public partial class RoadDemo : Node
 
     /// <summary>A 3 × 2 grid at (600, 500), built the way Grid mode builds one: its outer corners are two roads meeting
     /// square at a node, its sides Ts.</summary>
-    private void RunGrid()
+    private void RunGrid(string roadId)
     {
-        if (Host?.ProfileFor("two_lane") is not { } profile || Network is null)
+        if (Host?.ProfileFor(roadId) is not { } profile || Network is null)
         {
-            GD.PrintErr("Demo grid: no two_lane road or network");
+            GD.PrintErr($"Demo grid: no road \"{roadId}\" or network");
             return;
         }
         var rules = profile.ToRules();

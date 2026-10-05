@@ -202,7 +202,10 @@ public sealed class RoadSection
             }
             for (int k = 1; k < left; k++) lines.Add(new(laneEdge - k * d.LaneWidth, w, s.LaneDash, s.LaneGap));
             for (int k = 1; k < right; k++) lines.Add(new(medianEnd - k * d.LaneWidth, w, s.LaneDash, s.LaneGap));
-            if (!median && !d.OneWay && left > 0 && right > 0) lines.Add(new(leftEnd, w, s.CentreDash, s.CentreGap, Centre: true));
+            // Solid between multi-lane directions, so it doesn't read as one more lane line.
+            bool solid = left > 1 || right > 1;
+            if (!median && !d.OneWay && left > 0 && right > 0)
+                lines.Add(new(leftEnd, w, solid ? 0 : s.CentreDash, solid ? 0 : s.CentreGap, Centre: true));
         }
         return new RoadSection(s, halfW, halfC, sidewalks, bands, lines, laneEdge, leftEnd, medianEnd, d.LaneWidth, left, right);
 

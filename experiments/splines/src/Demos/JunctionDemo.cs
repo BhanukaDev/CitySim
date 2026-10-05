@@ -435,6 +435,19 @@ public partial class JunctionDemo : Node
         Check("continue other profile at the end: kept", me.Kept.Count == 1 && mixEnd.Edge(me.Kept[0]).Alignment.Length is var l && MathF.Abs(l - 84) < 0.01f);
         Check("continue other profile at the end: avenue's direction kept", Vector2.Distance(mixEnd.Edge(me.Kept[0]).Alignment.Pis[0].Position, V(0, 0)) < 0.01f);
         Check("continue other profile at the end: no issues", Validation.Check(mixEnd).Count, 0);
+
+        // Straight on (no corner): the avenue is kept up to its old end, and that node stays the joint, not a second
+        // node beside it (the street used to end on whichever of the two the rounding picked, often the emptied one, so
+        // the two didn't connect). Several lengths, as it came down to rounding.
+        foreach (float len in new[] { 100f, 480f, 333.3f, 77.7f, 123.45f, 251.9f })
+        {
+            var run = new SplineGraph();
+            run.AddSpline(Line(V(300, 500), V(450, 500)), Street);           // a street first, the avenue drawn on from it
+            run.AddSpline(Line(V(450, 500), V(450 + len, 500)), Avenue);
+            run.AddSpline(Line(V(450 + len, 500), V(600 + len, 500)), Street);
+            Check($"continue other profile straight on ({len} m): joined at one node",
+                run.NodeCount == 4 && run.NodeAt(V(450 + len, 500)) is { } rn && run.Arms(rn).Count == 2 && Validation.Check(run).Count == 0);
+        }
     }
 
     /// <summary>A short street at 30° off an avenue: not even a sharp corner fits within its cap. The street is cut back

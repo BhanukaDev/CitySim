@@ -373,16 +373,20 @@ public sealed partial class SplineGraph
         return (rest, -1, -1);
 
         // The old road's part (starting at the cut, or ending there) back as its own edge, in its old direction,
-        // between its far node and a new node at the cut. Its old end node is left empty for clean-up.
+        // between its far node and a node at the cut. Its old end node is left empty for clean-up, unless the cut is
+        // there (a straight run on, no corner): then it stays the cut's node, so the drawn road can't join a second node
+        // at the same spot.
         void Keep((GraphEdge Edge, bool AtStart) old, Alignment part, bool fromCut)
         {
             var (e, atStart) = old;
             int far = atStart ? e.End : e.Start;
-            int cut = NewNode(fromCut ? part.Pis[0].Position : part.Pis[^1].Position);
+            int oldEnd = atStart ? e.Start : e.End;
+            var at = fromCut ? part.Pis[0].Position : part.Pis[^1].Position;
+            int cut = Vector2.Distance(at, _nodes[oldEnd].Position) < NodeTolerance ? oldEnd : NewNode(at);
             var piece = atStart == fromCut ? part : AlignmentOps.Reversed(part);
             kept.Add(atStart ? NewEdge(e.Rules, piece, cut, far, e.CustomData, kerbEnd: e.KerbEnd, dataEnd: e.DataEnd)
                 : NewEdge(e.Rules, piece, far, cut, e.CustomData, kerbStart: e.KerbStart, dataStart: e.DataStart));
-            emptied.Add(atStart ? e.Start : e.End);
+            if (cut != oldEnd) emptied.Add(oldEnd);
         }
 
         void Take(GraphEdge old)

@@ -30,6 +30,12 @@ $G --path . -- --flat --demo-road --cam=650,560,420,70,0 --screenshot=screenshot
 $G --path . -- --flat --demo-road --cam=700,500,30,35,35 --screenshot=screenshots/road_junction.png   # the 4-way, low
 $G --path . -- --flat --demo-road --cam=830,515,45,45,0 --screenshot=screenshots/road_skew.png        # the 60° T
 $G --path . -- --flat --demo-road --cam=585,492,45,80,0 --screenshot=screenshots/road_hatch.png       # the 30° Y, hatched
+$G --headless --path . --quit-after 300 -- --flat --demo-road=four_lane  # same network as the four-lane road, checks its section
+$G --path . -- --flat --demo-road=four_lane --cam=700,500,40,35,35 --screenshot=screenshots/four_lane_junction.png
+$G --headless --path . --quit-after 300 -- --flat --demo-mixed       # four-lane with two-lane: drops, mixed T / 4-way; "Demo mixed: all ok"
+$G --path . -- --flat --demo-mixed --cam=450,500,45,45,0 --screenshot=screenshots/mixed_drop.png              # a 4 → 2 lane drop
+$G --path . -- --flat --demo-mixed --cam=915,505,55,55,0 --screenshot=screenshots/mixed_drop_near_junction.png # a drop 30 m past a 4-way
+$G --path . -- --flat --demo-grid=four_lane --cam=690,560,200,70,0 --screenshot=screenshots/grid_four_top.png  # a four-lane grid
 $G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip, hillside T, undo, sculpt; "Demo shape: all ok"
 $G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
 $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
@@ -76,7 +82,7 @@ Tabs with no visible roads are hidden too.
 - [ ] One-way alley (`alley_one_way`)
 
 **Medium**
-- [ ] Four-lane road (`four_lane`)
+- [ ] Four-lane road (`four_lane`): visible, being tested
 - [ ] Four-lane divided road (`four_lane_divided`)
 - [ ] Four-lane asymmetric road (`four_lane_asymmetric`)
 - [ ] Five-lane asymmetric road (`five_lane_asymmetric`)
@@ -334,6 +340,25 @@ sidewalk island with crossings, chevrons for the rest.
 - Not yet: kerb handles and the Lane Links tool still work per node (a cluster ignores set kerb radii); stop lines at
   island crossings; a big block closed in by a cluster is paved all over, not grass.
 - For the play-test: does the island sit where you'd expect, and should the island crossings bring stop lines?
+
+### ⬜ R8: The four-lane road (built 2026-10-05, waiting for the user's play-test)
+First medium road. 24 m = sidewalk 3 | strip 2 | 4 lanes of 3.5 | strip 2 | sidewalk 3 (the two-lane's sidewalks and
+strips, wider lanes; the same 24 m as CS's medium road). `MaxGrade` 8 %, `GroundSmoothing` 40 m.
+- The centre line is solid when either direction has more than one lane (`RoadSection`), so it doesn't read as one
+  more dashed lane line. Lanes going the same way: dashed 3 : 6. The two-lane road's centre stays dashed.
+- `--demo-road=four_lane` checks the width, the five lines and the solid centre. Card picture re-baked.
+- `--demo-mixed`: lane drops (straight, 30 m past a 4-way, after a curve), a two-lane T off it, a two-lane road
+  crossing it, a four-lane 4-way. Checks tapers, no issues or clusters, and the lane links (every lane in goes
+  somewhere, every lane out is fed). `--demo-grid=<id>` builds the grid with any road.
+- Found and fixed (splines addon, `SplineGraph.Continue`): drawing another road type straight on from a dead end
+  (a two-lane road on from a four-lane one) made a second node beside the old one and could end the new road on the
+  wrong one: not connected, red "overlaps". Whether it hit came down to node order. Regression check in the splines
+  `--demo-junctions`.
+- Lane drops as built: the taper is 2.5 × the width difference (20 m for 24 → 16), shorter when a junction is near
+  (13.5 m 30 m past a 4-way); both lanes merge into one (chevrons between them, one direction only). Not yet: edge
+  lines through the taper (they stop at its ends), a lane line ending before the merge.
+- For the play-test: are 3.5 m lanes too wide next to the two-lane's 3 m? Solid or double centre line? Is 8 % right?
+  Is a 20 m taper long enough, or should the kerbside lane end with a longer taper?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking. Lane arrows painted from the lane links.
