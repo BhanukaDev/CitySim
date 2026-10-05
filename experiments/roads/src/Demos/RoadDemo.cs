@@ -19,6 +19,7 @@ namespace CitySim.Demos;
 /// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>).
 /// <c>--demo-grid</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
+/// <c>--demo-lane-links[=links|pick|add]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
 /// <c>--bake-road-thumbnails[=&lt;road id&gt;]</c>: renders the road cards' pictures (<see cref="RoadThumbnailBaker"/>) and quits.
 /// <c>--bake-road-textures</c>: rewrites the road shaders' noise textures (<see cref="RoadTextureBaker"/>) and quits.
@@ -51,6 +52,11 @@ public partial class RoadDemo : Node
                 NumVector2? cursor = at is { Length: 2 } ? new NumVector2(float.Parse(at[0], System.Globalization.CultureInfo.InvariantCulture),
                     float.Parse(at[1], System.Globalization.CultureInfo.InvariantCulture)) : null;
                 Callable.From(() => RunCrossings(cursor)).CallDeferred();
+            }
+            else if (arg == "--demo-lane-links" || arg.StartsWith("--demo-lane-links="))
+            {
+                string shot = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : "links";
+                Callable.From(() => RunLaneLinks(shot)).CallDeferred();
             }
             else if (arg == "--demo-slope") Callable.From(RunSlope).CallDeferred();
             else if (arg == "--bake-road-thumbnails" || arg.StartsWith("--bake-road-thumbnails="))

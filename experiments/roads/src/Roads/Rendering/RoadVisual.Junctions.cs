@@ -95,83 +95,74 @@ public sealed partial class RoadVisual
     }
 
     // Share of each lane's traffic per movement (right-hand traffic), before normalising over the movements it has.
-    private const float StraightShare = 0.55f, RightShare = 0.25f, LeftShare = 0.2f;
+    private const float StraightShare = 0.55f, RightShare = 0.25f, LeftShare = 0.2f, UTurnShare = 0.05f;
     private const float TrackLift = 0.005f; // the wear above the junction's asphalt, under its paint
 
-    /// <summary>
-    /// Tyre wear across a junction: a ribbon a lane wide along every path cars take, from each lane coming in to a lane
-    /// going out of every other arm (straight on from every lane, right turns from the kerbside lane to the kerbside lane,
-    /// left turns from the inside lane to the inside lane), a cubic curve leaving and joining the lanes square to the
-    /// cuts. They carry the lanes' wheel tracks and oil stripe on across the junction (a <see cref="SurfaceKind.Wear"/>
-    /// overlay), so wear fans out into the turns instead of stopping at the junction's edge. Each ribbon's UV2.y is its
-    /// lane's share of traffic for that movement (the shares of a lane add up to its own wear), UV2.x across it from
-    /// −0.5 to 0.5 and UV = (metres along, how hard it turns 0..1). Returns the paths, for <see cref="Hatching"/>; none
-    /// when an arm has no lanes (nothing to tell where cars go).
-    /// </summary>
-    private List<TrackPath> Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f)
+    /// <summary>The lanes of every arm of a junction at its mouth (<see cref="LaneLinks"/>), in the footprint's arm
+    /// order; null when an arm has no paved lanes (nothing to tell where cars go).</summary>
+    public List<ArmLanes>? LanesAt(SplineGraph g, JunctionFootprint f)
     {
-        var arms = f.Cuts.Select(c =>
+        static System.Numerics.Vector2 N(Vector2 v) => new(v.X, v.Y);
+        var arms = new List<ArmLanes>();
+        foreach (var c in f.Cuts)
         {
             var e = g.Edge(c.EdgeId);
             var sec = SectionOf(e);
-            var (pos, outward, left, _) = CutFrame(g, c);
             if (!sec.Bands.Any(b => b.Lanes && b.Surface == SurfaceKind.Asphalt)) return null;
+            var (pos, outward, left, _) = CutFrame(g, c);
             // Lanes coming in run toward the node: against the curve at its start. Kerbside first.
-            List<Vector2> Lanes(bool incoming) => sec.Lanes.Where(l => l.Forward != (c.AtStart == incoming))
-                .OrderByDescending(l => MathF.Abs(l.Offset - sec.Split)).Select(l => pos + left * l.Offset).ToList();
+            List<System.Numerics.Vector2> Lanes(bool incoming) => sec.Lanes.Where(l => l.Forward != (c.AtStart == incoming))
+                .OrderByDescending(l => MathF.Abs(l.Offset - sec.Split)).Select(l => N(pos + left * l.Offset)).ToList();
             var into = Lanes(true);
             // From the centre toward the kerb of the lanes coming in (the right of their travel).
-            var kerb = into.Count > 0 ? (into[0] - (pos + left * sec.Split)).Normalized() : Vector2.Zero;
-            return new { In = into, Out = Lanes(false), Outward = outward, Kerb = kerb, sec.LaneWidth };
-        }).ToList();
-
-        var paths = new List<TrackPath>();
-        foreach (var a in arms)
-        {
-            if (a is null || a.In.Count == 0) continue;
-            var dirIn = -a.Outward;
-            var moves = new List<(int Lane, Vector2 To, Vector2 Dir, float Share, float Turn)>();
-            foreach (var b in arms)
-            {
-                if (b is null || ReferenceEquals(a, b) || b.Out.Count == 0) continue;
-                float straight = dirIn.Dot(b.Outward);
-                if (straight > 0.7f)
-                    for (int k = 0; k < a.In.Count; k++) moves.Add((k, b.Out[Math.Min(k, b.Out.Count - 1)], b.Outward, StraightShare, 0));
-                else if (b.Outward.Dot(a.Kerb) > 0) moves.Add((0, b.Out[0], b.Outward, RightShare, 1));
-                else moves.Add((a.In.Count - 1, b.Out[^1], b.Outward, LeftShare, 1 - MathF.Max(0, straight)));
-            }
-            var total = moves.GroupBy(m => m.Lane).ToDictionary(x => x.Key, x => x.Sum(m => m.Share));
-            foreach (var m in moves)
-            {
-                var path = new TrackPath(a.In[m.Lane], dirIn, m.To, m.Dir, a.LaneWidth / 2, m.Turn);
-                Ribbon(rm, path, rm.Wear * m.Share / total[m.Lane]);
-                paths.Add(path);
-            }
+            var kerb = into.Count > 0 ? System.Numerics.Vector2.Normalize(into[0] - N(pos + left * sec.Split)) : default;
+            arms.Add(new ArmLanes(c.EdgeId, c.AtStart, N(pos), N(outward), kerb, into, Lanes(false), sec.LaneWidth));
         }
-        return arms.Any(a => a is null) ? new List<TrackPath>() : paths;
+        return arms;
+    }
+
+    /// <summary>
+    /// Tyre wear across a junction: a ribbon a lane wide along every lane link (<see cref="LaneLinks.Resolve"/>: the
+    /// road's rule, or what the player set with the Lane Links tool), a cubic curve leaving and joining the lanes square
+    /// to the cuts. They carry the lanes' wheel tracks and oil stripe on across the junction (a
+    /// <see cref="SurfaceKind.Wear"/> overlay), so wear fans out into the turns instead of stopping at the junction's
+    /// edge. Each ribbon's UV2.y is its lane's share of traffic for that movement (the shares of a lane add up to its own
+    /// wear), UV2.x across it from −0.5 to 0.5 and UV = (metres along, how hard it turns 0..1). Returns the paths, for
+    /// <see cref="Hatching"/>, so the chevrons cover whatever no link drives over; none when an arm has no lanes.
+    /// </summary>
+    private List<TrackPath> Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f)
+    {
+        var paths = new List<TrackPath>();
+        if (LanesAt(g, f) is not { } arms) return paths;
+        var links = LaneLinks.Resolve(g, arms);
+        static float Share(Move m) => m switch { Move.Straight => StraightShare, Move.Right => RightShare, Move.Left => LeftShare, _ => UTurnShare };
+        var total = links.GroupBy(l => (l.From, l.FromLane)).ToDictionary(x => x.Key, x => x.Sum(l => Share(l.Move)));
+        static Vector2 G(System.Numerics.Vector2 v) => new(v.X, v.Y);
+        foreach (var l in links)
+        {
+            var (a, b) = (arms[l.From], arms[l.To]);
+            float turn = l.Move switch
+            {
+                Move.Straight => 0,
+                Move.Left => 1 - MathF.Max(0, System.Numerics.Vector2.Dot(-a.Outward, b.Outward)),
+                _ => 1,
+            };
+            var path = new TrackPath(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward), a.LaneWidth / 2, turn);
+            Ribbon(rm, path, rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)]);
+            paths.Add(path);
+        }
+        return paths;
     }
 
     /// <summary>A path cars take across a junction: from <see cref="P0"/> heading <see cref="D0"/> to <see cref="P3"/>
     /// heading <see cref="D3"/>, a lane (<see cref="Half"/> its half width) wide, turning 0..1.</summary>
     private readonly record struct TrackPath(Vector2 P0, Vector2 D0, Vector2 P3, Vector2 D3, float Half, float Turn)
     {
-        /// <summary>Points along the path's centre with its heading, about a metre apart (none for a path under half a
-        /// metre): a cubic curve leaving and joining the lanes square to the cuts.</summary>
-        public IEnumerable<(Vector2 P, Vector2 D)> Points()
-        {
-            float chord = P0.DistanceTo(P3);
-            if (chord < 0.5f) yield break;
-            // 0.39 of the chord is a circle's arc for a right angle; a third for a straight run.
-            float h = chord * (Turn > 0 ? 0.39f : 1f / 3f);
-            Vector2 p0 = P0, p1 = P0 + D0 * h, p2 = P3 - D3 * h, p3 = P3;
-            int n = Math.Max(6, (int)MathF.Ceiling(chord));
-            for (int i = 0; i <= n; i++)
-            {
-                float t = i / (float)n, u = 1 - t;
-                yield return (u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3,
-                    (3 * u * u * (p1 - p0) + 6 * u * t * (p2 - p1) + 3 * t * t * (p3 - p2)).Normalized());
-            }
-        }
+        /// <summary>Points along the path's centre with its heading (<see cref="LaneLinks.Path(System.Numerics.Vector2,
+        /// System.Numerics.Vector2, System.Numerics.Vector2, System.Numerics.Vector2, bool)"/>).</summary>
+        public IEnumerable<(Vector2 P, Vector2 D)> Points() =>
+            LaneLinks.Path(new(P0.X, P0.Y), new(D0.X, D0.Y), new(P3.X, P3.Y), new(D3.X, D3.Y), Turn > 0)
+                .Select(x => (new Vector2(x.P.X, x.P.Y), new Vector2(x.D.X, x.D.Y)));
 
         /// <summary>The ground the path sweeps, <paramref name="half"/> either side of its centre, run on a metre past
         /// both ends so it cuts clean through a junction's mouths.</summary>

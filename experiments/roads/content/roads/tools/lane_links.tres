@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="RoadTool" format=3]
+
+[ext_resource type="Script" path="res://src/Roads/RoadTool.cs" id="1_script"]
+[ext_resource type="Texture2D" path="res://content/roads/thumbnails/lane_links.png" id="thumbnail"]
+
+[resource]
+script = ExtResource("1_script")
+Icon = ExtResource("thumbnail")
+Tool = "lane_links"
+Usage = "LMB junction  select
+LMB link  pick
+RMB picked link  remove
+drag lane → lane  link"
+Id = "lane_links"
+DisplayName = "Lane Links"
+Description = "Choose which lanes connect across a junction."
+Tab = "services"
+Order = 10

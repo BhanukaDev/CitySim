@@ -11,8 +11,18 @@ namespace CitySim.Roads;
 public enum CrossingMode { Auto, Yes, No }
 
 /// <summary>What a road keeps at each end of an edge (the splines graph's <see cref="GraphEdge.DataStart"/> /
-/// <see cref="GraphEdge.DataEnd"/>): kept through splits, merges, edits and undo with the end it belongs to.</summary>
-public sealed record RoadEnd(CrossingMode Crossing);
+/// <see cref="GraphEdge.DataEnd"/>): kept through splits, merges, edits and undo with the end it belongs to. Its
+/// crossing, and at a junction the lane links leaving it (<see cref="LaneLinks"/>) with a <see cref="Tag"/> the other
+/// arms' links name it by (0 = none).</summary>
+public sealed record RoadEnd(CrossingMode Crossing, int Tag = 0, LinkSet? Links = null)
+{
+    private static readonly RoadEnd None = new(CrossingMode.Auto);
+
+    public static RoadEnd Of(GraphEdge e, bool atStart) => e.DataAt(atStart) as RoadEnd ?? None;
+
+    /// <summary>What to store for an end: null when it's all automatic, so the graph can merge the node away again.</summary>
+    public static RoadEnd? Store(RoadEnd r) => r.Crossing == CrossingMode.Auto && r.Tag == 0 && r.Links is null ? null : r;
+}
 
 /// <summary>
 /// The markings at one end of an edge, as stations from where the road starts there (its junction cut-back, or the
@@ -41,7 +51,7 @@ public readonly record struct EndMarks(bool Zebra, float ZebraFrom, float? StopA
 /// </summary>
 public static class Crossings
 {
-    public static CrossingMode ModeOf(GraphEdge e, bool atStart) => e.DataAt(atStart) is RoadEnd r ? r.Crossing : CrossingMode.Auto;
+    public static CrossingMode ModeOf(GraphEdge e, bool atStart) => RoadEnd.Of(e, atStart).Crossing;
 
     /// <summary>Whether the arm is at a junction (a footprint, not just a change of road width or a corner).</summary>
     public static bool AtJunction(GraphEdge e, bool atStart, IReadOnlyDictionary<int, JunctionFootprint> footprints) =>

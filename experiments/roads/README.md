@@ -19,7 +19,7 @@ Four kinds of file, each a `.tres` you can make and edit in the Godot inspector 
 | `BuildCategory` | bottom-bar button | `Id`, `DisplayName`, `Icon` (white SVG), `Order` |
 | `BuildTab` | tab in a category's tray | `Id`, `Category` (a category id), `DisplayName`, `Order`, `DividerBefore` |
 | `RoadType` (a `BuildItem`) | road card | `Id`, `DisplayName`, `Description`, `Tab` (a tab id), `Order`, `Icon` (optional), `Lanes`, `OneWay`, `ForwardLanes` (asymmetric split, 0 = even), `Surface`, `Sidewalks`, `Median`, lane/strip/sidewalk/median widths (`StripWidth`: each side, between the outer lane and the kerb) |
-| `RoadTool` (a `BuildItem`) | tool card (Crossings) | `Id`, `DisplayName`, `Description`, `Tab`, `Icon`, `Tool` (which tool the game runs: `crossings`), `Usage` (mouse hints for the options panel) |
+| `RoadTool` (a `BuildItem`) | tool card (Crossings, Lane Links) | `Id`, `DisplayName`, `Description`, `Tab`, `Icon`, `Tool` (which tool the game runs: `crossings` or `lane_links`), `Usage` (mouse hints for the options panel) |
 | `RoadStyle` | look of every road | `Id` (`default`), kerb height and top width, crown, gutter width, skirt depth, line width, centre and lane dash : gap, materials (asphalt, gravel, gutter, kerb, sidewalk, paint) |
 
 Rules:
@@ -47,7 +47,8 @@ loaded and checks it.
 - `src/Content/`: `BuildCategory`, `BuildTab`, `BuildItem` (base for every card type) and `ContentLibrary`.
 - `src/Roads/`: `RoadType` (resource) → `ToDef()` → `RoadDef` (plain C#, no Godot types, for the simulation);
   `RoadTool` (a tool card); `Crossings` (plain C#: each arm's `CrossingMode`, kept on the edge end as a `RoadEnd`, and
-  the rules that place crossings and stop lines); `CrossingTool` (the Crossings tool and its overlay);
+  the rules that place crossings and stop lines); `CrossingTool` (the Crossings tool and its overlay); `LaneLinks` (plain C#: the road's rule for which lane goes
+  where across a junction, and the player's links kept on `RoadEnd`); `LaneLinkTool` (the Lane Links tool and its overlay);
   `RoadThumbnail`; `RoadStyle`; `RoadProfiles` (a splines `SplineProfile` per road type); `RoadToolHost` (the splines
   tools' host: tray pick + options panel; `M` toggles Draw / Edit).
 - `src/Roads/Geometry/RoadSection.cs`: the cross-section (bands, painted lines, outline) from a `RoadDef`, plain C#.
@@ -58,6 +59,6 @@ loaded and checks it.
   `RoadOptionsPanel`, `UiTheme`.
 - `src/Demos/UiDemo.cs`: `--demo-content` and `--ui=` for screenshots.
 - `src/Demos/RoadDemo.cs`: `--demo-road[=<road id>]`, a test network (dead ends, T, 4-way, 60° T, curve) and checks;
-  `RoadDemo.Crossings.cs`: `--demo-crossings`.
+  `RoadDemo.Crossings.cs`: `--demo-crossings`. `RoadDemo.LaneLinks.cs`: `--demo-lane-links`.
 
 Icons: `assets/icons/`, Tabler Icons (MIT), see `assets/icons/LICENSE.md`.

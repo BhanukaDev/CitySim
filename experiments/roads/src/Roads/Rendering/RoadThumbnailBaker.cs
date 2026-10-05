@@ -17,7 +17,7 @@ namespace CitySim.Roads;
 /// PNG but keeps its Icon. Needs a window (not <c>--headless</c>), and runs <c>--import</c> at the end, since a road
 /// type linked to a PNG Godot hasn't imported yet won't load. The PNGs are checked in, so the game never renders thumbnails itself.
 /// Road tools in <c>content/roads/tools/</c> get one too, showing what they make: Crossings is a two-lane road with a
-/// zebra crossing across it.
+/// zebra crossing across it, Lane Links a T junction with the tool's lane dots and links on it, one turn picked.
 /// </summary>
 public partial class RoadThumbnailBaker : Node
 {
@@ -74,9 +74,9 @@ public partial class RoadThumbnailBaker : Node
         string[] ids = allRoads.Select(r => r.Id).ToArray();
         var defs = allRoads.ToDictionary(r => r.Id, r => r.ToDef());
         int linked = 0;
-        var jobs = roads.Select(r => (r.Road.Id, r.Path, Road: r.Road, Crossing: false))
-            .Concat(tools.Select(t => (t.Tool.Id, t.Path, Road: allRoads.First(r => r.Id == ToolRoad), Crossing: t.Tool.Tool == RoadTool.CrossingsTool)));
-        foreach (var (id, path, road, crossing) in jobs)
+        var jobs = roads.Select(r => (r.Road.Id, r.Path, Road: r.Road, Tool: ""))
+            .Concat(tools.Select(t => (t.Tool.Id, t.Path, Road: allRoads.First(r => r.Id == ToolRoad), t.Tool.Tool)));
+        foreach (var (id, path, road, tool) in jobs)
         {
             foreach (var child in stage.GetChildren()) child.Free();
             var def = defs[road.Id];
@@ -84,14 +84,25 @@ public partial class RoadThumbnailBaker : Node
             graph.AddSpline(new Alignment([new Pi(new NumVector2(-Length / 2, 0)), new Pi(new NumVector2(Length / 2, 0))]),
                 RoadProfiles.From(road, ids).ToRules());
             var visual = new RoadVisual(stage, new FlatGround(), style, x => defs.GetValueOrDefault(x));
+            bool crossing = tool == RoadTool.CrossingsTool, links = tool == RoadTool.LaneLinksTool;
+            var footprints = new Dictionary<int, JunctionFootprint>();
+            if (links)
+            {
+                // A T, its wear showing the paths the links make.
+                graph.AddSpline(new Alignment([new Pi(new NumVector2(0, 0)), new Pi(new NumVector2(0, Length / 2))]),
+                    RoadProfiles.From(road, ids).ToRules());
+                footprints = Junctions.Footprints(graph);
+            }
             if (crossing)
             {
                 // A crossing along the road, as the tool makes one: its zebra centred in the frame.
                 var (_, _, right) = graph.SplitEdge(graph.Edges.Single().Id, Length / 2 - style.CrossingWidth / 2);
                 graph.SetEndData(right!.Value, true, new RoadEnd(CrossingMode.Yes));
             }
-            visual.SetNetwork(graph, new Dictionary<int, JunctionFootprint>(), [], null);
-            Frame(camera, crossing ? def.Width * 0.55f : def.Width); // a tool's picture is closer in, on what it makes
+            visual.SetNetwork(graph, footprints, [], null);
+            if (links) LinkOverlay(stage, graph, visual, footprints.Values.Single());
+            // A tool's picture is closer in, on what it makes; a junction needs a little more room.
+            Frame(camera, links ? def.Width * 0.95f : crossing ? def.Width * 0.55f : def.Width, links ? new Vector3(0, 0, 3.5f) : Vector3.Zero);
 
             // One frame to build the scene, one to render it with everything (shaders compiled, shadows) in place.
             for (int i = 0; i < 3; i++) await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
@@ -157,13 +168,78 @@ public partial class RoadThumbnailBaker : Node
     }
 
     /// <summary>Looks down the road at a slant from one side, close enough that its width fills most of the frame.</summary>
-    private static void Frame(Camera3D camera, float width)
+    private static void Frame(Camera3D camera, float width, Vector3 look)
     {
         float distance = width * 1.9f + 4f;
-        var look = new Vector3(0, 0, 0);
         var from = Basis.FromEuler(new Vector3(Mathf.DegToRad(-48), Mathf.DegToRad(-28), 0)) * new Vector3(0, 0, distance);
         camera.Position = look + from;
         camera.LookAt(look, Vector3.Up);
+    }
+
+    /// <summary>The Lane Links tool's overlay drawn on a junction, on top of everything: a dot per lane at each mouth
+    /// (filled = coming in, ring = going out), every link a thin white line, and the right turn into the side road picked
+    /// in the accent colour.</summary>
+    private static void LinkOverlay(Node3D stage, SplineGraph graph, RoadVisual visual, JunctionFootprint f)
+    {
+        if (visual.LanesAt(graph, f) is not { } arms) return;
+        var links = LaneLinks.Resolve(graph, arms);
+        const float y = 0.3f;
+        var st = new SurfaceTool();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        Vector3 P(NumVector2 p) => new(p.X, y, p.Y);
+        void Tri(Vector3 a, Vector3 b, Vector3 c, Color col)
+        {
+            foreach (var v in new[] { a, b, c }) { st.SetColor(col); st.AddVertex(v); }
+        }
+        void Ribbon(IEnumerable<(NumVector2 P, NumVector2 D)> path, float half, Color col)
+        {
+            (Vector3 L, Vector3 R)? prev = null;
+            foreach (var (p, d) in path)
+            {
+                var side = new NumVector2(-d.Y, d.X) * half;
+                var cur = (P(p + side), P(p - side));
+                if (prev is { } q) { Tri(q.L, q.R, cur.Item2, col); Tri(q.L, cur.Item2, cur.Item1, col); }
+                prev = cur;
+            }
+        }
+        void Disc(NumVector2 c, float r0, float r1, Color col)
+        {
+            const int k = 20;
+            for (int i = 0; i < k; i++)
+            {
+                var a = SplineMath.Direction(MathF.Tau * i / k);
+                var b = SplineMath.Direction(MathF.Tau * (i + 1) / k);
+                if (r0 <= 0) Tri(P(c), P(c + b * r1), P(c + a * r1), col);
+                else { Tri(P(c + a * r0), P(c + a * r1), P(c + b * r1), col); Tri(P(c + a * r0), P(c + b * r1), P(c + b * r0), col); }
+            }
+        }
+
+        var white = new Color(1, 1, 1, 0.9f);
+        var dark = new Color(0.05f, 0.07f, 0.08f, 0.6f);
+        var picked = links.FirstOrDefault(l => l.Move == Move.Right);
+        foreach (var l in links)
+            if (l != picked) Ribbon(LaneLinks.Path(arms, l), 0.1f, white);
+        Ribbon(LaneLinks.Path(arms, picked), 0.42f, dark);
+        // Bluer than the overlay's accent: the tonemapper greys an unshaded colour out.
+        Ribbon(LaneLinks.Path(arms, picked), 0.3f, new Color(0.1f, 0.6f, 1f));
+        foreach (var a in arms)
+        {
+            foreach (var p in a.In) { Disc(p, 0, 0.75f, dark); Disc(p, 0, 0.55f, white); }
+            foreach (var p in a.Out) { Disc(p, 0, 0.7f, dark); Disc(p, 0.36f, 0.56f, white); }
+        }
+        var mesh = st.Commit();
+        stage.AddChild(new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = new StandardMaterial3D
+            {
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                VertexColorUseAsAlbedo = true,
+                NoDepthTest = true,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            },
+        });
     }
 
     /// <summary>Sets the road's Icon to the PNG in its .tres text, unless it already has an Icon that isn't a baked

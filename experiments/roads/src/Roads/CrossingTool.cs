@@ -164,7 +164,7 @@ public partial class CrossingTool : Node
                 if (gr.TryMerge(node) is not null) return 0;
                 foreach (var a in kept) gr.SetEndData(a.EdgeId, a.AtStart, a.Data);
             }
-            gr.SetEndData(e.Id, t.AtStart, new RoadEnd(want));
+            gr.SetEndData(e.Id, t.AtStart, RoadEnd.Of(gr.Edge(e.Id), t.AtStart) with { Crossing = want });
             return 0;
         });
     }
@@ -191,7 +191,7 @@ public partial class CrossingTool : Node
             trial.SetEndData(r, true, new RoadEnd(CrossingMode.Yes));
             changed = [l, r];
         }
-        else trial.SetEndData(t.ArmEdge, t.AtStart, new RoadEnd(CrossingMode.Yes));
+        else trial.SetEndData(t.ArmEdge, t.AtStart, RoadEnd.Of(trial.Edge(t.ArmEdge), t.AtStart) with { Crossing = CrossingMode.Yes });
         Network.Conform(trial);
 
         string? why = null;

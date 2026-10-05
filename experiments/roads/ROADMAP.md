@@ -41,6 +41,11 @@ $G --headless --path . --quit-after 300 -- --flat --demo-crossings   # auto rule
 $G --path . -- --flat --demo-crossings --crossing-cursor=760,503 --cam=640,500,190,70,0 --screenshot=screenshots/crossings_overview.png
 $G --path . -- --flat --demo-crossings --crossing-cursor=699.5,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_midblock.png
 $G --path . -- --flat --demo-crossings --crossing-cursor=708,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_refused.png
+$G --headless --path . --quit-after 300 -- --flat --demo-lane-links   # auto links + Lane Links tool clicks + undo; "Demo lane links: all ok"
+$G --path . -- --flat --demo-lane-links --cam=700,512,48,70,0 --screenshot=screenshots/lanelinks_links.png        # 4-way, a left turn removed
+$G --path . -- --flat --demo-lane-links=pick --cam=700,512,48,70,0 --screenshot=screenshots/lanelinks_pick.png    # a picked link
+$G --path . -- --flat --demo-lane-links=add --cam=700,512,48,70,0 --screenshot=screenshots/lanelinks_add.png      # mid-drag over a lane out
+$G --path . -- --flat --demo-lane-links --cam=500,505,32,85,0 --screenshot=screenshots/lanelinks_chevrons.png     # T without a right turn: chevrons
 $G --path . -- --flat --demo-grid --cam=600,500,40,60,30 --screenshot=screenshots/grid_corner.png       # a grid's 90° corner
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
@@ -272,6 +277,38 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
 - For the play-test: is 25 m the right "too close"? Should Auto also skip crossings on very short side roads, or on
   junctions of small roads only? Should the tool show every arm's place, not just junctions' (now: on hover)?
 
+### ⬜ R6: Lane Links tool (built 2026-10-05, waiting for the user's play-test)
+Proposal and screen preview approved by the user: https://claude.ai/artifact/QxiNrC84cDWCNqFQG8eDVv (name "Lane Links",
+like the TM:PE lane connector in CS1).
+- Roads → Services → **Lane Links** (`content/roads/tools/lane_links.tres`, `Tool = "lane_links"`), after Crossings.
+- `LaneLinks` (plain C#): which lane coming into a junction goes to which lane going out. The road's rule (`Auto`): straight
+  on from every lane to the matching lane, right from kerbside to kerbside, left from inside to inside, no U-turns. It's
+  the rule the junction wear used; `RoadVisual.Tracks` now draws one wear ribbon per resolved link, and **the chevrons
+  (`Hatching`) cover whatever no link drives over**, so removing a turn shows on the road itself.
+- Stored per arm end in `RoadEnd` (with the crossing): a `Tag` per arm of an edited junction and the `LinkSet` leaving it
+  (links to other arms by tag, plus the tags it was set against). Goes through undo, splits and Edit drags with its end; a
+  road added to the junction later gets auto links. The Crossings tool now keeps an end's links when it sets its crossing.
+- Tool (`LaneLinkTool`), select then edit like Crossings: LMB a junction selects it (dashed ring on hover, accent when
+  selected); dots at each mouth (filled = lane in, ring = lane out, red = lane in with no links left) and a curve per link.
+  LMB a link picks it (accent); **RMB or Del removes the picked link** (RMB anywhere, never the hovered link).
+  **Drag and drop to link** (play-test feedback, 2026-10-05; was click a lane, then click a lane): press on a lane's dot,
+  drag to a lane on the other side of a link (in → out, or out → in) and let go. While dragging, that lane's links stay
+  bright, the rest dim, the lanes it can link to turn accent, and a dashed line follows the mouse, curving into the link
+  it would make over a target. Let go anywhere else (or Esc, or RMB) and nothing changes. A U-turn is allowed by hand.
+  Esc steps back: drag, link, selection. Hover tag names the move ("Pick · Left",
+  "Remove · Right", "Link · Left") or the junction's state ("Edited · 11 links").
+- Junctions only (3+ roads, not a bend or change of width). Only the selected junction is drawn.
+- Sidewalks (user note, 2026-10-05): a junction keeps only the road's own sidewalk width round the kerb, never a grown
+  island; spare asphalt is painted. That's already how `Junction` builds it, so nothing changed there; the R4 question
+  (hatch the wedge along a skewed kerb?) is answered yes, and it stays.
+- Card picture: `--bake-road-thumbnails=lane_links` renders a two-lane T with the tool's overlay on it (play-test
+  feedback: show what the tool does): the lane dots, every link in white and the right turn into the side road picked
+  in blue, drawn on top in the baker (`LinkOverlay`).
+- Known gap: deleting a road from an edited T leaves a 2-road node whose ends still carry tags, so the graph doesn't merge it
+  back into one road (`TryMerge` refuses ends with data). To fix when it bites.
+- For the play-test: is RMB-anywhere for the picked link right, or should it be RMB on the link? Are the dots big enough
+  at a normal zoom? Should a lane left with no links be refused instead of shown red?
+
 ### ⬜ Later
-- Upgrades content type and tab (looks + traffic), Intersections, Parking.
+- Upgrades content type and tab (looks + traffic), Intersections, Parking. Lane arrows painted from the lane links.
 - Mod loading from `.pck` files, a modder guide, more categories (Zones next).
