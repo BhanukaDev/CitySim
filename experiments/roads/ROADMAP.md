@@ -51,6 +51,7 @@ $G --headless --path . --quit-after 300 -- --flat --demo-cluster      # 3 juncti
 $G --path . -- --flat --demo-cluster --cam=712,490,70,89,0 --screenshot=screenshots/cluster_top.png     # 3 junctions as one, island
 $G --path . -- --flat --demo-cluster --cam=708,492,28,35,210 --screenshot=screenshots/cluster_low.png   # the island, low
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
+$G --path . -- --flat --ui=open:roads,pick:two_lane --demo-continue --cam=715,515,110,60,0 --screenshot=screenshots/continue_draw.png  # a draw continuing a dead end off a 4-way; "Demo continue: all ok" (windowed only)
 ```
 
 `--ui=` parts, applied in order: `open:<category>`, `tab:<tab>`, `pick:<item>`, `search:<text>`,

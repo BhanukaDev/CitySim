@@ -279,25 +279,53 @@ public partial class SplineDrawTool : Node
 
     /// <summary>
     /// Shows <see cref="_trial"/> (the drawn alignment tried on the graph) as the preview ribbon, and returns what the
-    /// overlay draws its legs and pills along. Continuing a dead end: the old edge is hidden and the whole road it
-    /// becomes is drawn instead, the unchanged old part solid; the overlay gets the old road's last leg as the previous
-    /// leg (so the joint has its angle and radius pills).
+    /// overlay draws its legs and pills along. Continuing a dead end: the old road stays drawn as built up to where the
+    /// joint's corner starts (<see cref="KeptSpans"/>), and only the new part is the ghost; the overlay gets the old
+    /// road's last leg as the previous leg (so the joint has its angle and radius pills).
     /// </summary>
     private (Alignment Preview, bool LeadIn, bool LeadOut) ShowTrialPreview(Alignment drawn, ProfileRules rules, SplineProfile profile)
     {
         var continued = _trial?.Result.Continued ?? (IReadOnlyList<int>)Array.Empty<int>();
-        Network!.Hide(continued);
-        // The old road it continues stays drawn as built; only the new part (from the joint's corner) is the ghost.
-        // Another profile's road keeps its own edge up to the joint's corner, drawn as built in its colour.
+        Network!.Hide(KeptSpans(continued));
         if (continued.Count > 0)
         {
-            var kept = _trial!.Result.Kept.Select(id => _trial.Graph.Edge(id))
-                .Select(e => (e.Alignment, e.Rules.Width, Network.ColorOf(e.Rules.Id))).ToList();
-            _renderer!.SetPreview(_trial.Result.Alignment, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom, Network.ColorOf(profile.Id), kept);
+            _renderer!.SetPreview(_trial!.Result.Alignment, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom);
             return WithLeads(drawn, rules);
         }
         _renderer!.SetPreview(drawn, profile.Width, _trial?.Worst);
         return (drawn, false, false);
+    }
+
+    /// <summary>
+    /// How much of each continued dead end the trial keeps unchanged, in the old edge's stations: from its far node to
+    /// where the joint's corner starts (or to the cut, for another profile's road split back off). Rounded up to whole
+    /// metres, so the network isn't rebuilt every frame the corner moves; the ghost covers the bit past the corner.
+    /// </summary>
+    private Dictionary<int, EdgeSpan> KeptSpans(IReadOnlyList<int> continued)
+    {
+        var spans = new Dictionary<int, EdgeSpan>();
+        if (continued.Count == 0) return spans;
+        var r = _trial!.Result;
+        var trial = _trial.Graph;
+        var a = r.Alignment;
+        foreach (int id in continued)
+        {
+            var old = Network!.Graph.Edge(id);
+            float len = old.Alignment.Length, keep = 0;
+            bool farAtStart = true;
+            foreach (bool atStart in new[] { true, false })
+            {
+                int far = atStart ? old.Start : old.End;
+                var p = Network.Graph.Node(far).Position;
+                float k = r.Kept.Select(trial.Edge).FirstOrDefault(e => e.Start == far || e.End == far)?.Alignment.Length
+                    ?? (Near(p, a.Pis[0].Position) ? r.SolidUntil
+                        : Near(p, a.Pis[^1].Position) && !float.IsInfinity(r.SolidFrom) ? a.Length - r.SolidFrom : 0);
+                if (k > keep) (keep, farAtStart) = (k, atStart);
+            }
+            keep = MathF.Min(MathF.Ceiling(keep), len);
+            spans[id] = keep <= 0 ? EdgeSpan.None : farAtStart ? new EdgeSpan(0, keep) : new EdgeSpan(len - keep, len);
+        }
+        return spans;
     }
 
     // --- Continuing a dead end ---

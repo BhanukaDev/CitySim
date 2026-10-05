@@ -44,7 +44,7 @@ public partial class SplineDrawTool
         var reshaped = Bends(drawn).Where(b => b.Radius < b.Alignment.EffectiveRadius(b.Pi) - 1e-3f).ToList();
         string? key = reshaped.Count == 0 ? null
             : string.Join(";", reshaped.Select(b => $"{RuntimeHelpers.GetHashCode(b.Alignment)}:{b.Pi}:{b.Radius}"))
-              + "|" + string.Join(",", Network.Hidden.OrderBy(id => id));
+              + "|" + string.Join(",", Network.Hidden.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
         if (key == _bendShown) return;
         _bendShown = key;
         _bentGraph = null;

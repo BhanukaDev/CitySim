@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using CitySim.TerrainSystem;
 using Godot;
 
@@ -36,7 +37,7 @@ public partial class SplineNetwork : Node
     private readonly Dictionary<string, SplineProfile> _profiles = new();
     private RibbonRenderer? _renderer;
     private INetworkVisual? _visual;
-    private HashSet<int> _hidden = new();
+    private Dictionary<int, EdgeSpan> _hidden = new();
     private bool _showingTrial;
 
     public SplineGraph Graph { get; private set; } = new();
@@ -124,19 +125,21 @@ public partial class SplineNetwork : Node
         return true;
     }
 
-    /// <summary>Leaves these edges out of the visuals (a draw in progress continuing them shows them in its
-    /// preview instead). Redraws only when the set changes.</summary>
-    public void Hide(IEnumerable<int> edges)
+    /// <summary>Leaves these edges out of the visuals.</summary>
+    public void Hide(IEnumerable<int> edges) => Hide(edges.ToDictionary(id => id, _ => EdgeSpan.None));
+
+    /// <summary>Draws these edges only over their spans (a draw in progress continuing them keeps that part as built
+    /// and shows the rest in its preview). Redraws only when they change.</summary>
+    public void Hide(IReadOnlyDictionary<int, EdgeSpan> edges)
     {
-        var set = new HashSet<int>(edges);
-        if (set.SetEquals(_hidden)) return;
-        _hidden = set;
+        if (edges.Count == _hidden.Count && edges.All(kv => _hidden.TryGetValue(kv.Key, out var s) && s == kv.Value)) return;
+        _hidden = new Dictionary<int, EdgeSpan>(edges);
         // A trial being shown keeps its own picture; the built one is drawn with these hidden when it ends.
         if (!_showingTrial) Draw(Graph, Footprints, Issues, _hidden);
     }
 
-    /// <summary>The edges left out of the visuals (<see cref="Hide"/>).</summary>
-    public IReadOnlyCollection<int> Hidden => _hidden;
+    /// <summary>The edges left out of the visuals but for their spans (<see cref="Hide"/>).</summary>
+    public IReadOnlyDictionary<int, EdgeSpan> Hidden => _hidden;
 
     /// <summary>Gives a changed copy of the graph (a tool's trial) its heights, so validating it sees grades and cut/fill.</summary>
     public void Conform(SplineGraph trial)
@@ -175,7 +178,7 @@ public partial class SplineNetwork : Node
             if (shape) shaped = ShapeGround(grid => GroundShaping.Shape(grid, Graph, Footprints, edges, nodes));
         }
         Issues = Validation.Check(Graph);
-        _hidden.RemoveWhere(id => !Graph.HasEdge(id));
+        foreach (int id in _hidden.Keys.Where(id => !Graph.HasEdge(id)).ToList()) _hidden.Remove(id);
         Draw(Graph, Footprints, Issues, _hidden);
         Changed?.Invoke();
         return shaped;
@@ -211,7 +214,7 @@ public partial class SplineNetwork : Node
     }
 
     private void Draw(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints, IReadOnlyList<Issue> issues,
-        IReadOnlySet<int>? hidden)
+        IReadOnlyDictionary<int, EdgeSpan>? hidden)
     {
         if (_visual is not null) _visual.SetNetwork(graph, footprints, issues, hidden);
         else _renderer?.SetNetwork(graph, footprints, issues, ColorOf, hidden);

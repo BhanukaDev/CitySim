@@ -62,7 +62,8 @@ pills show each leg's slope. Ends too far apart in height for `MaxGrade` get one
   footprint too, with `Bend` set (`Junctions.IsBend`: a kerb inside, the outside that kerb pushed out by the road's
   width); other 2-arm hard corners (Join / Turnout kinds) have `Junctions.BendFill`. Junctions too close to fit apart
   (`JunctionClusters.Find(graph, footprints)`: overlapping or squeezed footprints) are best drawn as one area: skip
-  their footprints and inner edges and draw each `JunctionCluster` instead. Leave `hidden` edges out. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
+  their footprints and inner edges and draw each `JunctionCluster` instead. `hidden` edges are the ones a draw in progress is continuing: draw each only over its `EdgeSpan` (empty = leave it
+  out; no end face where it's trimmed), and keep drawing the junctions at their ends. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
   is an example. Build on the stored heights, not the ground: `edge.Heights.At(s)` (level across, so no roll) and
   `node.Height` for junctions. Either is null only before the network has conformed that graph.
 - **Per-end data**: `GraphEdge.DataStart` / `DataEnd` hold the consumer's own data for each end of an edge (the roads

@@ -65,7 +65,7 @@ public sealed partial class RoadVisual : INetworkVisual
     public SectionStyle SectionStyle => _sectionStyle;
 
     public void SetNetwork(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints,
-        IReadOnlyList<Issue> issues, IReadOnlySet<int>? hidden)
+        IReadOnlyList<Issue> issues, IReadOnlyDictionary<int, EdgeSpan>? hidden)
     {
         _node?.QueueFree();
         _node = null;
@@ -75,30 +75,32 @@ public sealed partial class RoadVisual : INetworkVisual
         var innerEdges = clusters.SelectMany(c => c.Inner).ToHashSet();
         var clustered = clusters.SelectMany(c => c.Nodes).ToHashSet();
         Marks = Crossings.Resolve(graph, footprints, SectionOf, _sectionStyle, innerEdges);
+        // A hidden edge (a draw continuing it) keeps the part the draw leaves unchanged; the junction at its far end
+        // stays as it is, so it's drawn as usual.
         foreach (var e in graph.Edges)
-            if (hidden?.Contains(e.Id) != true && !innerEdges.Contains(e.Id))
+            if (!innerEdges.Contains(e.Id))
             {
+                var keep = hidden is not null && hidden.TryGetValue(e.Id, out var k) ? k : new EdgeSpan(0, e.Alignment.Length);
+                if (keep.IsEmpty) continue;
                 rm.Age = Age(e);
-                Segment(rm, graph, e, footprints);
+                Segment(rm, graph, e, footprints, keep);
             }
         foreach (var f in footprints.Values)
-            if (!clustered.Contains(f.NodeId) && !f.Cuts.Any(c => hidden?.Contains(c.EdgeId) == true))
+            if (!clustered.Contains(f.NodeId))
             {
                 rm.Age = f.Cuts.Max(c => Age(graph.Edge(c.EdgeId)));
                 Junction(rm, graph, f);
             }
         foreach (var cl in clusters)
-            if (!cl.Nodes.SelectMany(n => graph.Node(n).Edges).Any(id => hidden?.Contains(id) == true))
-            {
-                rm.Age = cl.Nodes.SelectMany(n => graph.Node(n).Edges).Max(id => Age(graph.Edge(id)));
-                Cluster(rm, graph, cl, footprints);
-            }
+        {
+            rm.Age = cl.Nodes.SelectMany(n => graph.Node(n).Edges).Max(id => Age(graph.Edge(id)));
+            Cluster(rm, graph, cl, footprints);
+        }
         foreach (var n in graph.Nodes)
-            if (!n.Edges.Any(e => hidden?.Contains(e) == true))
-            {
-                rm.Age = n.Edges.Select(id => Age(graph.Edge(id))).DefaultIfEmpty(0).Max();
-                BendFill(rm, graph, n);
-            }
+        {
+            rm.Age = n.Edges.Select(id => Age(graph.Edge(id))).DefaultIfEmpty(0).Max();
+            BendFill(rm, graph, n);
+        }
 
         var mesh = new ArrayMesh();
         rm.CommitTo(mesh, MaterialOf);
@@ -120,12 +122,15 @@ public sealed partial class RoadVisual : INetworkVisual
         return _sections[e.Rules.Id] = RoadSection.From(def, _sectionStyle);
     }
 
-    private void Segment(RoadMesh rm, SplineGraph g, GraphEdge e, IReadOnlyDictionary<int, JunctionFootprint> footprints)
+    /// <summary>An edge between its cut-backs, only over <paramref name="keep"/> (a draw continuing it: no end face
+    /// where it's trimmed, the preview's ghost carries on from there).</summary>
+    private void Segment(RoadMesh rm, SplineGraph g, GraphEdge e, IReadOnlyDictionary<int, JunctionFootprint> footprints, EdgeSpan keep)
     {
         var sec = SectionOf(e);
         var curve = e.Alignment.Curve;
         var (cs, ce) = Junctions.CutBacks(e, footprints);
-        float s0 = cs, s1 = curve.Length - ce;
+        bool trimA = keep.From > 1e-3f, trimB = keep.To < curve.Length - 1e-3f;
+        float s0 = MathF.Max(cs, keep.From), s1 = MathF.Min(curve.Length - ce, keep.To);
         bool atStart = footprints.ContainsKey(e.Start), atEnd = footprints.ContainsKey(e.End);
         float Crown(float s) => MathF.Min(
             atStart ? Math.Clamp((s - s0) / CrownTaper, 0, 1) : 1,
@@ -170,9 +175,11 @@ public sealed partial class RoadVisual : INetworkVisual
                 prevQ = q;
             }
             // A dead end closes the road with an end face; at a junction only a raised median needs one.
-            if (g.Node(e.Start).Edges.Count == 1) Cap(rm, sec, e, s0, -1);
+            if (trimA) { /* the ghost carries on */ }
+            else if (g.Node(e.Start).Edges.Count == 1) Cap(rm, sec, e, s0, -1);
             else if (atStart) MedianEnds(rm, sec, e, s0, -1);
-            if (g.Node(e.End).Edges.Count == 1) Cap(rm, sec, e, s1, +1);
+            if (trimB) { /* the ghost carries on */ }
+            else if (g.Node(e.End).Edges.Count == 1) Cap(rm, sec, e, s1, +1);
             else if (atEnd) MedianEnds(rm, sec, e, s1, +1);
         }
 
@@ -195,14 +202,16 @@ public sealed partial class RoadVisual : INetworkVisual
                 if (Approach(sec, line, forward: true)) solidB = st.SolidApproach;
             }
             if (b - a <= 1e-3f) continue;
-            if (line.Dash <= 0 || solidA + solidB >= b - a) { Paint(rm, sec, e, a, b, line, Crown); continue; }
-            if (solidA > 0) Paint(rm, sec, e, a, a + solidA, line, Crown);
-            if (solidB > 0) Paint(rm, sec, e, b - solidB, b, line, Crown);
-            Dashes(rm, sec, e, a + solidA, b - solidB, line, Crown);
+            // Laid out over the whole road as built, then clipped to the part kept, so a trimmed road's dashes don't move.
+            void Clipped(float from, float to) { if (MathF.Min(to, keep.To) - MathF.Max(from, keep.From) > 1e-3f) Paint(rm, sec, e, MathF.Max(from, keep.From), MathF.Min(to, keep.To), line, Crown); }
+            if (line.Dash <= 0 || solidA + solidB >= b - a) { Clipped(a, b); continue; }
+            if (solidA > 0) Clipped(a, a + solidA);
+            if (solidB > 0) Clipped(b - solidB, b);
+            Dashes(a + solidA, b - solidB, line, Clipped);
         }
 
-        if (markA is { } mA && s1 - s0 > uA) Mouth(rm, sec, e, s0, +1, forward: false, mA, Crown);
-        if (markB is { } mB && s1 - s0 > uB) Mouth(rm, sec, e, s1, -1, forward: true, mB, Crown);
+        if (!trimA && markA is { } mA && s1 - s0 > uA) Mouth(rm, sec, e, s0, +1, forward: false, mA, Crown);
+        if (!trimB && markB is { } mB && s1 - s0 > uB) Mouth(rm, sec, e, s1, -1, forward: true, mB, Crown);
     }
 
     /// <summary>How much cars stand at a distance past the stop line: most right behind it, fading over a queue's length.</summary>
@@ -227,7 +236,7 @@ public sealed partial class RoadVisual : INetworkVisual
 
     /// <summary>Dashes from <paramref name="a"/> to <paramref name="b"/>, stretched to whole dashes with half a gap at
     /// each end, so two pieces meeting end to end read as one line.</summary>
-    private void Dashes(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown)
+    private static void Dashes(float a, float b, SectionLine line, Action<float, float> paint)
     {
         if (b - a <= 1e-3f) return;
         float period = line.Dash + line.Gap;
@@ -236,7 +245,7 @@ public sealed partial class RoadVisual : INetworkVisual
         for (int k = 0; k < n; k++)
         {
             float d = a + k * p + (p - on) / 2;
-            Paint(rm, sec, e, d, d + on, line, crown);
+            paint(d, d + on);
         }
     }
 
@@ -367,7 +376,7 @@ public sealed partial class RoadVisual : INetworkVisual
     }
 
     /// <summary>A translucent halo under every edge and junction with an issue, in the addon's warning colours.</summary>
-    private void Halos(ArrayMesh mesh, SplineGraph graph, IReadOnlyList<Issue> issues, IReadOnlySet<int>? hidden)
+    private void Halos(ArrayMesh mesh, SplineGraph graph, IReadOnlyList<Issue> issues, IReadOnlyDictionary<int, EdgeSpan>? hidden)
     {
         var edgeWorst = new Dictionary<int, Severity>();
         var nodeWorst = new Dictionary<int, Severity>();
@@ -383,7 +392,7 @@ public sealed partial class RoadVisual : INetworkVisual
             int tris = 0;
             foreach (var e in graph.Edges)
             {
-                if (!edgeWorst.TryGetValue(e.Id, out var w) || w != sev || hidden?.Contains(e.Id) == true) continue;
+                if (!edgeWorst.TryGetValue(e.Id, out var w) || w != sev || hidden?.ContainsKey(e.Id) == true) continue;
                 float half = e.Rules.Width / 2 + 2.5f;
                 Vector3? l0 = null, r0 = null;
                 foreach (float s in Stations(0, e.Alignment.Length))

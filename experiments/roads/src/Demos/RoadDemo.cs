@@ -16,7 +16,8 @@ namespace CitySim.Demos;
 /// kind of surface was drawn, and prints "Demo road: all ok" (or the problems). Add <c>--screenshot</c> and
 /// <c>--cam</c> to look at it; run headless with <c>--quit-after</c> for the checks alone.
 /// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>). <c>--demo-slope</c>: a draw left open up a
-/// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>).
+/// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>). <c>--demo-continue</c>: a draw
+/// left open from a short dead end off a 4-way (<see cref="RunContinue"/>; with <c>--ui=open:roads,pick:two_lane</c>).
 /// <c>--demo-grid</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
 /// <c>--demo-lane-links[=links|pick|add]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
@@ -60,6 +61,7 @@ public partial class RoadDemo : Node
                 Callable.From(() => RunLaneLinks(shot)).CallDeferred();
             }
             else if (arg == "--demo-slope") Callable.From(RunSlope).CallDeferred();
+            else if (arg == "--demo-continue") Callable.From(RunContinue).CallDeferred();
             else if (arg == "--bake-road-thumbnails" || arg.StartsWith("--bake-road-thumbnails="))
                 AddChild(new RoadThumbnailBaker(arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : null));
             else if (arg == "--bake-road-textures")
@@ -139,5 +141,37 @@ public partial class RoadDemo : Node
         var lines = grid.Lines(Network.Graph, rules);
         Network.Apply(g => { foreach (var line in lines) g.AddSpline(line, rules, Ends.None); return true; });
         GD.Print($"Demo grid: {Network.Graph.EdgeCount} edges, {Network.Footprints.Count} junctions, {Network.Issues.Count} issues");
+    }
+
+    /// <summary>A 4-way with a short dead end off it, and a draw left open continuing that dead end round a bend: the
+    /// junction and the old road up to the bend stay drawn as built while the draw is open. Prints "Demo continue: all ok".</summary>
+    private async void RunContinue()
+    {
+        if (Host?.ProfileFor("two_lane") is not { } profile || Network is null || Host.Visual is not { } visual
+            || GetTree().Root.FindChild("SplineDrawTool", true, false) is not SplineDrawTool draw)
+        {
+            GD.PrintErr("Demo continue: no two_lane road, network, road visual or draw tool");
+            return;
+        }
+        var problems = new List<string>();
+        var rules = profile.ToRules();
+        static NumVector2 V(float x, float z) => new(x, z);
+        Network.Apply(g => g.AddSpline(new Alignment(new[] { new Pi(V(600, 500)), new Pi(V(800, 500)) }), rules));
+        Network.Apply(g => g.AddSpline(new Alignment(new[] { new Pi(V(700, 600)), new Pi(V(700, 470)) }), rules));
+        await Frames(2);
+        int junctionTris = visual.Counts.GetValueOrDefault(SurfaceKind.Asphalt);
+        draw.ForcedPlanCursor = V(700, 470);
+        draw.PlaceForTest(hard: false);
+        draw.ForcedPlanCursor = V(740, 445);
+        await Frames(4);
+        var hidden = Network.Hidden;
+        GD.Print($"Demo continue: hidden {string.Join(", ", hidden.Select(kv => $"{kv.Key} {kv.Value.From:0.#}..{kv.Value.To:0.#}"))}");
+        if (hidden.Count != 1) problems.Add($"{hidden.Count} edges hidden, want the dead end");
+        else if (hidden.Values.First() is { IsEmpty: true }) problems.Add("the dead end is hidden whole, want it kept up to the bend");
+        int during = visual.Counts.GetValueOrDefault(SurfaceKind.Asphalt);
+        GD.Print($"Demo continue: asphalt {junctionTris} triangles built, {during} while drawing");
+        if (during < junctionTris * 0.8f) problems.Add("asphalt went missing while drawing (the junction?)");
+        foreach (var p in problems) GD.PrintErr($"Demo continue: {p}");
+        GD.Print(problems.Count == 0 ? "Demo continue: all ok" : $"Demo continue: {problems.Count} problem(s)");
     }
 }

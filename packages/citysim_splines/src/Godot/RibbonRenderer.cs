@@ -40,12 +40,11 @@ public sealed class RibbonRenderer
 
     /// <summary>Rebuilds the preview ghost from the in-progress alignment, with a halo in the worst issue's colour
     /// (a clamped corner is amber even before validation says so). Stations before <paramref name="solidUntil"/> and
-    /// after <paramref name="solidFrom"/> are road already built that the draw continues unchanged: they're drawn as
-    /// built, in <paramref name="solidColor"/>, and only the rest is the ghost. <paramref name="kept"/> are other
-    /// profiles' roads the draw shortens to its joint, drawn as built too. Null clears it.</summary>
+    /// after <paramref name="solidFrom"/> are road already built that the draw continues unchanged: the network keeps
+    /// drawing them (<see cref="SplineNetwork.Hide(IReadOnlyDictionary{int, EdgeSpan})"/>), so only the rest is the
+    /// ghost. Null clears it.</summary>
     public void SetPreview(Alignment? alignment, float width, Severity? worst = null,
-        float solidUntil = 0, float solidFrom = float.PositiveInfinity, Color? solidColor = null,
-        IReadOnlyList<(Alignment Alignment, float Width, Color Color)>? kept = null)
+        float solidUntil = 0, float solidFrom = float.PositiveInfinity)
     {
         if (alignment is null || alignment.Curve.Length <= 0f)
         {
@@ -66,27 +65,6 @@ public sealed class RibbonRenderer
             var ghost = NewStrip();
             if (Span(ghost, curve, s0, s1, width, Lift) > 0) AddSurface(mesh, ghost, GhostFill);
         }
-        if (solidColor is { } color && (s0 > 0 || s1 < curve.Length))
-        {
-            var fill = NewStrip();
-            var centre = NewStrip();
-            int quads = 0, dashes = 0;
-            foreach (var (a, b) in new[] { (0f, s0), (s1, curve.Length) })
-            {
-                if (b - a < 1e-3f) continue;
-                quads += Span(fill, curve, a, b, width, Lift);
-                dashes += Dashes(centre, curve, a, b);
-            }
-            if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
-            if (dashes > 0) AddSurface(mesh, centre, color.Lightened(0.55f), opaque: true);
-        }
-        foreach (var (a, w, keptColor) in kept ?? Array.Empty<(Alignment, float, Color)>())
-        {
-            var fill = NewStrip();
-            var centre = NewStrip();
-            if (Span(fill, a.Curve, 0, a.Length, w, Lift) > 0) AddSurface(mesh, fill, keptColor, opaque: true);
-            if (Dashes(centre, a.Curve, 0, a.Length) > 0) AddSurface(mesh, centre, keptColor.Lightened(0.55f), opaque: true);
-        }
         _preview.Mesh = mesh;
     }
 
@@ -105,9 +83,10 @@ public sealed class RibbonRenderer
     }
 
     /// <summary>Rebuilds every built edge, junction footprint and bend fill (one mesh, a surface per colour and
-    /// layer). <paramref name="hidden"/> edges are left out (the ones a draw in progress is continuing).</summary>
+    /// layer). <paramref name="hidden"/> edges (the ones a draw in progress is continuing) are drawn only over their
+    /// spans.</summary>
     public void SetNetwork(SplineGraph graph, IReadOnlyDictionary<int, JunctionFootprint> footprints,
-        IReadOnlyList<Issue> issues, Func<string, Color> colorOf, IReadOnlySet<int>? hidden = null)
+        IReadOnlyList<Issue> issues, Func<string, Color> colorOf, IReadOnlyDictionary<int, EdgeSpan>? hidden = null)
     {
         Clear(ref _network);
         if (graph.EdgeCount == 0) return;
@@ -127,7 +106,7 @@ public sealed class RibbonRenderer
             var halo = NewStrip();
             int quads = 0;
             foreach (var e in graph.Edges)
-                if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev && hidden?.Contains(e.Id) != true)
+                if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev && hidden?.ContainsKey(e.Id) != true)
                     quads += Span(halo, e.Alignment.Curve, 0, e.Alignment.Length, e.Rules.Width + 5f, Lift * 0.5f);
             foreach (var n in graph.Nodes)
                 if (nodeWorst.TryGetValue(n.Id, out var w) && w == sev)
@@ -135,7 +114,7 @@ public sealed class RibbonRenderer
             if (quads > 0) AddSurface(mesh, halo, HaloOf(sev), opaque: false);
         }
 
-        foreach (var group in graph.Edges.Where(e => hidden?.Contains(e.Id) != true).GroupBy(e => e.Rules.Id))
+        foreach (var group in graph.Edges.GroupBy(e => e.Rules.Id))
         {
             var fill = NewStrip();
             var centre = NewStrip();
@@ -143,13 +122,14 @@ public sealed class RibbonRenderer
             foreach (var e in group)
             {
                 var (cs, ce) = Junctions.CutBacks(e, footprints);
-                float s0 = cs, s1 = e.Alignment.Length - ce;
+                var keep = hidden is not null && hidden.TryGetValue(e.Id, out var k) ? k : new EdgeSpan(0, e.Alignment.Length);
+                float s0 = MathF.Max(cs, keep.From), s1 = MathF.Min(e.Alignment.Length - ce, keep.To);
                 if (s1 <= s0) continue;
                 quads += Span(fill, e.Alignment.Curve, s0, s1, e.Rules.Width, Lift);
                 // The centre line runs on through a width transition to the node, so it carries on into the next road.
                 float d0 = Junctions.RunsOn(e, true, footprints) ? 0 : s0;
                 float d1 = Junctions.RunsOn(e, false, footprints) ? e.Alignment.Length : s1;
-                dashes += Dashes(centre, e.Alignment.Curve, d0, d1);
+                dashes += Dashes(centre, e.Alignment.Curve, d0, d1, keep.From, keep.To);
             }
             var color = colorOf(group.Key);
             if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
@@ -176,7 +156,7 @@ public sealed class RibbonRenderer
 
         foreach (var n in graph.Nodes)
         {
-            if (n.Edges.Any(e => hidden?.Contains(e) == true) || Junctions.BendFill(graph, n.Id) is not { } bend) continue;
+            if (Junctions.BendFill(graph, n.Id) is not { } bend) continue;
             var st = NewStrip();
             for (int i = 0; i + 1 < bend.Count; i++)
             {
@@ -256,7 +236,7 @@ public sealed class RibbonRenderer
 
     /// <summary>A dashed centre line from <paramref name="s0"/> to <paramref name="s1"/>, the pattern stretched to a
     /// whole number of dashes with half a gap at each end, so two pieces meeting end to end read as one line.</summary>
-    private int Dashes(SurfaceTool st, Curve curve, float s0, float s1)
+    private int Dashes(SurfaceTool st, Curve curve, float s0, float s1, float clipFrom = 0, float clipTo = float.PositiveInfinity)
     {
         const float period = DashOn + DashOff;
         float len = s1 - s0;
@@ -266,8 +246,8 @@ public sealed class RibbonRenderer
         int quads = 0;
         for (int k = 0; k < n; k++)
         {
-            float a = s0 + k * p + (p - on) / 2;
-            quads += Span(st, curve, a, a + on, CentreWidth, Lift * 2);
+            float a = MathF.Max(s0 + k * p + (p - on) / 2, clipFrom), b = MathF.Min(s0 + k * p + (p + on) / 2, clipTo);
+            if (b > a) quads += Span(st, curve, a, b, CentreWidth, Lift * 2);
         }
         return quads;
     }
