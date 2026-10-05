@@ -42,9 +42,10 @@ public sealed class RibbonRenderer
     /// (a clamped corner is amber even before validation says so). Stations before <paramref name="solidUntil"/> and
     /// after <paramref name="solidFrom"/> are road already built that the draw continues unchanged: the network keeps
     /// drawing them (<see cref="SplineNetwork.Hide(IReadOnlyDictionary{int, EdgeSpan})"/>), so only the rest is the
-    /// ghost. Null clears it.</summary>
+    /// ghost. <paramref name="offset"/>: the road runs that far left of the alignment (<see cref="GraphEdge.Offset"/>).
+    /// Null clears it.</summary>
     public void SetPreview(Alignment? alignment, float width, Severity? worst = null,
-        float solidUntil = 0, float solidFrom = float.PositiveInfinity)
+        float solidUntil = 0, float solidFrom = float.PositiveInfinity, float offset = 0)
     {
         if (alignment is null || alignment.Curve.Length <= 0f)
         {
@@ -60,10 +61,10 @@ public sealed class RibbonRenderer
             if (worst is { } w)
             {
                 var halo = NewStrip();
-                if (Span(halo, curve, s0, s1, width + 5f, Lift * 0.5f) > 0) AddSurface(mesh, halo, HaloOf(w));
+                if (Span(halo, curve, s0, s1, width + 5f, Lift * 0.5f, offset) > 0) AddSurface(mesh, halo, HaloOf(w));
             }
             var ghost = NewStrip();
-            if (Span(ghost, curve, s0, s1, width, Lift) > 0) AddSurface(mesh, ghost, GhostFill);
+            if (Span(ghost, curve, s0, s1, width, Lift, offset) > 0) AddSurface(mesh, ghost, GhostFill);
         }
         _preview.Mesh = mesh;
     }
@@ -107,7 +108,7 @@ public sealed class RibbonRenderer
             int quads = 0;
             foreach (var e in graph.Edges)
                 if (edgeWorst.TryGetValue(e.Id, out var w) && w == sev && hidden?.ContainsKey(e.Id) != true)
-                    quads += Span(halo, e.Alignment.Curve, 0, e.Alignment.Length, e.Rules.Width + 5f, Lift * 0.5f);
+                    quads += Span(halo, e.Alignment.Curve, 0, e.Alignment.Length, e.Rules.Width + 5f, Lift * 0.5f, e.Offset);
             foreach (var n in graph.Nodes)
                 if (nodeWorst.TryGetValue(n.Id, out var w) && w == sev)
                     quads += Disc(halo, n.Position, MaxWidth(graph, n.Id) * 0.5f + 6f, Lift * 0.5f);
@@ -125,11 +126,11 @@ public sealed class RibbonRenderer
                 var keep = hidden is not null && hidden.TryGetValue(e.Id, out var k) ? k : new EdgeSpan(0, e.Alignment.Length);
                 float s0 = MathF.Max(cs, keep.From), s1 = MathF.Min(e.Alignment.Length - ce, keep.To);
                 if (s1 <= s0) continue;
-                quads += Span(fill, e.Alignment.Curve, s0, s1, e.Rules.Width, Lift);
+                quads += Span(fill, e.Alignment.Curve, s0, s1, e.Rules.Width, Lift, e.Offset);
                 // The centre line runs on through a width transition to the node, so it carries on into the next road.
                 float d0 = Junctions.RunsOn(e, true, footprints) ? 0 : s0;
                 float d1 = Junctions.RunsOn(e, false, footprints) ? e.Alignment.Length : s1;
-                dashes += Dashes(centre, e.Alignment.Curve, d0, d1, keep.From, keep.To);
+                dashes += Dashes(centre, e.Alignment.Curve, d0, d1, keep.From, keep.To, e.Offset);
             }
             var color = colorOf(group.Key);
             if (quads > 0) AddSurface(mesh, fill, color, opaque: true);
@@ -236,7 +237,7 @@ public sealed class RibbonRenderer
 
     /// <summary>A dashed centre line from <paramref name="s0"/> to <paramref name="s1"/>, the pattern stretched to a
     /// whole number of dashes with half a gap at each end, so two pieces meeting end to end read as one line.</summary>
-    private int Dashes(SurfaceTool st, Curve curve, float s0, float s1, float clipFrom = 0, float clipTo = float.PositiveInfinity)
+    private int Dashes(SurfaceTool st, Curve curve, float s0, float s1, float clipFrom = 0, float clipTo = float.PositiveInfinity, float offset = 0)
     {
         const float period = DashOn + DashOff;
         float len = s1 - s0;
@@ -247,12 +248,12 @@ public sealed class RibbonRenderer
         for (int k = 0; k < n; k++)
         {
             float a = MathF.Max(s0 + k * p + (p - on) / 2, clipFrom), b = MathF.Min(s0 + k * p + (p + on) / 2, clipTo);
-            if (b > a) quads += Span(st, curve, a, b, CentreWidth, Lift * 2);
+            if (b > a) quads += Span(st, curve, a, b, CentreWidth, Lift * 2, offset);
         }
         return quads;
     }
 
-    private int Span(SurfaceTool st, Curve curve, float s0, float s1, float width, float lift)
+    private int Span(SurfaceTool st, Curve curve, float s0, float s1, float width, float lift, float offset = 0)
     {
         float half = width / 2f;
         int n = Math.Max(1, (int)MathF.Ceiling((s1 - s0) / 2f));
@@ -260,9 +261,10 @@ public sealed class RibbonRenderer
         for (int k = 0; k <= n; k++)
         {
             var sample = curve.Sample(s0 + (s1 - s0) * k / n);
-            var left = SplineMath.Left(sample.Tangent) * half;
-            var l1 = Drape(sample.Position + left, lift);
-            var r1 = Drape(sample.Position - left, lift);
+            var side = SplineMath.Left(sample.Tangent);
+            var centre = sample.Position + side * offset;
+            var l1 = Drape(centre + side * half, lift);
+            var r1 = Drape(centre - side * half, lift);
             if (l0 is { } a && r0 is { } b)
             {
                 st.AddVertex(a); st.AddVertex(b); st.AddVertex(l1);

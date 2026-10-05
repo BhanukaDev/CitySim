@@ -290,7 +290,7 @@ public partial class CrossingTool : Node
         foreach (var (u, side) in new[] { (u0, 1), (u1, 1), (u1, -1), (u0, -1) })
         {
             var sample = c.Sample(Math.Clamp(fromStart ? u : len - u, 0, len));
-            pts.Add(sample.Position + SplineMath.Left(sample.Tangent) * (half * side));
+            pts.Add(sample.Position + SplineMath.Left(sample.Tangent) * (half * side + e.Offset));
         }
         return pts.ToArray();
     }

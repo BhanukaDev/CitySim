@@ -357,6 +357,14 @@ strips, wider lanes; the same 24 m as CS's medium road). `MaxGrade` 8 %, `Ground
 - Lane drops as built: the taper is 2.5 × the width difference (20 m for 24 → 16), shorter when a junction is near
   (13.5 m 30 m past a 4-way); both lanes merge into one (chevrons between them, one direction only). Not yet: edge
   lines through the taper (they stop at its ends), a lane line ending before the merge.
+- Fixed (user report, 2026-10-05): on the four-lane road the asphalt showed through the zebra and stop line in slanted
+  cuts. The crown fades out over the 4 m before a junction, which twists each 2 m cross-section quad there; across a
+  four-lane's 7 m of lanes that bulged 17 mm, past the paint's 12 mm lift. Segments now take a cross-section every
+  0.5 m over the fade (`RoadVisual.SegmentStations`).
+- Fixed (splines addon, `Junctions.Footprint`): a T whose straight-through roads are moved sideways
+  (`GraphEdge.Offset`) tapered to where the narrow road's side would be with no offset, then stepped to the real one,
+  and the stepped-off corner got chevrons. The taper now goes side to side with offsets, and roads of one width at
+  different offsets taper too. `--demo-offset` checks it at z = 1250.
 - For the play-test: are 3.5 m lanes too wide next to the two-lane's 3 m? Solid or double centre line? Is 8 % right?
   Is a 20 m taper long enough, or should the kerbside lane end with a longer taper?
 

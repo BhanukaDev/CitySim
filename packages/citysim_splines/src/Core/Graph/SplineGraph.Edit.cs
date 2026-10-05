@@ -61,6 +61,21 @@ public sealed partial class SplineGraph
         return any;
     }
 
+    /// <summary>
+    /// Replaces an edge's profile and offset in place (the Draw tool's Replace mode: upgrading a road), keeping its
+    /// alignment, nodes, kerbs and end data. It gets a new height line. An end that now runs on into an edge of the same
+    /// profile and offset merges with it. Returns the edge (or what it merged into).
+    /// </summary>
+    public int ReplaceEdge(int edgeId, ProfileRules rules, float offset)
+    {
+        var e = _edges[edgeId];
+        _edges[edgeId] = e with { Rules = rules, Offset = offset, Heights = null };
+        int id = edgeId;
+        foreach (int n in new[] { e.Start, e.End }.Distinct())
+            if (_nodes.ContainsKey(n) && _edges.ContainsKey(id) && _nodes[n].Edges.Contains(id) && TryMerge(n) is { } m) id = m;
+        return id;
+    }
+
     /// <summary>Sets the consumer's data at one end of an edge (<see cref="GraphEdge.DataStart"/>; null clears it).</summary>
     public void SetEndData(int edgeId, bool atStart, object? data)
     {
@@ -155,7 +170,7 @@ public sealed partial class SplineGraph
             int from = s0 < 1e-3f ? e.Start : NewNode(piece.Pis[0].Position);
             int to = s1 > a.Length - 1e-3f ? e.End : NewNode(piece.Pis[^1].Position);
             made.Add(NewEdge(e.Rules, piece, from, to, e.CustomData, from == e.Start ? e.KerbStart : default, to == e.End ? e.KerbEnd : default,
-                from == e.Start ? e.DataStart : null, to == e.End ? e.DataEnd : null));
+                from == e.Start ? e.DataStart : null, to == e.End ? e.DataEnd : null, e.Offset));
         }
         foreach (int n in new[] { e.Start, e.End }.Distinct())
         {
@@ -185,7 +200,7 @@ public sealed partial class SplineGraph
         int far = arm.AtStart ? e.End : e.Start;
         if (_nodes[far].Edges.Count == 0) _nodes.Remove(far);
         var r = AddSpline(new Alignment(pis), e.Rules, arm.AtStart ? Ends.Start : Ends.End, e.CustomData, (e.KerbStart, e.KerbEnd),
-            (e.DataStart, e.DataEnd));
+            (e.DataStart, e.DataEnd), e.Offset);
         var edges = r.Edges.Concat(r.Kept).Where(_edges.ContainsKey).ToList();
         foreach (int id in edges)
         {
@@ -277,7 +292,7 @@ public sealed partial class SplineGraph
             var continueAt = Ends.None;
             if (onto is not null && deadEnd && e.Start == dropped) continueAt |= Ends.Start;
             if (onto is not null && deadEnd && e.End == dropped) continueAt |= Ends.End;
-            var r = AddSpline(e.Alignment, e.Rules, continueAt, e.CustomData, (e.KerbStart, e.KerbEnd), (e.DataStart, e.DataEnd));
+            var r = AddSpline(e.Alignment, e.Rules, continueAt, e.CustomData, (e.KerbStart, e.KerbEnd), (e.DataStart, e.DataEnd), e.Offset);
             // A later re-add may split an earlier one's edge where they cross: keep only the ids still there.
             edges.RemoveAll(id => !_edges.ContainsKey(id));
             edges.AddRange(r.Edges.Concat(r.Kept));

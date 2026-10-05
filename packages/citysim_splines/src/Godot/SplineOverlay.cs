@@ -61,6 +61,10 @@ public sealed class OverlayFrame
     public string? GridLabel { get; init; }
     /// <summary>The cursor is on a bend's slider: its track and the ghost node.</summary>
     public BendMark? Bend { get; init; }
+    /// <summary>Moving the piece sideways with the mouse (<see cref="Offsets"/>): the range across the road.</summary>
+    public OffsetBar? OffsetBar { get; init; }
+    /// <summary>How far left of its alignment the preview's road runs (<see cref="GraphEdge.Offset"/>).</summary>
+    public float PreviewOffset { get; init; }
     /// <summary>The height of the road being drawn at a plan point (its trial height line), for the slope in the leg
     /// pills; null where there's none.</summary>
     public Func<NumVector2, float?>? HeightAt { get; init; }
@@ -70,6 +74,11 @@ public sealed class OverlayFrame
 /// <see cref="From"/> to the corner point, red from <see cref="RedFrom"/> on (below the minimum radius; null with
 /// Anarchy or none), and the ghost node <see cref="At"/>, red when its radius is refused.</summary>
 public readonly record struct BendMark(NumVector2 From, NumVector2 Corner, NumVector2? RedFrom, NumVector2 At, bool Red);
+
+/// <summary>The range a piece of road can be moved across (<see cref="Offsets.Pick"/>), as a bar on the ground from
+/// <see cref="From"/> to <see cref="To"/>, with a tick at each snap (<see cref="Marks"/>), the picked centre
+/// <see cref="At"/> and its tag.</summary>
+public sealed record OffsetBar(NumVector2 From, NumVector2 To, IReadOnlyList<NumVector2> Marks, NumVector2 At, string Label);
 
 /// <summary>A tag left on screen for a moment after an action.</summary>
 public readonly record struct FlashTag(NumVector2 At, string Text, bool Bad = false);
@@ -169,6 +178,7 @@ public partial class SplineOverlay : Control
         if (f.Stroke is { } stroke) DrawStroke(f, stroke);
         if (f.Grid is { } grid) DrawGrid(f, grid);
         if (snap is not null) DrawGuides(f, snap);
+        if (f.OffsetBar is { } bar) DrawOffsetBar(bar);
         if (f.Bend is { } bend) DrawBend(bend);
         else if (snap is not null) DrawSnapMarker(snap);
         if (drawing || f.Stroke is not null || f.Grid is not null) DrawJunctionsAndIssues(f);
@@ -211,7 +221,7 @@ public partial class SplineOverlay : Control
                 for (int k = 0; k <= n; k++)
                 {
                     var sample = preview.Curve.Sample(s0 + (s1 - s0) * k / n);
-                    pts.Add(sample.Position + SplineMath.Left(sample.Tangent) * (side * rules.Width / 2f));
+                    pts.Add(sample.Position + SplineMath.Left(sample.Tangent) * (side * rules.Width / 2f + f.PreviewOffset));
                 }
                 SolidPolyline(pts, outline, ThinWidth);
             }
@@ -480,6 +490,23 @@ public partial class SplineOverlay : Control
         }
         GroundDisc(b.At, 7f, Line);
         GroundRing(b.At, 7f, b.Red ? Bad : Accent, 2.5f);
+    }
+
+    /// <summary>The offset bar: an accent bar across the road, white ticks at the snaps, the picked centre as a white
+    /// disc with an accent ring, and its tag.</summary>
+    private void DrawOffsetBar(OffsetBar b)
+    {
+        var across = b.To - b.From;
+        if (across.LengthSquared() > 1e-6f)
+        {
+            SolidPolyline(new[] { b.From, b.To }, Accent, 3f);
+            foreach (var m in b.Marks) Tick(m, across, 6f, Line, 2f);
+            Tick(b.From, across, 9f, Accent, 3f);
+            Tick(b.To, across, 9f, Accent, 3f);
+        }
+        GroundDisc(b.At, 6f, Line);
+        GroundRing(b.At, 6f, Accent, 2.5f);
+        if (ScreenOf(b.At) is { } at) _tags.Add(new PendingTag(at + new Vector2(16, -30), b.Label, TagStyle.Snap, false, null));
     }
 
     private void GapBracket(GuideLine g, Curve along, NumVector2 at)

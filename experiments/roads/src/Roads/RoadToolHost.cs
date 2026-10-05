@@ -95,6 +95,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
         RoadDrawMode.Straight => DrawMode.Draw,
         RoadDrawMode.Curve => DrawMode.Curve,
         RoadDrawMode.Freehand => DrawMode.Freehand,
+        RoadDrawMode.Replace => DrawMode.Replace,
         _ => DrawMode.Grid,
     };
 

@@ -71,7 +71,9 @@ public static class GroundShaping
             if (e.Rules.Shaping != ShapingMode.Section || e.Heights is not { } line) continue;
             var curve = e.Alignment.Curve;
             int n = line.Heights.Length - 1;
-            var pts = Enumerable.Range(0, n + 1).Select(i => curve.Sample(i * line.Spacing).Position).ToArray();
+            // Along the road's centre: the alignment moved over by the edge's offset.
+            var pts = Enumerable.Range(0, n + 1).Select(i => curve.Sample(i * line.Spacing))
+                .Select(c => c.Position + SplineMath.Left(c.Tangent) * e.Offset).ToArray();
             all.Add(byEdge[e.Id] = Make(grid, pts, line.Heights, e.Rules.Width / 2, e.Rules));
         }
         foreach (var f in footprints.Values)

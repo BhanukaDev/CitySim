@@ -132,8 +132,9 @@ public sealed partial class RoadVisual
         {
             var sample = e.Alignment.Curve.Sample(s);
             var l = SplineMath.Left(sample.Tangent) * half;
-            left.Add(new Vector2(sample.Position.X + l.X, sample.Position.Y + l.Y));
-            right.Add(new Vector2(sample.Position.X - l.X, sample.Position.Y - l.Y));
+            var c = sample.Position + SplineMath.Left(sample.Tangent) * e.Offset;
+            left.Add(new Vector2(c.X + l.X, c.Y + l.Y));
+            right.Add(new Vector2(c.X - l.X, c.Y - l.Y));
         }
         right.Reverse();
         return left.Concat(right).ToArray();
@@ -184,7 +185,8 @@ public sealed partial class RoadVisual
         {
             var sample = curve.Sample(s);
             var t = new Vector2(sample.Tangent.X, sample.Tangent.Y).Normalized();
-            return (new Vector2(sample.Position.X, sample.Position.Y), t, new Vector2(-t.Y, t.X));
+            var c = sample.Position + SplineMath.Left(sample.Tangent) * e.Offset;
+            return (new Vector2(c.X, c.Y), t, new Vector2(-t.Y, t.X));
         }
         bool Fits(float s)
         {
@@ -240,6 +242,8 @@ public sealed partial class RoadVisual
         Vector2 P(NumVector2 v) => new(v.X, v.Y);
         var (ta, tb) = (P(a.Tangent).Normalized(), P(b.Tangent).Normalized());
         var (la, lb) = (P(SplineMath.Left(a.Tangent)), P(SplineMath.Left(b.Tangent)));
+        a = a with { Position = a.Position + SplineMath.Left(a.Tangent) * e.Offset };
+        b = b with { Position = b.Position + SplineMath.Left(b.Tangent) * e.Offset };
         var paths = new List<TrackPath>();
         foreach (var lane in sec.Lanes)
         {

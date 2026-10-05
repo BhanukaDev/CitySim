@@ -130,7 +130,7 @@ public sealed partial class RoadVisual
     /// wear), UV2.x across it from −0.5 to 0.5 and UV = (metres along, how hard it turns 0..1). Returns the paths, for
     /// <see cref="Hatching"/>, so the chevrons cover whatever no link drives over; none when an arm has no lanes.
     /// </summary>
-    private List<TrackPath> Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f)
+    private List<TrackPath> Tracks(RoadMesh rm, SplineGraph g, JunctionFootprint f, bool ribbons = true)
     {
         var paths = new List<TrackPath>();
         if (LanesAt(g, f) is not { } arms) return paths;
@@ -148,7 +148,7 @@ public sealed partial class RoadVisual
                 _ => 1,
             };
             var path = new TrackPath(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward), a.LaneWidth / 2, turn);
-            Ribbon(rm, path, rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)]);
+            if (ribbons) Ribbon(rm, path, rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)]);
             paths.Add(path);
         }
         return paths;
@@ -351,7 +351,8 @@ public sealed partial class RoadVisual
         var sample = e.Alignment.Curve.Sample(s);
         var t = new Vector2(sample.Tangent.X, sample.Tangent.Y);
         var left = SplineMath.Left(sample.Tangent);
-        return (new Vector2(sample.Position.X, sample.Position.Y), c.AtStart ? t : -t, new Vector2(left.X, left.Y), e.Rules.Width / 2);
+        var centre = sample.Position + left * e.Offset; // the road's centre, beside the alignment by its offset
+        return (new Vector2(centre.X, centre.Y), c.AtStart ? t : -t, new Vector2(left.X, left.Y), e.Rules.Width / 2);
     }
 
     /// <summary>The biggest of some polygons by area; null if there are none.</summary>

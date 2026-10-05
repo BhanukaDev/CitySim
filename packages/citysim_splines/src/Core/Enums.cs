@@ -42,8 +42,9 @@ public enum SnapProviders
     All = (1 << 10) - 1,
 }
 
-/// <summary>The Draw tool's modes (keys 1–4). All of them produce PIs.</summary>
-public enum DrawMode { Draw, Curve, Freehand, Grid }
+/// <summary>The Draw tool's modes (keys 1–5). The first four produce PIs; Replace puts the picked profile on a built edge
+/// in place (an upgrade), moved sideways with the mouse.</summary>
+public enum DrawMode { Draw, Curve, Freehand, Grid, Replace }
 
 /// <summary>The spline tools: Draw (in one of its <see cref="DrawMode"/>s) and Edit (<c>M</c>).</summary>
 public enum SplineTool { Draw, Edit }

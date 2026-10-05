@@ -132,6 +132,11 @@ public partial class SplineDrawTool : Node
             return;
         }
         if (Mode == DrawMode.Freehand) { HandleFreehandButton(mb); return; }
+        if (Mode == DrawMode.Replace)
+        {
+            if (mb.ButtonIndex == MouseButton.Left && mb.Pressed) { GetViewport().SetInputAsHandled(); ReplaceClick(); }
+            return;
+        }
         if (mb.ButtonIndex is not (MouseButton.Left or MouseButton.Right) || !mb.Pressed) return;
 
         if (mb.ButtonIndex == MouseButton.Right)
@@ -172,6 +177,7 @@ public partial class SplineDrawTool : Node
         {
             ClearGridTrial();
             ClearBends();
+            ClearReplace();
             Network?.Hide(Array.Empty<int>());
             _renderer.SetPreview(null, 0);
             _renderer.SetGhost(null, 0);
@@ -186,8 +192,11 @@ public partial class SplineDrawTool : Node
         var mods = _view.Modifiers();
         var query = BuildSnapQuery(_view.PlanOf(cursor), cursor, rules, mods);
         _snap = SnapEngine.Evaluate(query);
+        if (Mode == DrawMode.Replace) { ProcessReplace(profile, rules, _view.PlanOf(cursor)); return; }
+        ClearReplace();
         if (Mode == DrawMode.Freehand) { ProcessFreehand(profile, rules, _view.PlanOf(cursor)); return; }
         if (Mode == DrawMode.Grid && _gridAlongEnd is not null) { ClearBends(); ProcessGrid(profile, rules, _view.PlanOf(cursor)); return; }
+        ParallelLeg(rules, _view.PlanOf(cursor));
         ClearGridTrial();
         TagLoopClose(rules);
         bool continues = _snap.Kind == SnapKind.Node && ContinuesAt(_snap.Position, rules);
@@ -266,6 +275,8 @@ public partial class SplineDrawTool : Node
             LiveRadiusNote = BendAtFit ? "fit" : null,
             GridLabel = Mode == DrawMode.Grid ? GridWidthLabel(rules) : null,
             Bend = BendMark(),
+            OffsetBar = _offsetBar,
+            PreviewOffset = _legOffset,
         });
     }
 
@@ -289,10 +300,10 @@ public partial class SplineDrawTool : Node
         Network!.Hide(KeptSpans(continued));
         if (continued.Count > 0)
         {
-            _renderer!.SetPreview(_trial!.Result.Alignment, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom);
+            _renderer!.SetPreview(_trial!.Result.Alignment, profile.Width, _trial.Worst, _trial.Result.SolidUntil, _trial.Result.SolidFrom, _legOffset);
             return WithLeads(drawn, rules);
         }
-        _renderer!.SetPreview(drawn, profile.Width, _trial?.Worst);
+        _renderer!.SetPreview(drawn, profile.Width, _trial?.Worst, offset: _legOffset);
         return (drawn, false, false);
     }
 
@@ -389,7 +400,7 @@ public partial class SplineDrawTool : Node
         if (Network is null || alignment.Curve.Length < SplineGraph.NodeTolerance) return null;
         var g = Network.Graph.Clone();
         ApplyBends(g, alignment);
-        var result = g.AddSpline(alignment, rules, continueAt);
+        var result = g.AddSpline(alignment, rules, continueAt, offset: _legOffset);
         Network.Conform(g);
         var edges = result.Edges.Concat(result.Nodes.SelectMany(n => g.Node(n).Edges)).Distinct();
         var issues = Validation.Check(g, edges, result.Nodes)
@@ -560,7 +571,7 @@ public partial class SplineDrawTool : Node
         var result = Network.Apply(g =>
         {
             ApplyBends(g, leg);
-            return g.AddSpline(leg, rules);
+            return g.AddSpline(leg, rules, offset: _legOffset);
         });
         foreach (int n in result.Nodes)
         {

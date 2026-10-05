@@ -7,7 +7,7 @@ using Godot;
 namespace CitySim.UI;
 
 /// <summary>How the road tool draws: the four modes of the splines Draw tool (1–4).</summary>
-public enum RoadDrawMode { Straight, Curve, Freehand, Grid }
+public enum RoadDrawMode { Straight, Curve, Freehand, Grid, Replace }
 
 /// <summary>Grid split: equal blocks, or whole lots per block (the splines <c>GridFit</c>).</summary>
 public enum RoadGridFit { Even, LotSteps }
@@ -90,7 +90,7 @@ public partial class RoadOptionsPanel : PanelContainer
         col.AddChild(_drawBox);
         col = _drawBox;
 
-        col.AddChild(UiTheme.Section("Mode", "1–4"));
+        col.AddChild(UiTheme.Section("Mode", "1–5"));
         var modeRow = new HBoxContainer();
         modeRow.AddThemeConstantOverride("separation", 6);
         col.AddChild(modeRow);
@@ -101,6 +101,7 @@ public partial class RoadOptionsPanel : PanelContainer
             (RoadDrawMode.Curve, "Curve", "vector-spline", "Curve (2): start, bend, end"),
             (RoadDrawMode.Freehand, "Freehand", "scribble", "Freehand (3): hold and drag"),
             (RoadDrawMode.Grid, "Grid", "grid-4x4", "Grid (4): corner, width, depth"),
+            (RoadDrawMode.Replace, "Replace", "replace", "Replace (5): click a road to make it this one; where the mouse is across it moves it sideways"),
         ];
         foreach (var (mode, label, icon, tip) in modes)
         {
@@ -115,7 +116,7 @@ public partial class RoadOptionsPanel : PanelContainer
                 ExpandIcon = true,
                 IconAlignment = HorizontalAlignment.Center,
                 VerticalIconAlignment = VerticalAlignment.Top,
-                CustomMinimumSize = new Vector2(64, 56),
+                CustomMinimumSize = new Vector2(48, 56),
                 SizeFlagsHorizontal = SizeFlags.ExpandFill,
             };
             b.AddThemeConstantOverride("icon_max_width", 22);

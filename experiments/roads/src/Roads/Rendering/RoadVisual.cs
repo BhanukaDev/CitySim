@@ -25,6 +25,7 @@ public sealed partial class RoadVisual : INetworkVisual
     private const float PaintLift = 0.012f; // a line above the surface it's painted on
     private const float Step = 2f;          // metres between cross-sections
     private const float CrownTaper = 4f;    // the crown fades out over this before a junction's flat asphalt
+    private const float FadeStep = 0.5f;    // metres between cross-sections where it does
     // How worn every road is (UV2.y) until traffic is simulated; the shaders vary it by place on their own.
     private const float DefaultWear = 1f;
 
@@ -89,6 +90,7 @@ public sealed partial class RoadVisual : INetworkVisual
             if (!clustered.Contains(f.NodeId))
             {
                 rm.Age = f.Cuts.Max(c => Age(graph.Edge(c.EdgeId)));
+                if (f.Continuous && Transition(rm, graph, f)) continue;
                 Junction(rm, graph, f);
             }
         foreach (var cl in clusters)
@@ -151,14 +153,15 @@ public sealed partial class RoadVisual : INetworkVisual
             Vector3[]? prev = null;
             float prevS = 0;
             Vector3 prevQ = default;
-            foreach (float s in Stations(s0, s1))
+            foreach (float s in SegmentStations(s0, s1, atStart, atEnd))
             {
                 var q = QueueAt(s);
                 var outline = sec.Outline(Crown(s));
                 var sample = curve.Sample(s);
                 _level = LevelAt(e, s);
                 var left = SplineMath.Left(sample.Tangent);
-                var ring = outline.Select(p => Point(sample.Position + left * p.Offset, p.Height)).ToArray();
+                var centre = sample.Position + left * e.Offset;
+                var ring = outline.Select(p => Point(centre + left * p.Offset, p.Height)).ToArray();
                 if (prev is not null)
                     for (int i = 0; i + 1 < outline.Count; i++)
                         if (ProfileNormal(outline[i], outline[i + 1], left) is { } n)
@@ -185,9 +188,8 @@ public sealed partial class RoadVisual : INetworkVisual
 
         foreach (var line in sec.Lines)
         {
-            // The centre line runs on through a width transition to the node, into the next road.
-            float a = line.Centre && Junctions.RunsOn(e, true, footprints) ? 0 : s0;
-            float b = line.Centre && Junctions.RunsOn(e, false, footprints) ? curve.Length : s1;
+            // Lines stop at a transition's cut; the transition carries on the ones the next road has (Transition).
+            float a = s0, b = s1;
             // At a junction every line stops at the stop line; the centre line and lines between lanes coming in are
             // solid on the approach (no overtaking or lane changes just before a junction).
             float solidA = 0, solidB = 0;
@@ -284,8 +286,11 @@ public sealed partial class RoadVisual : INetworkVisual
 
     /// <summary>A painted strip along the curve from <paramref name="a"/> to <paramref name="b"/>. Its UV is its half
     /// width and metres across it from its middle; UV2 is metres from the strip's start and to its end, so the paint
-    /// shader can fray the sides and the ends.</summary>
-    private void Paint(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown)
+    /// shader can fray the sides and the ends.
+    /// <paramref name="lateral"/>: where the strip's middle is at each station, left of the alignment (by default the
+    /// line's place in the road, beside the alignment by the edge's offset).</summary>
+    private void Paint(RoadMesh rm, RoadSection sec, GraphEdge e, float a, float b, SectionLine line, Func<float, float> crown,
+        Func<float, float>? lateral = null)
     {
         float half = line.Width / 2;
         // Columns across the strip: its sides, and the crown's ridge if it crosses it, so a wide line follows the crown.
@@ -300,7 +305,7 @@ public sealed partial class RoadVisual : INetworkVisual
             var left = SplineMath.Left(sample.Tangent);
             var ends = new Vector2(s - a, b - s);
             var row = across.Select(x => new RoadMesh.Vertex(
-                Point(sample.Position + left * (line.Offset + x), sec.CarriagewayHeight(line.Offset + x, crown(s)) + PaintLift),
+                Point(sample.Position + left * ((lateral?.Invoke(s) ?? e.Offset + line.Offset) + x), sec.CarriagewayHeight(line.Offset + x, crown(s)) + PaintLift),
                 new Vector2(half, x), ends)).ToArray();
             if (prev is not null)
                 for (int i = 0; i + 1 < row.Length; i++) rm.Quad(SurfaceKind.Paint, prev[i], prev[i + 1], row[i + 1], row[i], Vector3.Up);
@@ -320,7 +325,7 @@ public sealed partial class RoadVisual : INetworkVisual
         var tris = Geometry2D.TriangulatePolygon(poly);
         for (int i = 0; i + 2 < tris.Length; i += 3)
         {
-            Vector3 P(int k) => Point(sample.Position + left * outline[tris[k]].Offset, outline[tris[k]].Height);
+            Vector3 P(int k) => Point(sample.Position + left * (e.Offset + outline[tris[k]].Offset), outline[tris[k]].Height);
             rm.Tri(SurfaceKind.Kerb, P(i), P(i + 1), P(i + 2), normal);
         }
     }
@@ -335,7 +340,7 @@ public sealed partial class RoadVisual : INetworkVisual
         float kh = sec.Style.KerbHeight;
         foreach (var b in sec.Bands.Where(b => b.Raised && MathF.Max(MathF.Abs(b.Left), MathF.Abs(b.Right)) <= sec.HalfCarriageway))
         {
-            var (l, r) = (sample.Position + left * b.Left, sample.Position + left * b.Right);
+            var (l, r) = (sample.Position + left * (e.Offset + b.Left), sample.Position + left * (e.Offset + b.Right));
             rm.Quad(SurfaceKind.Kerb, Point(l, 0), Point(r, 0), Point(r, kh), Point(l, kh), normal);
         }
     }
@@ -355,6 +360,20 @@ public sealed partial class RoadVisual : INetworkVisual
     {
         int n = Math.Max(1, (int)MathF.Ceiling((b - a) / Step));
         for (int k = 0; k <= n; k++) yield return a + (b - a) * k / n;
+    }
+
+    /// <summary>
+    /// A segment's cross-sections: every <see cref="Step"/>, and every <see cref="FadeStep"/> where the crown fades out
+    /// before a junction (<paramref name="fadeA"/> at <paramref name="a"/>, <paramref name="fadeB"/> at
+    /// <paramref name="b"/>). The crown changing along the road twists each quad there, and on a wide road a long one
+    /// bulges up through the paint of the zebra and stop line.
+    /// </summary>
+    private static IEnumerable<float> SegmentStations(float a, float b, bool fadeA, bool fadeB)
+    {
+        float fa = fadeA ? MathF.Min(a + CrownTaper, b) : a, fb = fadeB ? MathF.Max(b - CrownTaper, fa) : b;
+        float last = float.NegativeInfinity;
+        foreach (float s in Stations(a, fa, FadeStep).Concat(Stations(fa, fb)).Concat(Stations(fb, b, FadeStep)))
+            if (s - last > 1e-3f) yield return last = s;
     }
 
     /// <summary>A plan point at a height above <see cref="_level"/> (or the ground, with no level).</summary>
@@ -400,8 +419,9 @@ public sealed partial class RoadVisual : INetworkVisual
                     var sample = e.Alignment.Curve.Sample(s);
                     _level = LevelAt(e, s);
                     var left = SplineMath.Left(sample.Tangent) * half;
-                    var l1 = Point(sample.Position + left, -Lift / 2);
-                    var r1 = Point(sample.Position - left, -Lift / 2);
+                    var centre = sample.Position + SplineMath.Left(sample.Tangent) * e.Offset;
+                    var l1 = Point(centre + left, -Lift / 2);
+                    var r1 = Point(centre - left, -Lift / 2);
                     if (l0 is { } a && r0 is { } b)
                     {
                         st.AddVertex(a); st.AddVertex(b); st.AddVertex(l1);

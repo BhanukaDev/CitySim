@@ -20,6 +20,7 @@ namespace CitySim.Demos;
 /// left open from a short dead end off a 4-way (<see cref="RunContinue"/>; with <c>--ui=open:roads,pick:two_lane</c>).
 /// <c>--demo-grid[=&lt;road id&gt;]</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
 /// <c>--demo-mixed</c>: the four-lane road with the two-lane one: lane drops, mixed junctions (<see cref="RunMixed"/>).
+/// <c>--demo-offset[=draw|replace|chevron]</c>: roads moved sideways, transitions, the Replace mode (<see cref="RunOffset"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
 /// <c>--demo-lane-links[=links|pick|add]</c>: lane links and the Lane Links tool (<see cref="RunLaneLinks"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
@@ -53,6 +54,11 @@ public partial class RoadDemo : Node
                 Callable.From(() => RunGrid(id)).CallDeferred();
             }
             else if (arg == "--demo-mixed") Callable.From(RunMixed).CallDeferred();
+            else if (arg == "--demo-offset" || arg.StartsWith("--demo-offset="))
+            {
+                string shot = arg.Contains('=') ? arg[(arg.IndexOf('=') + 1)..] : "";
+                Callable.From(() => RunOffset(shot)).CallDeferred();
+            }
             else if (arg == "--demo-cluster") Callable.From(RunCluster).CallDeferred();
             else if (arg == "--demo-crossings")
             {

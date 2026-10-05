@@ -136,7 +136,9 @@ public partial class LaneLinkTool : Node
         if (DragFrom is { } d && (Index(arms, d) is not { } k || d.Lane >= (DragFromOut ? arms[k].Out : arms[k].In).Count)) DragFrom = null;
     }
 
-    private static bool IsJunction(JunctionFootprint f) => !f.Continuous && !f.Bend && f.Cuts.Count >= 3;
+    /// <summary>A junction of three or more roads, or a road changing width or moving sideways (a transition), where lanes
+    /// merge or branch.</summary>
+    private static bool IsJunction(JunctionFootprint f) => f.Continuous || (!f.Bend && f.Cuts.Count >= 3);
 
     private static int? Index(List<ArmLanes> arms, LaneEnd e)
     {

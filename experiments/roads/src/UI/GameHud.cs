@@ -92,7 +92,7 @@ public partial class GameHud : CanvasLayer
         }
         else if (key.Keycode == Key.Slash && open) Tray.FocusSearch();
         else if (key.Keycode == Key.A && key.IsCommandOrControlPressed() && roads) RoadOptions.ToggleAnarchy();
-        else if (roads && key.Keycode is >= Key.Key1 and <= Key.Key4 && !key.IsCommandOrControlPressed())
+        else if (roads && key.Keycode is >= Key.Key1 and <= Key.Key5 && !key.IsCommandOrControlPressed())
             RoadOptions.SetMode((RoadDrawMode)(key.Keycode - Key.Key1));
         else return;
         GetViewport().SetInputAsHandled();

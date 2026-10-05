@@ -223,11 +223,12 @@ public static class Junctions
         arms.Count == 2 && KindOf(arms) == JunctionKind.Node && !IsTransition(arms)
         && Sorted(arms).Min(x => x.Gap) < StraightGapDegrees;
 
-    /// <summary>Two arms of different widths running on into each other (an avenue becoming a street): the wider one
-    /// tapers down to the narrower over a short stretch instead of ending in a step.</summary>
+    /// <summary>Two arms of different widths running on into each other (an avenue becoming a street), or of one width
+    /// at different offsets (<see cref="GraphEdge.Offset"/>): the sides ease from one road's to the other's over a short
+    /// stretch instead of stepping.</summary>
     public static bool IsTransition(IReadOnlyList<Arm> arms) =>
         arms.Count == 2 && arms[0].EdgeId != arms[1].EdgeId && KindOf(arms) != JunctionKind.Join
-        && MathF.Abs(arms[0].Rules.Width - arms[1].Rules.Width) > 0.01f;
+        && (MathF.Abs(arms[0].Rules.Width - arms[1].Rules.Width) > 0.01f || !SplineGraph.SameOffset(arms[0].Offset, -arms[1].Offset));
 
     /// <summary>
     /// The footprint of a <see cref="JunctionKind.Node"/> junction with three or more arms, or of a
@@ -249,16 +250,21 @@ public static class Junctions
         int n = f.Sorted.Count;
         var (paths, cut, curbs, curbAt, corner) = (f.Paths, (float[])f.Cut.Clone(), f.Curbs, f.CurbAt, f.Corner);
         float Half(int k) => f.Sorted[k].Arm.Rules.Width / 2;
-        // Two arms of different widths running on through the node (an avenue becoming a street at a T): the wider
-        // one's side there tapers down to the narrower's by the node, as a plain transition does, instead of stepping.
-        // The wider arm is cut back at least that far, so the taper is all in the footprint.
+        // How far out from the node line arm k's side toward arm k + 1 is, and its side toward arm k − 1 (offsets
+        // move the road's sides over).
+        float Out(int k) => Half(k) + paths[k].Shift;
+        float In(int k) => Half(k) - paths[k].Shift;
+        // Two arms running on through the node whose sides there don't meet (an avenue becoming a street at a T, or a
+        // road moved sideways): the side sticking out tapers in to the other's by the node, as a plain transition does,
+        // instead of stepping. That arm is cut back at least that far, so the taper is all in the footprint.
         var taper = new float[n];
         for (int i = 0; i < n; i++)
         {
             int j = (i + 1) % n;
-            if (corner[i] || f.Sorted[i].Gap < StraightGapDegrees || MathF.Abs(Half(i) - Half(j)) < 0.01f) continue;
-            int wide = Half(i) > Half(j) ? i : j;
-            taper[wide] = MathF.Min(MathF.Abs(Half(i) - Half(j)) * 2 * TaperPerWidth, paths[wide].Cap);
+            float move = Out(i) - In(j);
+            if (corner[i] || f.Sorted[i].Gap < StraightGapDegrees || MathF.Abs(move) < 0.01f) continue;
+            int wide = move > 0 ? i : j;
+            taper[wide] = MathF.Min(MathF.Abs(move) * 2 * TaperPerWidth, paths[wide].Cap);
             cut[wide] = MathF.Max(cut[wide], taper[wide]);
         }
 
@@ -280,14 +286,15 @@ public static class Junctions
             bool nextFits = corner[i] && Fits(i);
             if (RunsOn(prev) && Tapers(prev, i))
             {
-                outline.AddRange(paths[i].TaperRun(-1, 0, Half(prev), taper[i], w));
+                // Offsets along the side are from the road's centre, which is Shift over from the node line.
+                outline.AddRange(paths[i].TaperRun(-1, 0, Out(prev) + paths[i].Shift, taper[i], w));
                 outline.AddRange(paths[i].SideRun(-1, w, taper[i], cut[i]));
             }
             else outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : RunsOn(prev) && !bend ? 0 : cut[i], cut[i]));
             if (RunsOn(i) && Tapers(i, i))
             {
                 outline.AddRange(paths[i].SideRun(+1, w, cut[i], taper[i]));
-                outline.AddRange(paths[i].TaperRun(+1, taper[i], w, 0, Half(next)));
+                outline.AddRange(paths[i].TaperRun(+1, taper[i], w, 0, In(next) - paths[i].Shift));
             }
             else outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : RunsOn(i) && !bend ? 0 : cut[i]));
             if (nextFits && curbs[i] is { } curb) outline.AddRange(ArcPoints(curb));
@@ -295,15 +302,15 @@ public static class Junctions
             else if (RunsOn(i))
             {
                 // Round the outside at the narrower width when the pair tapers (the wider one is down to it by the node).
-                float ra = w, rb = Half(next);
+                float ra = Out(i), rb = In(next);
                 if (taper[i] > 0 || taper[next] > 0) ra = rb = MathF.Min(ra, rb);
                 outline.AddRange(RoundOutside(g.Node(nodeId).Position, paths[i].At(0).Direction, f.Sorted[i].Gap, ra, rb));
             }
 
             bool Fits(int k) => cut[k] >= curbAt[k].From - 1e-3f && cut[(k + 1) % n] >= curbAt[k].To - 1e-3f;
             bool RunsOn(int k) => !corner[k] && f.Sorted[k].Gap >= StraightGapDegrees;
-            // Whether arm a tapers on its side toward the run-on pair k (arms k and k + 1): it's the wider of the two.
-            bool Tapers(int k, int a) => taper[a] > 0 && Half(a) > Half(a == k ? (k + 1) % n : k) + 0.01f;
+            // Whether arm a tapers on its side toward the run-on pair k (arms k and k + 1): its side sticks out further.
+            bool Tapers(int k, int a) => taper[a] > 0 && (a == k ? Out(k) > In((k + 1) % n) : In(a) > Out(k)) && MathF.Abs(Out(k) - In((k + 1) % n)) > 0.01f;
         }
         var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i]) { Squeezed = f.Squeezed[i] }).ToList();
         return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline))
@@ -511,7 +518,7 @@ public static class Junctions
             float StationOf(float x) => sides.Max(k => k.X + k.Radius * x / k.TanHalf);
             float station = StationOf(1), min = MathF.Min(StationOf(lo), station), max = MathF.Max(StationOf(MathF.Min(hi, 50)), station);
             var radii = sides.Select(k => (MathF.Min(k.Radius, k.Other), MathF.Max(k.Radius, k.Other))).ToList();
-            list.Add(new KerbHandle(arm.EdgeId, arm.AtStart, f.Paths[i].At(station).Position, station, min, max, why,
+            list.Add(new KerbHandle(arm.EdgeId, arm.AtStart, f.Paths[i].SidePoint(station, +1, 0), station, min, max, why,
                 Track(f.Paths[i], min, max), radii, sides[0].Rules, g.Edge(arm.EdgeId).KerbAt(arm.AtStart).IsSet)
             { FactorMin = lo, FactorMax = hi, Sides = sides });
 
@@ -567,7 +574,7 @@ public static class Junctions
         for (float s = min; ; s += 1f)
         {
             s = MathF.Min(s, max);
-            track.Add(path.At(s).Position);
+            track.Add(path.SidePoint(s, +1, 0));
             if (s >= max) break;
         }
         return track;
@@ -581,12 +588,15 @@ public static class Junctions
 
         private readonly Curve _curve;
         private readonly bool _atStart;
+        private readonly float _offset;
 
         public ArmPath(SplineGraph g, Arm arm)
         {
             var e = g.Edge(arm.EdgeId);
             _curve = e.Alignment.Curve;
             _atStart = arm.AtStart;
+            _offset = e.Offset;
+            Shift = -e.OffsetFrom(arm.AtStart);
             int far = arm.AtStart ? e.End : e.Start;
             var farArms = g.Arms(far);
             bool shared = e.Start == e.End || HasFootprint(farArms);
@@ -612,12 +622,17 @@ public static class Junctions
 
         public float Length => _curve.Length;
 
-        /// <summary>How far a point is from the arm's whole edge (its centre line), run on straight behind the node.</summary>
+        /// <summary>How far the road's centre runs beside the edge's alignment, toward the next arm
+        /// (<see cref="GraphEdge.Offset"/> seen from the node). Every side point is moved over by it.</summary>
+        public float Shift { get; }
+
+        /// <summary>How far a point is from the arm's whole road centre line (the alignment moved over by its offset), run
+        /// on straight behind the node.</summary>
         public float Distance(Vector2 p)
         {
             var (node, d) = At(0);
-            if (Vector2.Dot(p - node, d) < 0) return MathF.Abs(SplineMath.Cross(d, p - node));
-            return Vector2.Distance(_curve.ClosestPoint(p).Position, p);
+            if (Vector2.Dot(p - node, d) < 0) return MathF.Abs(Vector2.Dot(p - node, TowardNext(d)) - Shift);
+            return MathF.Abs(_curve.ClosestPoint(p).Offset - _offset);
         }
 
         /// <summary>The furthest this arm can be cut back: a share of its edge, leaving room for a footprint at the
@@ -643,7 +658,14 @@ public static class Junctions
         public Vector2 SidePoint(float s, int side, float offset)
         {
             var (p, d) = At(s);
-            return p + TowardNext(d) * (side * offset);
+            return p + TowardNext(d) * (side * offset + Shift);
+        }
+
+        /// <summary>The point <paramref name="u"/> toward the next arm from the alignment (not the road's centre).</summary>
+        public Vector2 Across(float s, float u)
+        {
+            var (p, d) = At(s);
+            return p + TowardNext(d) * u;
         }
 
         /// <summary>The side at <paramref name="offset"/> as a polyline of (station, point), out to
@@ -679,6 +701,18 @@ public static class Junctions
             }
         }
 
+        /// <summary>Points <see cref="Across"/> from <paramref name="u0"/> at <paramref name="s0"/> to <paramref name="u1"/>
+        /// at <paramref name="s1"/>, eased at both ends so the line leaves and meets the straight sides tangentially.</summary>
+        public IEnumerable<Vector2> Ease(float s0, float u0, float s1, float u1)
+        {
+            int k = Math.Max(4, (int)MathF.Ceiling(MathF.Abs(s1 - s0) / Step));
+            for (int i = 0; i <= k; i++)
+            {
+                float t = (float)i / k, e = t * t * (3 - 2 * t);
+                yield return Across(s0 + (s1 - s0) * t, u0 + (u1 - u0) * e);
+            }
+        }
+
         /// <summary>Points along a side from station <paramref name="s0"/> to <paramref name="s1"/> (either way round),
         /// both ends included.</summary>
         public IEnumerable<Vector2> SideRun(int side, float offset, float s0, float s1)
@@ -691,21 +725,27 @@ public static class Junctions
     }
 
     /// <summary>
-    /// The footprint of a <see cref="IsTransition"/>: the wider arm is cut back by a taper length (a few times the
-    /// difference in width, within its cap) and the outline narrows smoothly from its full width there to the narrower
-    /// arm's width at the node, where the narrower arm carries on uncut. Drawn in the wider arm's colour.
+    /// The footprint of a <see cref="IsTransition"/>: one arm is cut back by a taper length (a few times the most either
+    /// side moves, within its cap) and each side eases from its own there to the other arm's at the node, where the other
+    /// arm carries on uncut. The cut arm is the wider one, or for one width the one with more room. Offsets
+    /// (<see cref="GraphEdge.Offset"/>) move the sides with the road, so a narrower road kept to one side of a wider one
+    /// runs on straight along that side and only the other side eases in. Drawn in the cut arm's colour.
     /// </summary>
     private static JunctionFootprint Transition(SplineGraph g, int nodeId, IReadOnlyList<Arm> arms)
     {
-        var wide = arms[0].Rules.Width > arms[1].Rules.Width ? arms[0] : arms[1];
-        var narrow = wide.Equals(arms[0]) ? arms[1] : arms[0];
-        var path = new ArmPath(g, wide);
-        float ww = wide.Rules.Width / 2, wn = narrow.Rules.Width / 2;
-        float len = MathF.Min((ww - wn) * 2 * TaperPerWidth, path.Cap);
+        var (p0, p1) = (new ArmPath(g, arms[0]), new ArmPath(g, arms[1]));
+        float w0 = arms[0].Rules.Width / 2, w1 = arms[1].Rules.Width / 2;
+        int c = MathF.Abs(w0 - w1) > 0.01f ? (w0 > w1 ? 0 : 1) : (p0.Cap >= p1.Cap ? 0 : 1);
+        var (path, other) = c == 0 ? (p0, p1) : (p1, p0);
+        var (cut, kept) = c == 0 ? (arms[0], arms[1]) : (arms[1], arms[0]);
+        var (wc, wo) = c == 0 ? (w0, w1) : (w1, w0);
+        // Across the cut arm (+ toward its next arm): its sides, and the other arm's, which heads the other way.
+        float cPlus = path.Shift + wc, cMinus = path.Shift - wc, oPlus = -other.Shift + wo, oMinus = -other.Shift - wo;
+        float len = MathF.Min(MathF.Max(MathF.Abs(cPlus - oPlus), MathF.Abs(cMinus - oMinus)) * 2 * TaperPerWidth, path.Cap);
         var outline = new List<Vector2>();
-        outline.AddRange(path.TaperRun(-1, len, ww, 0, wn));
-        outline.AddRange(path.TaperRun(+1, 0, wn, len, ww));
-        var cuts = new List<ArmCut> { new(wide.EdgeId, wide.AtStart, len), new(narrow.EdgeId, narrow.AtStart, 0) };
+        outline.AddRange(path.Ease(len, cMinus, 0, oMinus));
+        outline.AddRange(path.Ease(0, oPlus, len, cPlus));
+        var cuts = new List<ArmCut> { new(cut.EdgeId, cut.AtStart, len), new(kept.EdgeId, kept.AtStart, 0) };
         return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, Array.Empty<Curb>(), Dedupe(outline)) { Continuous = true };
     }
 
@@ -765,7 +805,8 @@ public static class Junctions
         var (a, gap) = sorted[i];
         var b = sorted[1 - i].Arm;
         if (gap < 360f - StraightGapDegrees) return null;
-        float ra = a.Rules.Width / 2, rb = b.Rules.Width / 2;
+        // The outside is toward a's next arm: its side there, and b's side toward its previous one.
+        float ra = a.Rules.Width / 2 - a.Offset, rb = b.Rules.Width / 2 + b.Offset;
         if (IsTransition(arms)) ra = rb = MathF.Min(ra, rb); // the wider arm has tapered down to the narrower by here
         return RoundOutside(g.Node(nodeId).Position, a.Direction, gap, ra, rb, n);
     }

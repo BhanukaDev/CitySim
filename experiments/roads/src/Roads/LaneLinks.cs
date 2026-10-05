@@ -25,7 +25,8 @@ public sealed record LinkSet(IReadOnlyList<int> Known, IReadOnlyList<(int FromLa
 
 /// <summary>
 /// Lane links: which lane coming into a junction may go to which lane going out. The road's rule (<see cref="Auto"/>):
-/// straight on from every lane to the matching lane, right turns from the kerbside lane to the kerbside lane, left turns
+/// straight on from every lane to the lane most in line with it, and into every lane out (so lanes merge where a road
+/// narrows and branch where it widens), right turns from the kerbside lane to the kerbside lane, left turns
 /// from the inside lane to the inside lane, no U-turns. The Lane Links tool overrides that per junction; the wear tracks
 /// and the chevrons (<see cref="RoadVisual"/>) follow whatever the links are.
 /// </summary>
@@ -48,7 +49,21 @@ public static class LaneLinks
         switch (MoveOf(a, b))
         {
             case Move.Straight:
-                for (int k = 0; k < a.In.Count; k++) yield return (k, Math.Min(k, b.Out.Count - 1));
+                // Each lane on to the lane out most in line with it, then every lane out still unfed from the lane in
+                // most in line with it: where lanes end they merge into a neighbour, where lanes start one branches into
+                // both, and a road moved sideways (an offset) lines up by where its lanes really are.
+                float Across(Vector2 p) => Vector2.Dot(p, a.Kerb);
+                int Nearest(Vector2 p, IReadOnlyList<Vector2> lanes) =>
+                    Enumerable.Range(0, lanes.Count).MinBy(i => MathF.Abs(Across(lanes[i]) - Across(p)) + i * 1e-4f);
+                var fed = new HashSet<int>();
+                for (int k = 0; k < a.In.Count; k++)
+                {
+                    int to = Nearest(a.In[k], b.Out);
+                    fed.Add(to);
+                    yield return (k, to);
+                }
+                for (int j = 0; j < b.Out.Count; j++)
+                    if (!fed.Contains(j)) yield return (Nearest(b.Out[j], a.In), j);
                 break;
             case Move.Right:
                 yield return (0, 0);
