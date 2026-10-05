@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dgs1v8c8jrb46"
-path="res://.godot/imported/magnet.svg-b2e0c868273aa54a013404c5b553982c.ctex"
+path="res://.godot/imported/magnet.svg-125112f14678bbdaaecb6cdfa3106b1f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/magnet.svg"
-dest_files=["res://.godot/imported/magnet.svg-b2e0c868273aa54a013404c5b553982c.ctex"]
+source_file="res://addons/citysim_build_ui/icons/magnet.svg"
+dest_files=["res://.godot/imported/magnet.svg-125112f14678bbdaaecb6cdfa3106b1f.ctex"]
 
 [params]
 

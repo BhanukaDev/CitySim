@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CitySim.Roads;
 using CitySim.Splines;
+using CitySim.UI;
 using Godot;
 using NumVector2 = System.Numerics.Vector2;
 
@@ -41,7 +42,7 @@ public partial class RoadDemo
         hud.OpenById("roads");
         hud.Tray.OpenTab("services");
         hud.Tray.Pick(hud.Library.Item("crossings"));
-        if (hud.PickedRoadTool is null) problems.Add("the Crossings card didn't pick the tool");
+        if (hud.PickedRoadTool() is null) problems.Add("the Crossings card didn't pick the tool");
 
         var g = Network.Graph;
         int NodeAt(float x, float z) => g.NodeAt(V(x, z)) ?? -1;

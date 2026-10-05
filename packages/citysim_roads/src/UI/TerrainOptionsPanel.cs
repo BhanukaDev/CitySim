@@ -11,7 +11,7 @@ namespace CitySim.UI;
 /// usage as tiles, then its settings (Shift's Raise · Lower, brush size and strength, Shift's max slope, Level's height, Slope's start point,
 /// Channel's shape, size, mode and fill) and the contour lines. Reads and writes the <see cref="TerrainToolController"/>.
 /// </summary>
-public partial class TerrainOptionsPanel : PanelContainer
+public partial class TerrainOptionsPanel : PanelContainer, IOptionsPanel
 {
     private readonly Label _name = UiTheme.Label("", 17);
     private readonly HBoxContainer _head = new();

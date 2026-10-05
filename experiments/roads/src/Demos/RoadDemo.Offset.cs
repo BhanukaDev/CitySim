@@ -111,7 +111,7 @@ public partial class RoadDemo
         {
             await Frames(2);
             Road(four, 0, 300, 500, 800);
-            hud.RoadOptions.SetMode(RoadDrawMode.Straight);
+            hud.RoadOptions().SetMode(RoadDrawMode.Straight);
             draw.ForcedPlanCursor = V(500, 800);
             draw.PlaceForTest(hard: false);
             draw.ForcedPlanCursor = V(620, 803.6f);
@@ -124,14 +124,14 @@ public partial class RoadDemo
             Expect("the parallel leg wasn't built on the line", built is not null && MathF.Abs(built.Alignment.Pis[^1].Position.Y - 800) < 0.1f);
             draw.FinishForTest();
 
-            hud.RoadOptions.SetMode(RoadDrawMode.Replace);
+            hud.RoadOptions().SetMode(RoadDrawMode.Replace);
             draw.ForcedPlanCursor = V(400, 795);
             await Frames(2);
             if (shot == "replace") { GD.Print("Demo offset: replace left open"); return; }
             float? replaced = draw.ReplaceForTest();
             GD.Print($"  replace the four-lane at z = 800 with {picked.Id}, cursor 5 m north: offset {replaced?.ToString("+0.#;-0.#;0") ?? "none"}");
             if (picked.Id == "two_lane") Expect($"replace offset {replaced}, want +4 (held within the next road)", replaced is { } r && MathF.Abs(r - 4) < 0.01f);
-            hud.RoadOptions.SetMode(RoadDrawMode.Straight);
+            hud.RoadOptions().SetMode(RoadDrawMode.Straight);
         }
         else GD.Print("  (no road picked: the draw and Replace checks need --ui=open:roads,pick:two_lane)");
 

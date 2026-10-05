@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://chakefjsfj47"
-path="res://.godot/imported/four_lane.png-3fe4d21f09a35009bb0ebb6ca2828013.ctex"
+path="res://.godot/imported/four_lane.png-62a6d957c74a5fdb478ef71ccb8e11c1.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/four_lane.png"
-dest_files=["res://.godot/imported/four_lane.png-3fe4d21f09a35009bb0ebb6ca2828013.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/four_lane.png"
+dest_files=["res://.godot/imported/four_lane.png-62a6d957c74a5fdb478ef71ccb8e11c1.ctex"]
 
 [params]
 

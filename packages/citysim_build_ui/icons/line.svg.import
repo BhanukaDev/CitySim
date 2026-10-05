@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cewwtk3i3ke0d"
-path="res://.godot/imported/line.svg-10444af50649c00e8e4086d5320ccf4d.ctex"
+path="res://.godot/imported/line.svg-235e3c8b9d0158420bd8f2b489da780f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/line.svg"
-dest_files=["res://.godot/imported/line.svg-10444af50649c00e8e4086d5320ccf4d.ctex"]
+source_file="res://addons/citysim_build_ui/icons/line.svg"
+dest_files=["res://.godot/imported/line.svg-235e3c8b9d0158420bd8f2b489da780f.ctex"]
 
 [params]
 

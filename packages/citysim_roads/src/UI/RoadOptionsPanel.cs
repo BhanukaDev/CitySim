@@ -41,7 +41,7 @@ public sealed class RoadToolOptions
 /// fact tiles; tool mode or Move (the splines Edit tool, with its controls), grid blocks (Grid mode only), snapping and
 /// Anarchy. A picked road tool shows its usage instead. Only options the splines tool already supports.
 /// </summary>
-public partial class RoadOptionsPanel : PanelContainer
+public partial class RoadOptionsPanel : PanelContainer, IOptionsPanel
 {
     public const float PanelWidth = 300f;
 
@@ -340,6 +340,15 @@ public partial class RoadOptionsPanel : PanelContainer
         _move.SetPressedNoSignal(Moving);
         _moveUsage.Visible = Moving;
         _gridBox.Visible = !Moving && Options.Mode == RoadDrawMode.Grid;
+    }
+
+    /// <summary>1–4 tool mode, Ctrl+A Anarchy.</summary>
+    public bool HandleKey(InputEventKey key)
+    {
+        if (key.Keycode == Key.A && key.IsCommandOrControlPressed()) ToggleAnarchy();
+        else if (key.Keycode is >= Key.Key1 and <= Key.Key4 && !key.IsCommandOrControlPressed()) SetMode((RoadDrawMode)(key.Keycode - Key.Key1));
+        else return false;
+        return true;
     }
 
     public void ToggleAnarchy() => _anarchy.ButtonPressed = !_anarchy.ButtonPressed;

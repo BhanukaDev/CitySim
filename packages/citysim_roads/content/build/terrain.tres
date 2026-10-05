@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="BuildCategory" format=3]
 
-[ext_resource type="Script" path="res://src/Content/BuildCategory.cs" id="1_script"]
-[ext_resource type="Texture2D" path="res://assets/icons/mountain.svg" id="2_icon"]
+[ext_resource type="Script" path="res://addons/citysim_build_ui/src/Content/BuildCategory.cs" id="1_script"]
+[ext_resource type="Texture2D" path="res://addons/citysim_build_ui/icons/mountain.svg" id="2_icon"]
 
 [resource]
 script = ExtResource("1_script")

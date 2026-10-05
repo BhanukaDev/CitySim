@@ -6,7 +6,7 @@ namespace CitySim.UI;
 /// <summary>
 /// Shared look for the game UI, taken from the hover card: near-black panels with a hairline border, controls as faint
 /// tiles, and one look for "selected" everywhere (accent tint with an accent outline). Icons are white SVGs from
-/// <c>res://assets/icons/</c>, tinted through the theme.
+/// <c>res://addons/citysim_build_ui/icons/</c>, tinted through the theme.
 /// </summary>
 public static class UiTheme
 {
@@ -168,7 +168,7 @@ public static class UiTheme
     /// (<see cref="LineEdit.RightIcon"/>).</summary>
     public static Texture2D? Icon(string name, int px)
     {
-        string path = $"res://assets/icons/{name}.svg";
+        string path = $"res://addons/citysim_build_ui/icons/{name}.svg";
         var image = new Image();
         return FileAccess.FileExists(path) && image.LoadSvgFromString(FileAccess.GetFileAsString(path), px / 64f) == Error.Ok
             ? ImageTexture.CreateFromImage(image) : null;
@@ -176,7 +176,7 @@ public static class UiTheme
 
     public static Texture2D? Icon(string name)
     {
-        string path = $"res://assets/icons/{name}.svg";
+        string path = $"res://addons/citysim_build_ui/icons/{name}.svg";
         return ResourceLoader.Exists(path) ? GD.Load<Texture2D>(path) : null;
     }
 

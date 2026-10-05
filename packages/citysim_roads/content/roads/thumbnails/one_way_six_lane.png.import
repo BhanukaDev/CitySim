@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dj81q758dfpnc"
-path="res://.godot/imported/one_way_six_lane.png-62b28a4c3715c5bcc4e3f5719539fc1c.ctex"
+path="res://.godot/imported/one_way_six_lane.png-c5776d3651c885112f9c24c78e755092.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/one_way_six_lane.png"
-dest_files=["res://.godot/imported/one_way_six_lane.png-62b28a4c3715c5bcc4e3f5719539fc1c.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/one_way_six_lane.png"
+dest_files=["res://.godot/imported/one_way_six_lane.png-c5776d3651c885112f9c24c78e755092.ctex"]
 
 [params]
 

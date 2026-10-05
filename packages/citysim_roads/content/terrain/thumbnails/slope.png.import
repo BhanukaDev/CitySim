@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bfrjx58tbn76e"
-path="res://.godot/imported/slope.png-ae031d66d6b8fcb46d6d81a758fedb7b.ctex"
+path="res://.godot/imported/slope.png-a3b8517122b9b019f6e464393526af5d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/terrain/thumbnails/slope.png"
-dest_files=["res://.godot/imported/slope.png-ae031d66d6b8fcb46d6d81a758fedb7b.ctex"]
+source_file="res://addons/citysim_roads/content/terrain/thumbnails/slope.png"
+dest_files=["res://.godot/imported/slope.png-a3b8517122b9b019f6e464393526af5d.ctex"]
 
 [params]
 

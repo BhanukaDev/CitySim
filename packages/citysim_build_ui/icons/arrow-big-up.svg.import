@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d2ehthh17tjpu"
-path="res://.godot/imported/arrow-big-up.svg-be10d794e57476674d0b7952219d3c4c.ctex"
+path="res://.godot/imported/arrow-big-up.svg-eeb586fe8c77a67cf89393905908c374.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/arrow-big-up.svg"
-dest_files=["res://.godot/imported/arrow-big-up.svg-be10d794e57476674d0b7952219d3c4c.ctex"]
+source_file="res://addons/citysim_build_ui/icons/arrow-big-up.svg"
+dest_files=["res://.godot/imported/arrow-big-up.svg-eeb586fe8c77a67cf89393905908c374.ctex"]
 
 [params]
 

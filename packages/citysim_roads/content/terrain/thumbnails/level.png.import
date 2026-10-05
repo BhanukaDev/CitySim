@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://djpau6coigk2u"
-path="res://.godot/imported/level.png-d78822400643b97880e04e73ec304a4d.ctex"
+path="res://.godot/imported/level.png-b68c3ea77dca69c11f907b680529387e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/terrain/thumbnails/level.png"
-dest_files=["res://.godot/imported/level.png-d78822400643b97880e04e73ec304a4d.ctex"]
+source_file="res://addons/citysim_roads/content/terrain/thumbnails/level.png"
+dest_files=["res://.godot/imported/level.png-b68c3ea77dca69c11f907b680529387e.ctex"]
 
 [params]
 

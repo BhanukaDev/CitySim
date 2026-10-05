@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://h2ei6hcu1jt1"
-path="res://.godot/imported/road.svg-6ee5b59502f7cab846a53eebd00a35e6.ctex"
+path="res://.godot/imported/road.svg-5cb4b713e599b4228f48aa55fe1e8a0b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/road.svg"
-dest_files=["res://.godot/imported/road.svg-6ee5b59502f7cab846a53eebd00a35e6.ctex"]
+source_file="res://addons/citysim_build_ui/icons/road.svg"
+dest_files=["res://.godot/imported/road.svg-5cb4b713e599b4228f48aa55fe1e8a0b.ctex"]
 
 [params]
 

@@ -28,7 +28,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
     /// <summary>The profile a road type draws with (null for an unknown id).</summary>
     public SplineProfile? ProfileFor(string roadId) => _profiles.GetValueOrDefault(roadId);
 
-    public SplineProfile? Profile => Hud is { RoadsOpen: true, Tray.Picked: RoadType r } ? _profiles.GetValueOrDefault(r.Id) : null;
+    public SplineProfile? Profile => Hud is { Tray.Picked: RoadType r } && Hud.RoadsOpen() ? _profiles.GetValueOrDefault(r.Id) : null;
     public SplineTool Tool { get; private set; } = SplineTool.Draw;
     public DrawMode Mode => ToDrawMode(Options?.Mode ?? RoadDrawMode.Straight);
     public SnapProviders EnabledSnaps => Options is { Snapping: true } o ? ToProviders(o.Snaps) : SnapProviders.None;
@@ -38,7 +38,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
 
     public event Action<DrawMode>? ModeChanged;
 
-    private RoadToolOptions? Options => Hud?.RoadOptions.Options;
+    private RoadToolOptions? Options => Hud?.RoadOptions().Options;
 
     public override void _Ready()
     {
@@ -60,13 +60,13 @@ public partial class RoadToolHost : Node, ISplineToolHost
         Hud.CategoryOpened += c => { if (c?.Id != "roads" && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
         // A road tool (Crossings) takes the mouse: Edit stands down, and Draw idles with no road picked.
         Hud.Tray.ItemPicked += item => { if (item is RoadTool && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
-        Hud.RoadOptions.MoveRequested += on =>
+        Hud.RoadOptions().MoveRequested += on =>
         {
             var tool = on ? SplineTool.Edit : SplineTool.Draw;
             if (Tool != tool) SetTool(tool);
         };
         _mode = Options!.Mode;
-        Hud.RoadOptions.OptionsChanged += o =>
+        Hud.RoadOptions().OptionsChanged += o =>
         {
             if (o.Mode == _mode) return;
             _mode = o.Mode;
@@ -77,7 +77,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         if (@event is not InputEventKey { Pressed: true, Echo: false, Keycode: Key.M } key || key.IsCommandOrControlPressed()) return;
-        if (Hud?.RoadsOpen != true || Hud.PickedRoadTool is not null) return;
+        if (Hud?.RoadsOpen() != true || Hud.PickedRoadTool() is not null) return;
         SetTool(Tool == SplineTool.Edit ? SplineTool.Draw : SplineTool.Edit);
         GetViewport().SetInputAsHandled();
     }
@@ -85,16 +85,16 @@ public partial class RoadToolHost : Node, ISplineToolHost
     public void SetTool(SplineTool tool)
     {
         Tool = tool;
-        Hud?.RoadOptions.SetMoving(tool == SplineTool.Edit);
+        Hud?.RoadOptions().SetMoving(tool == SplineTool.Edit);
         GD.Print($"Roads: tool {tool}");
     }
 
     public void SetAnarchy(bool on)
     {
-        if (Hud is not null && Anarchy != on) Hud.RoadOptions.ToggleAnarchy();
+        if (Hud is not null && Anarchy != on) Hud.RoadOptions().ToggleAnarchy();
     }
 
-    public void SetGridBlocks(int cols, int rows) => Hud?.RoadOptions.SetGridBlocks(
+    public void SetGridBlocks(int cols, int rows) => Hud?.RoadOptions().SetGridBlocks(
         Math.Clamp(cols, 1, GridLayout.MaxBlocks), Math.Clamp(rows, 1, GridLayout.MaxBlocks));
 
     private static DrawMode ToDrawMode(RoadDrawMode m) => m switch

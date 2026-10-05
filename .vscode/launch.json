@@ -105,7 +105,7 @@
       "stopAtEntry": false
     },
     {
-      // Opens the editor, e.g. to make or edit road .tres files in content/roads/types/.
+      // Opens the editor, e.g. to make or edit road .tres files in addons/citysim_roads/content/roads/types/.
       "name": "Roads: Open Godot editor",
       "type": "coreclr",
       "request": "launch",

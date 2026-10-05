@@ -21,11 +21,11 @@ namespace CitySim.Roads;
 /// </summary>
 public partial class RoadThumbnailBaker : Node
 {
-    public const string Folder = "res://content/roads/thumbnails";
-    public const string TypesFolder = "res://content/roads/types";
-    public const string ToolsFolder = "res://content/roads/tools";
+    public const string Folder = "res://addons/citysim_roads/content/roads/thumbnails";
+    public const string TypesFolder = "res://addons/citysim_roads/content/roads/types";
+    public const string ToolsFolder = "res://addons/citysim_roads/content/roads/tools";
     private const string ToolRoad = "two_lane"; // the road a tool's picture is shown on
-    private const string StylePath = "res://content/roads/styles/default.tres";
+    private const string StylePath = "res://addons/citysim_roads/content/roads/styles/default.tres";
     // Twice the card's picture (120 × 70), so it stays sharp when scaled down.
     internal static readonly Vector2I Size = new(240, 140);
     private const float Length = 240f;

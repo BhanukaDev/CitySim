@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bbe3gmuh4sjux"
-path.bptc="res://.godot/imported/road_detail_normal.png-6cf671fbc8e2e6a0cde3f35af936d298.bptc.ctex"
+path.bptc="res://.godot/imported/road_detail_normal.png-c833b260fac578c660ed065b1501397f.bptc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://content/roads/textures/road_detail_normal.png"
-dest_files=["res://.godot/imported/road_detail_normal.png-6cf671fbc8e2e6a0cde3f35af936d298.bptc.ctex"]
+source_file="res://addons/citysim_roads/content/roads/textures/road_detail_normal.png"
+dest_files=["res://.godot/imported/road_detail_normal.png-c833b260fac578c660ed065b1501397f.bptc.ctex"]
 
 [params]
 

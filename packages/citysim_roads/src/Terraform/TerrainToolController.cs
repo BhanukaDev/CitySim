@@ -91,7 +91,7 @@ public partial class TerrainToolController : Node
     /// <summary>Raised when the tool, a setting, the level target or a start point changes.</summary>
     public event Action? StateChanged;
 
-    public TerrainToolKind Kind => Hud is { TerrainOpen: true, Tray.Picked: TerrainTool t } ? KindOf(t.Tool) : TerrainToolKind.None;
+    public TerrainToolKind Kind => Hud is { Tray.Picked: TerrainTool t } && Hud.TerrainOpen() ? KindOf(t.Tool) : TerrainToolKind.None;
 
     /// <summary>The Paint tab: one card per paintable material of the map's theme.</summary>
     public const string PaintTab = "terrain_paint";
@@ -153,7 +153,7 @@ public partial class TerrainToolController : Node
     public override void _Ready()
     {
         if (Terrain is null || Hud is null) { GD.PushError("TerrainToolController needs a Terrain and a Hud"); return; }
-        Hud.TerrainOptions.Bind(this);
+        Hud.TerrainOptions().Bind(this);
         Hud.Tray.ItemPicked += _ => ToolChanged();
         Hud.CategoryOpened += _ => ToolChanged();
         var layer = new CanvasLayer { Name = "TerrainToolTags", Layer = 2 };
@@ -225,12 +225,12 @@ public partial class TerrainToolController : Node
     // Keys here (not in _UnhandledInput) so Esc reaches us before the HUD, which comes earlier in the tree.
     public override void _UnhandledKeyInput(InputEvent @event)
     {
-        if (Hud?.TerrainOpen == true && @event is InputEventKey { Pressed: true } key) HandleKey(key);
+        if (Hud?.TerrainOpen() == true && @event is InputEventKey { Pressed: true } key) HandleKey(key);
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (Hud?.TerrainOpen == true && @event is InputEventMouseButton mb && Kind != TerrainToolKind.None) HandleMouseButton(mb);
+        if (Hud?.TerrainOpen() == true && @event is InputEventMouseButton mb && Kind != TerrainToolKind.None) HandleMouseButton(mb);
     }
 
     private void HandleKey(InputEventKey key)

@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://o1pubthv6w4o"
-path="res://.godot/imported/gravel_one_way.png-77f1631b2e12898ea57be01ef1f596bc.ctex"
+path="res://.godot/imported/gravel_one_way.png-db8bb6819e8007e6a3561d51bc356ac4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/gravel_one_way.png"
-dest_files=["res://.godot/imported/gravel_one_way.png-77f1631b2e12898ea57be01ef1f596bc.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/gravel_one_way.png"
+dest_files=["res://.godot/imported/gravel_one_way.png-db8bb6819e8007e6a3561d51bc356ac4.ctex"]
 
 [params]
 

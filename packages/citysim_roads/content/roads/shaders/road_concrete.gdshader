@@ -4,7 +4,7 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
-#include "res://content/roads/shaders/road_common.gdshaderinc"
+#include "res://addons/citysim_roads/content/roads/shaders/road_common.gdshaderinc"
 
 group_uniforms Colour;
 uniform vec3 colour : source_color = vec3(0.56, 0.55, 0.52);

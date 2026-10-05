@@ -6,7 +6,7 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_back, diffuse_burley, specular_schlick_ggx;
 
-#include "res://content/roads/shaders/road_common.gdshaderinc"
+#include "res://addons/citysim_roads/content/roads/shaders/road_common.gdshaderinc"
 
 group_uniforms Wear;
 uniform float track_offset : hint_range(0.0, 0.5) = 0.27;

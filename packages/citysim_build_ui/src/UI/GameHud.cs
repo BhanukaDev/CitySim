@@ -1,15 +1,16 @@
 using System.Collections.Generic;
 using System.Linq;
 using CitySim.Content;
-using CitySim.Roads;
 using Godot;
 
 namespace CitySim.UI;
 
 /// <summary>
 /// The game's build UI: <see cref="BuildBar"/> along the bottom; above it the dock with the category's always-open
-/// options panel (roads or terrain) and its <see cref="BuildTray"/>. Content comes from <see cref="ContentLibrary"/>.
-/// Keys: 1–4 tool mode, Ctrl+A Anarchy, / search, Esc unpicks then closes (a tool backs out of its own state first).
+/// options panel and its <see cref="BuildTray"/>. Content comes from <see cref="ContentLibrary"/>. Each feature adds its
+/// own options panel for its category (<see cref="AddOptionsPanel"/>), so the HUD knows nothing about roads or zones.
+/// Keys: / search, Esc unpicks then closes (a tool backs out of its own state first); the open category's panel gets
+/// the rest (<see cref="IOptionsPanel.HandleKey"/>: the roads panel takes 1–4 and Ctrl+A).
 /// </summary>
 public partial class GameHud : CanvasLayer
 {
@@ -19,16 +20,10 @@ public partial class GameHud : CanvasLayer
 
     public ContentLibrary Library { get; private set; } = null!;
     public BuildTray Tray { get; private set; } = null!;
-    public RoadOptionsPanel RoadOptions { get; private set; } = null!;
-    public TerrainOptionsPanel TerrainOptions { get; private set; } = null!;
     public Control Root { get; private set; } = null!;
 
-    /// <summary>Whether the Roads tray is open (the road tools only work while it is).</summary>
-    public bool RoadsOpen => _dock.Visible && Tray.Category?.Id == "roads";
-    /// <summary>Whether the Terrain tray is open (the terrain tools only work while it is).</summary>
-    public bool TerrainOpen => _dock.Visible && Tray.Category?.Id == "terrain";
-    /// <summary>The road tool picked in the open Roads tray (Crossings), if any.</summary>
-    public RoadTool? PickedRoadTool => RoadsOpen ? Tray.Picked as RoadTool : null;
+    /// <summary>Whether the tray of category <paramref name="categoryId"/> is open (a feature's tools only work while it is).</summary>
+    public bool IsOpen(string categoryId) => _dock.Visible && Tray.Category?.Id == categoryId;
     /// <summary>A category's tray was opened, or the tray closed (null).</summary>
     public event System.Action<BuildCategory?>? CategoryOpened;
 
@@ -54,18 +49,26 @@ public partial class GameHud : CanvasLayer
         _dock.GrowVertical = Control.GrowDirection.Begin;
         Root.AddChild(_dock);
 
-        RoadOptions = new RoadOptionsPanel();
-        _optionPanels["roads"] = RoadOptions;
-        _dock.AddChild(RoadOptions);
-        TerrainOptions = new TerrainOptionsPanel();
-        _optionPanels["terrain"] = TerrainOptions;
-        _dock.AddChild(TerrainOptions);
-
         Tray = new BuildTray(Library);
         Tray.CloseRequested += Close;
         Tray.ItemPicked += ShowItem;
         _dock.AddChild(Tray);
     }
+
+    /// <summary>
+    /// Shows <paramref name="panel"/> left of the tray while category <paramref name="categoryId"/> is open. Features add
+    /// theirs from their own <c>_Ready</c> (the HUD's runs first, as it comes first in the scene).
+    /// </summary>
+    public void AddOptionsPanel<T>(string categoryId, T panel) where T : Control, IOptionsPanel
+    {
+        _optionPanels[categoryId] = panel;
+        panel.Visible = IsOpen(categoryId);
+        _dock.AddChild(panel);
+        _dock.MoveChild(panel, Tray.GetIndex());
+    }
+
+    /// <summary>The options panel of type <typeparamref name="T"/>, if one was added.</summary>
+    public T? OptionsPanel<T>() where T : Control => _optionPanels.Values.OfType<T>().FirstOrDefault();
 
     public void Close() => Open((BuildCategory?)null);
 
@@ -84,9 +87,10 @@ public partial class GameHud : CanvasLayer
     /// <summary>The picked item in the open category's options panel.</summary>
     private void ShowItem(BuildItem? item)
     {
-        if (Tray.Category?.Id == "terrain") TerrainOptions.SetItem(item, TabLabel(item));
-        else RoadOptions.SetItem(item, TabLabel(item));
+        if (OpenPanel is { } panel) panel.SetItem(item, TabLabel(item));
     }
+
+    private IOptionsPanel? OpenPanel => Tray.Category is { } c ? _optionPanels.GetValueOrDefault(c.Id) as IOptionsPanel : null;
 
     private string? TabLabel(BuildItem? item) => item is null ? null : Library.TabOf(item)?.Label;
 
@@ -96,7 +100,6 @@ public partial class GameHud : CanvasLayer
     {
         if (@event is not InputEventKey { Pressed: true, Echo: false } key) return;
         bool open = _dock.Visible;
-        bool roads = open && Tray.Category?.Id == "roads";
 
         if (key.Keycode == Key.Escape && open)
         {
@@ -104,10 +107,16 @@ public partial class GameHud : CanvasLayer
             else Close();
         }
         else if (key.Keycode == Key.Slash && open) Tray.FocusSearch();
-        else if (key.Keycode == Key.A && key.IsCommandOrControlPressed() && roads) RoadOptions.ToggleAnarchy();
-        else if (roads && key.Keycode is >= Key.Key1 and <= Key.Key4 && !key.IsCommandOrControlPressed())
-            RoadOptions.SetMode((RoadDrawMode)(key.Keycode - Key.Key1));
-        else return;
+        else if (!open || OpenPanel?.HandleKey(key) != true) return;
         GetViewport().SetInputAsHandled();
     }
+}
+
+/// <summary>A category's always-open options panel next to its tray (<see cref="GameHud.AddOptionsPanel"/>).</summary>
+public interface IOptionsPanel
+{
+    /// <summary>The item picked in the tray (null: none), with its tab's label for the chip.</summary>
+    void SetItem(BuildItem? item, string? tabLabel);
+    /// <summary>A key pressed while this panel's category is open; true when the panel used it.</summary>
+    bool HandleKey(InputEventKey key) => false;
 }

@@ -19,8 +19,8 @@ namespace CitySim.Terraform;
 /// </summary>
 public partial class TerrainThumbnailBaker : Node
 {
-    public const string Folder = "res://content/terrain/thumbnails";
-    public const string ToolsFolder = "res://content/terrain/tools";
+    public const string Folder = "res://addons/citysim_roads/content/terrain/thumbnails";
+    public const string ToolsFolder = "res://addons/citysim_roads/content/terrain/tools";
     private const int Cells = 160; // a 160 m patch, 1 m cells: fills the frame past its edges
     private const float Tick = 1f / 60f;
     private static readonly NumVector2 Centre = new(Cells / 2f, Cells / 2f);

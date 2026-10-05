@@ -3,6 +3,11 @@
 Consumer experiment for the splines addon: the game's build UI first, then drawing real roads. UI design came from
 the research and wireframe at https://claude.ai/artifact/9btto4m8pVJzZD3jNTCbzP (Roads toolbar, v3).
 
+**Where the code is (2026-10-06, zoning Z0):** the code and content moved into `packages/citysim_roads/` (roads,
+terrain tools, their options panels, `content/`) and `packages/citysim_build_ui/` (bar, tray, cards, `UiTheme`,
+`ContentLibrary`, icons), symlinked into `addons/`. Paths in this file (`content/...`, `src/Roads/...`,
+`src/Terraform/...`, `assets/icons/`) are now in those packages; the demos and the scene stay here.
+
 ## Decisions
 
 - Road tabs list **base roads**: lanes plus the sidewalks and median they come with. Upgrades change how a road looks
@@ -18,7 +23,7 @@ the research and wireframe at https://claude.ai/artifact/9btto4m8pVJzZD3jNTCbzP 
 - One look, taken from the hover card (v4, https://claude.ai/artifact/XCHdpm4MNCRBA1XDc6qoQa): near-black panels with a
   hairline border, controls as faint tiles, selected = accent tint + accent outline, text tabs with an accent underline.
 - Terse copy: labels, values, chips and key icons, no narrated sentences. Prose only in content descriptions.
-- Icons are Tabler outline (white, 64 px; `assets/icons/LICENSE.md`); any new glyph is drawn in the same style.
+- Icons are Tabler outline (white, 64 px; `packages/citysim_build_ui/icons/LICENSE.md`); any new glyph is drawn in the same style.
 - Terrain tools and roads share the terrain's one undo history, so each undo only reaches its own side: a terrain stroke
   ends the road undo history, a road change ends the terrain one.
 
@@ -81,7 +86,7 @@ The terrain flags (`--flat`, `--load=`, `--cam=`, `--screenshot=`) come from the
 
 ## Road checklist
 
-All 33 road types are in `content/roads/types/`, but only the ones ticked here are shown in game. The rest have
+All 33 road types are in `packages/citysim_roads/content/roads/types/`, but only the ones ticked here are shown in game. The rest have
 `Hidden = true` in their `.tres` file. To bring one in, delete that line, test it in Godot, then tick it here.
 Tabs with no visible roads are hidden too.
 

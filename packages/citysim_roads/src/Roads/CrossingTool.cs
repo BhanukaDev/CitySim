@@ -63,7 +63,7 @@ public partial class CrossingTool : Node
 
     public void Select(int? node) => Selected = node;
 
-    private bool Active => Hud?.PickedRoadTool?.Tool == RoadTool.CrossingsTool && Network is not null && Host?.Visual is not null;
+    private bool Active => Hud?.PickedRoadTool()?.Tool == RoadTool.CrossingsTool && Network is not null && Host?.Visual is not null;
 
     public override void _Ready()
     {

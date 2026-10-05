@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dpcd2850o7l56"
-path="res://.godot/imported/shift.png-d5985cc619124df1326031ad1ecde58a.ctex"
+path="res://.godot/imported/shift.png-7f8e216a1f6cd14327d56e28a441a258.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/terrain/thumbnails/shift.png"
-dest_files=["res://.godot/imported/shift.png-d5985cc619124df1326031ad1ecde58a.ctex"]
+source_file="res://addons/citysim_roads/content/terrain/thumbnails/shift.png"
+dest_files=["res://.godot/imported/shift.png-7f8e216a1f6cd14327d56e28a441a258.ctex"]
 
 [params]
 

@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://qrkxepnbrldd"
-path="res://.godot/imported/vector-spline.svg-3788592e1c88007998ba6deb7eabede6.ctex"
+path="res://.godot/imported/vector-spline.svg-7271a9165cc234a750c560267976aab2.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/vector-spline.svg"
-dest_files=["res://.godot/imported/vector-spline.svg-3788592e1c88007998ba6deb7eabede6.ctex"]
+source_file="res://addons/citysim_build_ui/icons/vector-spline.svg"
+dest_files=["res://.godot/imported/vector-spline.svg-7271a9165cc234a750c560267976aab2.ctex"]
 
 [params]
 

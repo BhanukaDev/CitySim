@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://crgaoo8e6rsto"
-path="res://.godot/imported/seven_lane_asymmetric.png-91ca58f0879e3871bd865399766a0840.ctex"
+path="res://.godot/imported/seven_lane_asymmetric.png-9fe7d1779c39110acc07a0b6dd20d138.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/seven_lane_asymmetric.png"
-dest_files=["res://.godot/imported/seven_lane_asymmetric.png-91ca58f0879e3871bd865399766a0840.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/seven_lane_asymmetric.png"
+dest_files=["res://.godot/imported/seven_lane_asymmetric.png-9fe7d1779c39110acc07a0b6dd20d138.ctex"]
 
 [params]
 

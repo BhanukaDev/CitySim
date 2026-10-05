@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bund87ag2boh"
-path="res://.godot/imported/wave-sine.svg-1750b84095751ea91719f2db28c802cf.ctex"
+path="res://.godot/imported/wave-sine.svg-36adaae448a8e4cea1cb64c4ab747e01.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/wave-sine.svg"
-dest_files=["res://.godot/imported/wave-sine.svg-1750b84095751ea91719f2db28c802cf.ctex"]
+source_file="res://addons/citysim_build_ui/icons/wave-sine.svg"
+dest_files=["res://.godot/imported/wave-sine.svg-36adaae448a8e4cea1cb64c4ab747e01.ctex"]
 
 [params]
 

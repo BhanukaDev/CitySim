@@ -19,7 +19,7 @@ namespace CitySim.Roads;
 /// </summary>
 public static class RoadTextureBaker
 {
-    public const string Folder = "res://content/roads/textures";
+    public const string Folder = "res://addons/citysim_roads/content/roads/textures";
     private const int Size = 1024;
 
     public static void Bake()

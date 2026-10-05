@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dvmnxlxq4via5"
-path="res://.godot/imported/alley_one_way.png-9c510964f030b48be6a79f10d6c75d09.ctex"
+path="res://.godot/imported/alley_one_way.png-7bc08b19c08d8ff7e0aa3979f3d8862a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/alley_one_way.png"
-dest_files=["res://.godot/imported/alley_one_way.png-9c510964f030b48be6a79f10d6c75d09.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/alley_one_way.png"
+dest_files=["res://.godot/imported/alley_one_way.png-7bc08b19c08d8ff7e0aa3979f3d8862a.ctex"]
 
 [params]
 

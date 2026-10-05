@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bbevvkpupkkbh"
-path="res://.godot/imported/smooth.png-2cc6c2cce06a76c29325acdfe23d50b9.ctex"
+path="res://.godot/imported/smooth.png-6ded22ffbaa96686684a3eb27fc8d55c.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/terrain/thumbnails/smooth.png"
-dest_files=["res://.godot/imported/smooth.png-2cc6c2cce06a76c29325acdfe23d50b9.ctex"]
+source_file="res://addons/citysim_roads/content/terrain/thumbnails/smooth.png"
+dest_files=["res://.godot/imported/smooth.png-6ded22ffbaa96686684a3eb27fc8d55c.ctex"]
 
 [params]
 

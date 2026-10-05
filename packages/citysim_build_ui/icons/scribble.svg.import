@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://deti5erh1f8bl"
-path="res://.godot/imported/scribble.svg-24d4e84fdfbc7e6c1202b3b65fe21a45.ctex"
+path="res://.godot/imported/scribble.svg-ec0f421fb81a58f9948f6e103feb3eb9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/scribble.svg"
-dest_files=["res://.godot/imported/scribble.svg-24d4e84fdfbc7e6c1202b3b65fe21a45.ctex"]
+source_file="res://addons/citysim_build_ui/icons/scribble.svg"
+dest_files=["res://.godot/imported/scribble.svg-ec0f421fb81a58f9948f6e103feb3eb9.ctex"]
 
 [params]
 

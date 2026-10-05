@@ -80,7 +80,7 @@ public partial class LaneLinkTool : Node
         Refresh();
     }
 
-    private bool Active => Hud?.PickedRoadTool?.Tool == RoadTool.LaneLinksTool && Network is not null && Host?.Visual is not null;
+    private bool Active => Hud?.PickedRoadTool()?.Tool == RoadTool.LaneLinksTool && Network is not null && Host?.Visual is not null;
 
     public override void _Ready()
     {

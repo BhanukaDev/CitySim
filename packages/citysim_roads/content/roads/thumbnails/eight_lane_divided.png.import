@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bh0ibm40rt5ds"
-path="res://.godot/imported/eight_lane_divided.png-66ca7c1cdac4f8a6a9ae5193bc71b0fe.ctex"
+path="res://.godot/imported/eight_lane_divided.png-9ab817cca1d2b27625161e2594612433.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/eight_lane_divided.png"
-dest_files=["res://.godot/imported/eight_lane_divided.png-66ca7c1cdac4f8a6a9ae5193bc71b0fe.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/eight_lane_divided.png"
+dest_files=["res://.godot/imported/eight_lane_divided.png-9ab817cca1d2b27625161e2594612433.ctex"]
 
 [params]
 

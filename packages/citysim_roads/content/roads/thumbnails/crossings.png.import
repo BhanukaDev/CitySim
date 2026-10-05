@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dklodowr8hyqs"
-path="res://.godot/imported/crossings.png-15c4032881465d65aa920f9c0ea59d28.ctex"
+path="res://.godot/imported/crossings.png-dbe114fb4e9d4f26f01b4f6fa11ed8a0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/crossings.png"
-dest_files=["res://.godot/imported/crossings.png-15c4032881465d65aa920f9c0ea59d28.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/crossings.png"
+dest_files=["res://.godot/imported/crossings.png-dbe114fb4e9d4f26f01b4f6fa11ed8a0.ctex"]
 
 [params]
 

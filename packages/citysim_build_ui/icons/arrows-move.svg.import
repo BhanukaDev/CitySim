@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bi31iveydoqgm"
-path="res://.godot/imported/arrows-move.svg-653ded5d6728b2e3c69e802a7a8866f5.ctex"
+path="res://.godot/imported/arrows-move.svg-487397371b1aee9492a8988b34c5e195.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/arrows-move.svg"
-dest_files=["res://.godot/imported/arrows-move.svg-653ded5d6728b2e3c69e802a7a8866f5.ctex"]
+source_file="res://addons/citysim_build_ui/icons/arrows-move.svg"
+dest_files=["res://.godot/imported/arrows-move.svg-487397371b1aee9492a8988b34c5e195.ctex"]
 
 [params]
 

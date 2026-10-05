@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://decfj8g31dunk"
-path="res://.godot/imported/channel-u.svg-6bb993ecde938f1451a3d00c503345b0.ctex"
+path="res://.godot/imported/channel-u.svg-31954b4366d3ca7d3503e91d4e3f594a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/channel-u.svg"
-dest_files=["res://.godot/imported/channel-u.svg-6bb993ecde938f1451a3d00c503345b0.ctex"]
+source_file="res://addons/citysim_build_ui/icons/channel-u.svg"
+dest_files=["res://.godot/imported/channel-u.svg-31954b4366d3ca7d3503e91d4e3f594a.ctex"]
 
 [params]
 

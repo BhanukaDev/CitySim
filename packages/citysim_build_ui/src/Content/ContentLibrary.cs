@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using CitySim.Roads;
 using Godot;
 
 namespace CitySim.Content;
@@ -8,23 +7,25 @@ namespace CitySim.Content;
 /// <summary>
 /// Every build category, tab and item the game knows, read from resource files at start-up:
 /// <list type="bullet">
-/// <item><c>res://content/**</c>: the base game (source "Base").</item>
+/// <item><c>res://addons/&lt;package&gt;/content/**</c>, then <c>res://content/**</c>: the base game (source "Base").
+///   Packages ship their own content (the roads package's road types); a project adds its own on top.</item>
 /// <item><c>user://mods/&lt;mod&gt;/**</c>: one folder per mod (source = the folder name), read in name order after the base
 ///   game. A file whose id matches an earlier one of the same kind replaces it, so a mod can change a base road.</item>
 /// </list>
 /// Any <c>.tres</c>/<c>.res</c> whose script is <see cref="BuildCategory"/>, <see cref="BuildTab"/>, a
-/// <see cref="BuildItem"/> type or <see cref="RoadStyle"/> counts; other files are ignored, so content can sit next to
+/// <see cref="BuildItem"/> type or implements <see cref="IContent"/> counts; other files are ignored, so content can sit next to
 /// its textures and materials. Items with <see cref="BuildItem.Hidden"/> set are left out. Tabs whose category is missing and items whose tab is missing are skipped with a warning.
 /// </summary>
 public sealed class ContentLibrary
 {
     public const string BaseRoot = "res://content";
+    public const string AddonsRoot = "res://addons";
     public const string ModsRoot = "user://mods";
 
     private readonly Dictionary<string, BuildCategory> _categories = new();
     private readonly Dictionary<string, BuildTab> _tabs = new();
     private readonly Dictionary<string, BuildItem> _items = new();
-    private readonly Dictionary<string, RoadStyle> _styles = new();
+    private readonly Dictionary<System.Type, Dictionary<string, IContent>> _other = new(); // type → id → a style or similar
     private readonly Dictionary<string, List<BuildItem>> _generated = new(); // tab id → items made at run time
 
     public IReadOnlyList<BuildCategory> Categories { get; private set; } = [];
@@ -38,7 +39,10 @@ public sealed class ContentLibrary
     public static ContentLibrary Load()
     {
         var lib = new ContentLibrary();
-        lib.Scan(BaseRoot, "Base");
+        foreach (string addon in DirAccess.GetDirectoriesAt(AddonsRoot).Order())
+            if (DirAccess.DirExistsAbsolute($"{AddonsRoot}/{addon}/content"))
+                lib.Scan($"{AddonsRoot}/{addon}/content", "Base");
+        if (DirAccess.DirExistsAbsolute(BaseRoot)) lib.Scan(BaseRoot, "Base");
         if (DirAccess.DirExistsAbsolute(ModsRoot))
             foreach (string mod in DirAccess.GetDirectoriesAt(ModsRoot).Order())
                 lib.Scan($"{ModsRoot}/{mod}", mod);
@@ -56,8 +60,8 @@ public sealed class ContentLibrary
     public IEnumerable<BuildItem> ItemsOf(BuildCategory c) => TabsOf(c).SelectMany(ItemsOf);
     public BuildTab? TabOf(BuildItem i) => _tabs.GetValueOrDefault(i.Tab);
     public BuildItem? Item(string id) => _items.GetValueOrDefault(id) ?? _generated.Values.SelectMany(l => l).FirstOrDefault(i => i.Id == id);
-    /// <summary>A road style by id, falling back to <see cref="RoadStyle.DefaultId"/>; null when there is none.</summary>
-    public RoadStyle? Style(string id) => _styles.GetValueOrDefault(id) ?? _styles.GetValueOrDefault(RoadStyle.DefaultId);
+    /// <summary>An <see cref="IContent"/> file of type <typeparamref name="T"/> by id; null when there is none.</summary>
+    public T? Get<T>(string id) where T : class, IContent => _other.GetValueOrDefault(typeof(T))?.GetValueOrDefault(id) as T;
 
     /// <summary>
     /// Puts <paramref name="items"/> in tab <paramref name="tabId"/> in place of the ones made for it before: cards that
@@ -92,17 +96,21 @@ public sealed class ContentLibrary
                 case BuildCategory c: Add(_categories, c.Id, c, path, source, "category"); c.Source = source; break;
                 case BuildTab t: Add(_tabs, t.Id, t, path, source, "tab"); t.Source = source; break;
                 case BuildItem i: Add(_items, i.Id, i, path, source, "item"); i.Source = source; break;
-                case RoadStyle s: Add(_styles, s.Id, s, path, source, "road style"); s.Source = source; break;
+                case IContent o:
+                    if (!_other.TryGetValue(o.GetType(), out var ofType)) _other[o.GetType()] = ofType = new();
+                    Add(ofType, o.Id, o, path, source, o.GetType().Name);
+                    o.Source = source;
+                    break;
             }
         }
     }
 
-    private void Add<T>(Dictionary<string, T> into, string id, T value, string path, string source, string kind) where T : Resource
+    private void Add<T>(Dictionary<string, T> into, string id, T value, string path, string source, string kind)
     {
         if (string.IsNullOrWhiteSpace(id)) { Warnings.Add($"{path}: {kind} has no Id, skipped"); return; }
         if (into.TryGetValue(id, out var old))
         {
-            string oldSource = old switch { BuildCategory c => c.Source, BuildTab t => t.Source, BuildItem i => i.Source, RoadStyle s => s.Source, _ => "?" };
+            string oldSource = old switch { BuildCategory c => c.Source, BuildTab t => t.Source, BuildItem i => i.Source, IContent o => o.Source, _ => "?" };
             if (oldSource == source) Warnings.Add($"{path}: {kind} id \"{id}\" is used twice in {source}; the later file wins");
             else GD.Print($"Content: {source} replaces {kind} \"{id}\" from {oldSource}");
         }

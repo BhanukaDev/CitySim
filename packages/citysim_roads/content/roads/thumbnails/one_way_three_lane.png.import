@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b1ojuyu2wayga"
-path="res://.godot/imported/one_way_three_lane.png-a5b333217d20e97e736c684c9d6e5f4f.ctex"
+path="res://.godot/imported/one_way_three_lane.png-7ecd79ca6d711dbfe0c46897e8062634.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://content/roads/thumbnails/one_way_three_lane.png"
-dest_files=["res://.godot/imported/one_way_three_lane.png-a5b333217d20e97e736c684c9d6e5f4f.ctex"]
+source_file="res://addons/citysim_roads/content/roads/thumbnails/one_way_three_lane.png"
+dest_files=["res://.godot/imported/one_way_three_lane.png-7ecd79ca6d711dbfe0c46897e8062634.ctex"]
 
 [params]
 

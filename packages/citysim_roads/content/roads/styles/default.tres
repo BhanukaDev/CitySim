@@ -1,13 +1,13 @@
 [gd_resource type="Resource" script_class="RoadStyle" format=3]
 
-[ext_resource type="Script" path="res://src/Roads/RoadStyle.cs" id="1_script"]
-[ext_resource type="Material" path="res://content/roads/materials/asphalt.tres" id="2_asphalt"]
-[ext_resource type="Material" path="res://content/roads/materials/gravel.tres" id="3_gravel"]
-[ext_resource type="Material" path="res://content/roads/materials/gutter.tres" id="4_gutter"]
-[ext_resource type="Material" path="res://content/roads/materials/kerb.tres" id="5_kerb"]
-[ext_resource type="Material" path="res://content/roads/materials/sidewalk.tres" id="6_sidewalk"]
-[ext_resource type="Material" path="res://content/roads/materials/paint.tres" id="7_paint"]
-[ext_resource type="Material" path="res://content/roads/materials/wear.tres" id="8_wear"]
+[ext_resource type="Script" path="res://addons/citysim_roads/src/Roads/RoadStyle.cs" id="1_script"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/asphalt.tres" id="2_asphalt"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/gravel.tres" id="3_gravel"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/gutter.tres" id="4_gutter"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/kerb.tres" id="5_kerb"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/sidewalk.tres" id="6_sidewalk"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/paint.tres" id="7_paint"]
+[ext_resource type="Material" path="res://addons/citysim_roads/content/roads/materials/wear.tres" id="8_wear"]
 
 [resource]
 script = ExtResource("1_script")

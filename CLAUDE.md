@@ -14,6 +14,12 @@ profiled hot paths.
 - `packages/citysim_splines/`: the generic spline addon (draw/edit tools, graph, junctions), symlinked in as
   `addons/citysim_splines` by `experiments/splines` and `experiments/roads`. Its README is the API, including the
   consumer hooks (`ISplineToolHost`, `INetworkVisual`). Edits here affect both, so re-check both.
+- `packages/citysim_build_ui/`: the build UI (bar, tray, cards, hover card, `UiTheme`, icons) and `ContentLibrary`,
+  symlinked in as `addons/citysim_build_ui`. Knows nothing about roads or zones: a feature adds its options panel with
+  `GameHud.AddOptionsPanel`. Its README is the API.
+- `packages/citysim_roads/`: road types, rendering, crossings, lane links, the road and terrain tools and their content,
+  symlinked in as `addons/citysim_roads`. Its README is the content format. Edits to either package affect
+  `experiments/roads` and `experiments/zoning`, so re-check both (the roads `--demo-*` checks).
 
 ## Experiments
 - `experiments/terrain/`: terrain system and the in-app Map Editor. **Read `experiments/terrain/ROADMAP.md` first.** It has
@@ -23,8 +29,11 @@ profiled hot paths.
   Feature first, performance later (milestone S11).
 - `experiments/roads/`: the game's build UI (bar, tray, options panel) with road types read from `.tres` content files
   (mods drop files in `user://mods/`), then roads drawn with the splines addon. **Read `experiments/roads/ROADMAP.md`
-  first**, then `README.md` (the content format).
+  first**, then `packages/citysim_roads/README.md` (the content format). The code lives in the two packages above;
+  the experiment keeps the scene and the demos.
   Road tools are Straight, Curve, Grid and Replace (no Freehand); try every new road feature with all four.
+- `experiments/zoning/`: zones painted on freeform parcels along roads, buildings grow on them. **Read
+  `experiments/zoning/ROADMAP.md` first**, then `PLAN.md` (the agreed plan and its reasons).
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

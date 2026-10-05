@@ -1,3 +1,4 @@
+using CitySim.Content;
 using CitySim.Roads.Geometry;
 using Godot;
 
@@ -10,7 +11,7 @@ namespace CitySim.Roads;
 /// <see cref="ToSection"/> gives the plain-C# numbers the geometry uses.
 /// </summary>
 [GlobalClass]
-public partial class RoadStyle : Resource
+public partial class RoadStyle : Resource, IContent
 {
     public const string DefaultId = "default";
 
@@ -78,7 +79,7 @@ public partial class RoadStyle : Resource
     /// <summary>Tyre wear laid over junctions along the paths cars take (blended over the asphalt).</summary>
     [Export] public Material? Wear { get; set; }
 
-    public string Source { get; internal set; } = "Base";
+    public string Source { get; set; } = "Base";
 
     public SectionStyle ToSection() => new()
     {
@@ -120,4 +121,10 @@ public partial class RoadStyle : Resource
         SurfaceKind.Wear => Wear,
         _ => null,
     };
+}
+
+public static class RoadStyleContent
+{
+    /// <summary>A road style by id, falling back to <see cref="RoadStyle.DefaultId"/>; null when there is none.</summary>
+    public static RoadStyle? Style(this ContentLibrary lib, string id) => lib.Get<RoadStyle>(id) ?? lib.Get<RoadStyle>(RoadStyle.DefaultId);
 }
