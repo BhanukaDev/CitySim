@@ -25,11 +25,15 @@ public sealed class ContentLibrary
     private readonly Dictionary<string, BuildTab> _tabs = new();
     private readonly Dictionary<string, BuildItem> _items = new();
     private readonly Dictionary<string, RoadStyle> _styles = new();
+    private readonly Dictionary<string, List<BuildItem>> _generated = new(); // tab id → items made at run time
 
     public IReadOnlyList<BuildCategory> Categories { get; private set; } = [];
     public IReadOnlyList<BuildTab> Tabs { get; private set; } = [];
     public IReadOnlyList<BuildItem> Items { get; private set; } = [];
     public List<string> Warnings { get; } = new();
+
+    /// <summary>Raised when <see cref="SetGenerated"/> changes the items.</summary>
+    public event System.Action? Changed;
 
     public static ContentLibrary Load()
     {
@@ -51,9 +55,27 @@ public sealed class ContentLibrary
     public IEnumerable<BuildItem> ItemsOf(BuildTab t) => Items.Where(i => i.Tab == t.Id);
     public IEnumerable<BuildItem> ItemsOf(BuildCategory c) => TabsOf(c).SelectMany(ItemsOf);
     public BuildTab? TabOf(BuildItem i) => _tabs.GetValueOrDefault(i.Tab);
-    public BuildItem? Item(string id) => _items.GetValueOrDefault(id);
+    public BuildItem? Item(string id) => _items.GetValueOrDefault(id) ?? _generated.Values.SelectMany(l => l).FirstOrDefault(i => i.Id == id);
     /// <summary>A road style by id, falling back to <see cref="RoadStyle.DefaultId"/>; null when there is none.</summary>
     public RoadStyle? Style(string id) => _styles.GetValueOrDefault(id) ?? _styles.GetValueOrDefault(RoadStyle.DefaultId);
+
+    /// <summary>
+    /// Puts <paramref name="items"/> in tab <paramref name="tabId"/> in place of the ones made for it before: cards that
+    /// come from something other than content files (the map theme's paint materials). <paramref name="source"/> is where
+    /// the items come from, as for content files ("Base": the base game).
+    /// </summary>
+    public void SetGenerated(string tabId, IEnumerable<BuildItem> items, string source = "Base")
+    {
+        var list = items.ToList();
+        foreach (var i in list)
+        {
+            i.Tab = tabId;
+            i.Source = source;
+        }
+        _generated[tabId] = list;
+        Items = _items.Values.Concat(_generated.Values.SelectMany(l => l)).OrderBy(i => i.Order).ThenBy(i => i.Label).ToList();
+        Changed?.Invoke();
+    }
 
     private void Scan(string dir, string source)
     {

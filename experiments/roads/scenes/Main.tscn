@@ -12,6 +12,7 @@
 [ext_resource type="Script" path="res://src/Demos/RoadDemo.cs" id="16_roaddemo"]
 [ext_resource type="Script" path="res://src/Roads/CrossingTool.cs" id="17_crossings"]
 [ext_resource type="Script" path="res://src/Roads/LaneLinkTool.cs" id="18_lanelinks"]
+[ext_resource type="Script" path="res://src/Terraform/TerrainToolController.cs" id="19_terrain_tools"]
 [ext_resource type="Shader" path="res://addons/citysim_terrain/shaders/terrain_horizon.gdshader" id="9_horizon"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/water.tres" id="10_water"]
 [ext_resource type="Material" path="res://addons/citysim_terrain/materials/waterfall_curtain.tres" id="11_curtain"]
@@ -141,3 +142,10 @@ Host = NodePath("../RoadToolHost")
 Network = NodePath("../SplineNetwork")
 Terrain = NodePath("../Terrain")
 CityCamera = NodePath("../CityCamera")
+
+[node name="TerrainToolController" type="Node" parent="." node_paths=PackedStringArray("Terrain", "CityCamera", "Hud", "Network")]
+script = ExtResource("19_terrain_tools")
+Terrain = NodePath("../Terrain")
+CityCamera = NodePath("../CityCamera")
+Hud = NodePath("../GameHud")
+Network = NodePath("../SplineNetwork")

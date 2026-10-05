@@ -6,8 +6,8 @@ using Godot;
 
 namespace CitySim.UI;
 
-/// <summary>How the road tool draws: the four modes of the splines Draw tool (1–4).</summary>
-public enum RoadDrawMode { Straight, Curve, Freehand, Grid, Replace }
+/// <summary>How the road tool draws (keys 1–4). The splines Freehand mode is left out on purpose.</summary>
+public enum RoadDrawMode { Straight, Curve, Grid, Replace }
 
 /// <summary>Grid split: equal blocks, or whole lots per block (the splines <c>GridFit</c>).</summary>
 public enum RoadGridFit { Even, LotSteps }
@@ -38,8 +38,8 @@ public sealed class RoadToolOptions
 
 /// <summary>
 /// The always-open panel next to the Roads tray, in the hover card's look: the picked road's name, tab chip and a row of
-/// fact tiles; tool mode, grid blocks (Grid mode only), snapping and Anarchy. A picked road tool shows its usage instead.
-/// Only options the splines tool already supports.
+/// fact tiles; tool mode or Move (the splines Edit tool, with its controls), grid blocks (Grid mode only), snapping and
+/// Anarchy. A picked road tool shows its usage instead. Only options the splines tool already supports.
 /// </summary>
 public partial class RoadOptionsPanel : PanelContainer
 {
@@ -50,6 +50,8 @@ public partial class RoadOptionsPanel : PanelContainer
     private PanelContainer? _chip;
     private readonly GridContainer _facts = new() { Columns = 3 };
     private readonly Dictionary<RoadDrawMode, Button> _modes = new();
+    private readonly Button _move = new();
+    private readonly VBoxContainer _moveUsage = new();
     private readonly VBoxContainer _gridBox = new();
     private readonly SpinBox _cols = Spin(1, 40);
     private readonly SpinBox _rows = Spin(1, 40);
@@ -62,7 +64,14 @@ public partial class RoadOptionsPanel : PanelContainer
 
     public RoadToolOptions Options { get; } = new();
 
+    /// <summary>Whether Move (the Edit tool) is shown as on. The tool host owns the state; see <see cref="SetMoving"/>.</summary>
+    public bool Moving { get; private set; }
+
     public event Action<RoadToolOptions>? OptionsChanged;
+    /// <summary>Move was pressed (true), or a draw mode was picked (false).</summary>
+    public event Action<bool>? MoveRequested;
+
+    private const string MoveUsage = "LMB road  select\nShift+click road  add\ndrag road · node  move\ndrag ground  box\nRMB point  menu\nDel selection  delete";
 
     public RoadOptionsPanel()
     {
@@ -90,7 +99,7 @@ public partial class RoadOptionsPanel : PanelContainer
         col.AddChild(_drawBox);
         col = _drawBox;
 
-        col.AddChild(UiTheme.Section("Mode", "1–5"));
+        col.AddChild(UiTheme.Section("Mode", "1–4 · M"));
         var modeRow = new HBoxContainer();
         modeRow.AddThemeConstantOverride("separation", 6);
         col.AddChild(modeRow);
@@ -99,9 +108,8 @@ public partial class RoadOptionsPanel : PanelContainer
         [
             (RoadDrawMode.Straight, "Straight", "line", "Straight (1): click points; corners round to the road's radius"),
             (RoadDrawMode.Curve, "Curve", "vector-spline", "Curve (2): start, bend, end"),
-            (RoadDrawMode.Freehand, "Freehand", "scribble", "Freehand (3): hold and drag"),
-            (RoadDrawMode.Grid, "Grid", "grid-4x4", "Grid (4): corner, width, depth"),
-            (RoadDrawMode.Replace, "Replace", "replace", "Replace (5): click a road to make it this one; where the mouse is across it moves it sideways"),
+            (RoadDrawMode.Grid, "Grid", "grid-4x4", "Grid (3): corner, width, depth"),
+            (RoadDrawMode.Replace, "Replace", "replace", "Replace (4): click a road to make it this one; where the mouse is across it moves it sideways"),
         ];
         foreach (var (mode, label, icon, tip) in modes)
         {
@@ -125,6 +133,26 @@ public partial class RoadOptionsPanel : PanelContainer
             modeRow.AddChild(b);
             _modes[mode] = b;
         }
+        modeRow.AddChild(new VSeparator());
+        _move.Text = "Move";
+        _move.Icon = UiTheme.Icon("arrows-move");
+        _move.ToggleMode = true;
+        _move.ButtonGroup = modeGroup;
+        _move.TooltipText = "Move (M): select, move and reshape built roads";
+        _move.FocusMode = FocusModeEnum.None;
+        _move.ExpandIcon = true;
+        _move.IconAlignment = HorizontalAlignment.Center;
+        _move.VerticalIconAlignment = VerticalAlignment.Top;
+        _move.CustomMinimumSize = new Vector2(48, 56);
+        _move.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        _move.AddThemeConstantOverride("icon_max_width", 22);
+        _move.AddThemeFontSizeOverride("font_size", 12);
+        _move.Pressed += () => MoveRequested?.Invoke(true);
+        modeRow.AddChild(_move);
+        _moveUsage.AddThemeConstantOverride("separation", 4);
+        _moveUsage.Visible = false;
+        col.AddChild(_moveUsage);
+        ShowUsage(_moveUsage, MoveUsage);
 
         _gridBox.AddThemeConstantOverride("separation", 6);
         col.AddChild(_gridBox);
@@ -226,16 +254,16 @@ public partial class RoadOptionsPanel : PanelContainer
 
     /// <summary>The tool's usage lines (<c>"LMB junction  select"</c>) as tiles: the input's icons, the target, and the
     /// action dim on the right. A line whose first word isn't an input stays plain text.</summary>
-    private void ShowUsage(string usage)
+    internal static void ShowUsage(VBoxContainer box, string usage)
     {
-        foreach (var child in _usage.GetChildren()) child.QueueFree();
+        foreach (var child in box.GetChildren()) child.QueueFree();
         foreach (var line in usage.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var tile = UiTheme.Chip(UiTheme.Tile, 5, 9, 5);
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 8);
             tile.AddChild(row);
-            _usage.AddChild(tile);
+            box.AddChild(tile);
 
             int space = line.IndexOf(' ');
             string first = space < 0 ? line : line[..space];
@@ -261,7 +289,7 @@ public partial class RoadOptionsPanel : PanelContainer
         {
             SetHead(tool.Label, tabLabel);
             _facts.Visible = false;
-            ShowUsage(tool.Usage);
+            ShowUsage(_usage, tool.Usage);
         }
         else SetRoad(item as RoadType, tabLabel);
         _usage.Visible = item is RoadTool;
@@ -290,12 +318,28 @@ public partial class RoadOptionsPanel : PanelContainer
         if (_chip is not null) _head.AddChild(_chip);
     }
 
+    /// <summary>Picks a draw mode (keys 1–4), which also leaves Move.</summary>
     public void SetMode(RoadDrawMode mode)
     {
         Options.Mode = mode;
-        foreach (var (m, b) in _modes) b.SetPressedNoSignal(m == mode);
-        _gridBox.Visible = mode == RoadDrawMode.Grid;
         Changed();
+        MoveRequested?.Invoke(false);
+        Refresh();
+    }
+
+    /// <summary>Shows Move as on or off (the tool host calls this whenever its tool changes).</summary>
+    public void SetMoving(bool on)
+    {
+        Moving = on;
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        foreach (var (m, b) in _modes) b.SetPressedNoSignal(!Moving && m == Options.Mode);
+        _move.SetPressedNoSignal(Moving);
+        _moveUsage.Visible = Moving;
+        _gridBox.Visible = !Moving && Options.Mode == RoadDrawMode.Grid;
     }
 
     public void ToggleAnarchy() => _anarchy.ButtonPressed = !_anarchy.ButtonPressed;

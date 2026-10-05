@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="TerrainTool" format=3]
+
+[ext_resource type="Script" path="res://src/Terraform/TerrainTool.cs" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/icons/eraser.svg" id="2_glyph"]
+
+[resource]
+script = ExtResource("1_script")
+Tool = "erase"
+Glyph = ExtResource("2_glyph")
+Usage = "LMB hold  erase"
+Id = "erase"
+DisplayName = "Erase"
+Description = "Take the paint off, back to the ground the map picks by itself."
+Tab = "terrain_paint"
+Order = 0

@@ -47,6 +47,9 @@ public partial class SplineNetwork : Node
 
     /// <summary>After every change, undo and redo.</summary>
     public event Action? Changed;
+    /// <summary>The ground round the splines was shaped back after something else changed it (one terrain undo step,
+    /// pushed right after that change's). A terrain tool undoing its stroke undoes this step with it.</summary>
+    public event Action? GroundShapedBack;
 
     public override void _Ready()
     {
@@ -54,11 +57,14 @@ public partial class SplineNetwork : Node
         Ground = new TerrainGround(Terrain);
         _renderer = new RibbonRenderer(Terrain, Ground);
         Terrain.HeightsChanged += OnHeightsChanged;
+        Terrain.PaintChanged += OnPaintChanged;
     }
 
     public override void _ExitTree()
     {
-        if (Terrain is not null) Terrain.HeightsChanged -= OnHeightsChanged;
+        if (Terrain is null) return;
+        Terrain.HeightsChanged -= OnHeightsChanged;
+        Terrain.PaintChanged -= OnPaintChanged;
     }
 
     public override void _Process(double delta)
@@ -67,15 +73,28 @@ public partial class SplineNetwork : Node
         var rect = _groundChanged;
         _groundChanged = VertexRect.Empty;
         float cs = Terrain.Map?.CellSize ?? 1f;
-        ShapeGround(grid => GroundShaping.ShapeArea(grid, Graph, Footprints,
-            new System.Numerics.Vector2(rect.MinX * cs, rect.MinZ * cs), new System.Numerics.Vector2(rect.MaxX * cs, rect.MaxZ * cs)));
+        if (ShapeGround(grid => GroundShaping.ShapeArea(grid, Graph, Footprints,
+                new System.Numerics.Vector2(rect.MinX * cs, rect.MinZ * cs), new System.Numerics.Vector2(rect.MaxX * cs, rect.MaxZ * cs))))
+            GroundShapedBack?.Invoke();
     }
 
     private void OnHeightsChanged(VertexRect rect)
     {
         // Our own shaping (or its undo) is the ground the splines want; anything else gets shaped back round them.
         if (_ownTerrainChange) { _ownTerrainChange = false; return; }
+        // That change is on top of the terrain's history now, so undoing a step here would undo it instead of the
+        // step's own shaping: the splines' history ends at a ground change from outside.
+        _undo.Clear();
+        _redo.Clear();
         _groundChanged = _groundChanged.IsEmpty ? rect : _groundChanged.Union(rect);
+    }
+
+    /// <summary>A paint stroke is a step on the terrain's history too, so (as for heights) ours ends there: undoing a
+    /// shaped step would undo the paint instead.</summary>
+    private void OnPaintChanged(VertexRect rect)
+    {
+        _undo.Clear();
+        _redo.Clear();
     }
 
     /// <summary>Remembers a profile so its edges get its colour (edges only carry the Core rules).</summary>

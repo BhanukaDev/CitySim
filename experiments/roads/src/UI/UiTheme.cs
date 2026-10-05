@@ -95,8 +95,50 @@ public static class UiTheme
         return chip;
     }
 
-    /// <summary>An input (<c>"Ctrl+A"</c>, <c>"LMB"</c>) as the splines addon's key and mouse icons.</summary>
+    /// <summary>An input (<c>"Ctrl+A"</c>, <c>"Shift+click"</c>) as keycaps with the key's name, and the splines addon's
+    /// icons for mouse buttons. <c>+</c> joins a combo, <c>·</c> separates alternatives (drawn as <c>/</c>).</summary>
     public static Control Keys(string key, int px = 16)
+    {
+        var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        row.AddThemeConstantOverride("separation", 3);
+        var alternatives = key.Split(" · ");
+        for (int a = 0; a < alternatives.Length; a++)
+        {
+            if (a > 0) row.AddChild(Joiner("/"));
+            var parts = alternatives[a].Split('+');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (i > 0) row.AddChild(Joiner("+"));
+                string part = parts[i].Trim();
+                row.AddChild(KeyGlyphs.IsMouse(part) ? MouseIcon(part, px) : Keycap(part));
+            }
+        }
+        return row;
+    }
+
+    private static Control Joiner(string text)
+    {
+        var l = Label(text, 11, dim: true);
+        l.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        return l;
+    }
+
+    private static Control Keycap(string name)
+    {
+        var sb = Box(Tile, 3, 0);
+        sb.ContentMarginLeft = sb.ContentMarginRight = 5;
+        sb.ContentMarginTop = 0;
+        sb.ContentMarginBottom = 1;
+        sb.SetBorderWidthAll(1);
+        sb.BorderWidthBottom = 2;
+        sb.BorderColor = new Color(1f, 1f, 1f, 0.22f);
+        var cap = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        cap.AddThemeStyleboxOverride("panel", sb);
+        cap.AddChild(Label(name, 11, dim: true));
+        return cap;
+    }
+
+    private static Control MouseIcon(string part, int px)
     {
         var l = new RichTextLabel
         {
@@ -107,7 +149,7 @@ public static class UiTheme
             SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
         };
         l.AddThemeFontSizeOverride("normal_font_size", 12);
-        KeyGlyphs.Append(l, key, px, TextDim);
+        KeyGlyphs.Append(l, part, px + 4, Text); // bigger and brighter than keycaps, so the pressed button reads
         return l;
     }
 

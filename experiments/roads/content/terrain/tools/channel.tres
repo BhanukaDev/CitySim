@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="TerrainTool" format=3]
+
+[ext_resource type="Script" path="res://src/Terraform/TerrainTool.cs" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/icons/shovel.svg" id="2_glyph"]
+[ext_resource type="Texture2D" path="res://content/terrain/thumbnails/channel.png" id="thumbnail"]
+
+[resource]
+script = ExtResource("1_script")
+Icon = ExtResource("thumbnail")
+Tool = "channel"
+Glyph = ExtResource("2_glyph")
+Usage = "LMB hold  cut
+LMB A, then B  graded cut
+RMB  step back"
+Id = "channel"
+DisplayName = "Channel"
+Description = "Cut a ditch, river bed or canal: following the ground downhill, or on a straight grade between two points."
+Tab = "terrain_tools"
+Order = 50

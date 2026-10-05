@@ -8,8 +8,8 @@ namespace CitySim.UI;
 
 /// <summary>
 /// The game's build UI: <see cref="BuildBar"/> along the bottom; above it the dock with the category's always-open
-/// options panel and its <see cref="BuildTray"/>. Content comes from <see cref="ContentLibrary"/>.
-/// Keys: 1–4 tool mode, Ctrl+A Anarchy, / search, Esc unpicks then closes.
+/// options panel (roads or terrain) and its <see cref="BuildTray"/>. Content comes from <see cref="ContentLibrary"/>.
+/// Keys: 1–4 tool mode, Ctrl+A Anarchy, / search, Esc unpicks then closes (a tool backs out of its own state first).
 /// </summary>
 public partial class GameHud : CanvasLayer
 {
@@ -20,10 +20,13 @@ public partial class GameHud : CanvasLayer
     public ContentLibrary Library { get; private set; } = null!;
     public BuildTray Tray { get; private set; } = null!;
     public RoadOptionsPanel RoadOptions { get; private set; } = null!;
+    public TerrainOptionsPanel TerrainOptions { get; private set; } = null!;
     public Control Root { get; private set; } = null!;
 
     /// <summary>Whether the Roads tray is open (the road tools only work while it is).</summary>
     public bool RoadsOpen => _dock.Visible && Tray.Category?.Id == "roads";
+    /// <summary>Whether the Terrain tray is open (the terrain tools only work while it is).</summary>
+    public bool TerrainOpen => _dock.Visible && Tray.Category?.Id == "terrain";
     /// <summary>The road tool picked in the open Roads tray (Crossings), if any.</summary>
     public RoadTool? PickedRoadTool => RoadsOpen ? Tray.Picked as RoadTool : null;
     /// <summary>A category's tray was opened, or the tray closed (null).</summary>
@@ -54,10 +57,13 @@ public partial class GameHud : CanvasLayer
         RoadOptions = new RoadOptionsPanel();
         _optionPanels["roads"] = RoadOptions;
         _dock.AddChild(RoadOptions);
+        TerrainOptions = new TerrainOptionsPanel();
+        _optionPanels["terrain"] = TerrainOptions;
+        _dock.AddChild(TerrainOptions);
 
         Tray = new BuildTray(Library);
         Tray.CloseRequested += Close;
-        Tray.ItemPicked += i => RoadOptions.SetItem(i, TabLabel(i));
+        Tray.ItemPicked += ShowItem;
         _dock.AddChild(Tray);
     }
 
@@ -72,7 +78,14 @@ public partial class GameHud : CanvasLayer
         if (category is null) return;
         foreach (var (id, panel) in _optionPanels) panel.Visible = id == category.Id;
         Tray.Open(category);
-        RoadOptions.SetItem(Tray.Picked, TabLabel(Tray.Picked));
+        ShowItem(Tray.Picked);
+    }
+
+    /// <summary>The picked item in the open category's options panel.</summary>
+    private void ShowItem(BuildItem? item)
+    {
+        if (Tray.Category?.Id == "terrain") TerrainOptions.SetItem(item, TabLabel(item));
+        else RoadOptions.SetItem(item, TabLabel(item));
     }
 
     private string? TabLabel(BuildItem? item) => item is null ? null : Library.TabOf(item)?.Label;
@@ -92,7 +105,7 @@ public partial class GameHud : CanvasLayer
         }
         else if (key.Keycode == Key.Slash && open) Tray.FocusSearch();
         else if (key.Keycode == Key.A && key.IsCommandOrControlPressed() && roads) RoadOptions.ToggleAnarchy();
-        else if (roads && key.Keycode is >= Key.Key1 and <= Key.Key5 && !key.IsCommandOrControlPressed())
+        else if (roads && key.Keycode is >= Key.Key1 and <= Key.Key4 && !key.IsCommandOrControlPressed())
             RoadOptions.SetMode((RoadDrawMode)(key.Keycode - Key.Key1));
         else return;
         GetViewport().SetInputAsHandled();

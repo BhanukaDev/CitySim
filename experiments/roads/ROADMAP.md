@@ -10,10 +10,17 @@ the research and wireframe at https://claude.ai/artifact/9btto4m8pVJzZD3jNTCbzP 
 - No prices, upkeep, speed or capacity in the UI until something simulates them.
 - Content is `.tres` resources read from folders (`ContentLibrary`), so mods add or replace roads without code.
 - Details show on hover (the card's tooltip). The options panel is always open next to the tray.
-- Only options the splines Draw tool already has: modes 1–4, grid blocks and fit, snap groups, Anarchy.
+- Only options the splines Draw tool already has: modes 1–4 (Straight, Curve, Grid, Replace), grid blocks and fit, snap groups, Anarchy.
+- Four draw tools: **Straight, Curve, Grid, Replace**. Freehand (the splines addon's mode 3) is left out of the game.
+- **Every new mechanism or feature is tried with all four tools** before it counts as done: draw it Straight, Curve and
+  Grid, and Replace an existing road with it (or replace across it). A feature that only works in Straight mode is not
+  finished.
 - One look, taken from the hover card (v4, https://claude.ai/artifact/XCHdpm4MNCRBA1XDc6qoQa): near-black panels with a
   hairline border, controls as faint tiles, selected = accent tint + accent outline, text tabs with an accent underline.
 - Terse copy: labels, values, chips and key icons, no narrated sentences. Prose only in content descriptions.
+- Icons are Tabler outline (white, 64 px; `assets/icons/LICENSE.md`); any new glyph is drawn in the same style.
+- Terrain tools and roads share the terrain's one undo history, so each undo only reaches its own side: a terrain stroke
+  ends the road undo history, a road change ends the terrain one.
 
 ## How to build / verify
 
@@ -36,6 +43,9 @@ $G --headless --path . --quit-after 300 -- --flat --demo-mixed       # four-lane
 $G --path . -- --flat --demo-mixed --cam=450,500,45,45,0 --screenshot=screenshots/mixed_drop.png              # a 4 → 2 lane drop
 $G --path . -- --flat --demo-mixed --cam=915,505,55,55,0 --screenshot=screenshots/mixed_drop_near_junction.png # a drop 30 m past a 4-way
 $G --path . -- --flat --demo-grid=four_lane --cam=690,560,200,70,0 --screenshot=screenshots/grid_four_top.png  # a four-lane grid
+$G --headless --path . --quit-after 600 -- --flat --demo-terrain     # terrain tools round a road, undo/redo; "Demo terrain: all ok"
+$G --path . -- --flat --demo-terrain --cam=760,520,150,55,20 --screenshot=screenshots/terrain_shift.png --screenshot-frames=240
+$G --path . -- --flat --ui=open:terrain,pick:channel,hover:level --screenshot=screenshots/terrain_channel.png
 $G --headless --path . --quit-after 400 -- --flat --demo-shape       # hill, dip, hillside T, undo, sculpt; "Demo shape: all ok"
 $G --path . -- --flat --demo-shape --cam=600,500,70,22,60 --screenshot=screenshots/shape_cut.png       # cut through the hill
 $G --path . -- --flat --demo-shape --cam=800,500,90,15,0 --screenshot=screenshots/shape_fill.png       # embankment over the dip
@@ -43,6 +53,7 @@ $G --path . -- --flat --demo-shape --cam=640,490,25,35,200 --screenshot=screensh
 $G --path . -- --flat --demo-road --road-age=0.6 --cam=700,505,10,75,20 --screenshot=screenshots/road_age.png  # cracks close up
 $G --headless --path . -- --flat --bake-road-textures              # only after changing RoadTextureBaker; then --import
 $G --path . -- --flat --bake-road-thumbnails[=<id>]                # card pictures (roads and road tools), after a road or its look changes; imports itself
+$G --path . -- --flat --bake-terrain-thumbnails[=<id>]             # terrain tool card pictures, same studio; imports itself
 $G --headless --path . --quit-after 300 -- --flat --demo-crossings   # auto rules + Crossings tool clicks + undo; "Demo crossings: all ok"
 $G --path . -- --flat --demo-crossings --crossing-cursor=760,503 --cam=640,500,190,70,0 --screenshot=screenshots/crossings_overview.png
 $G --path . -- --flat --demo-crossings --crossing-cursor=699.5,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_midblock.png
@@ -65,7 +76,7 @@ $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-continue --cam=715,51
 ```
 
 `--ui=` parts, applied in order: `open:<category>`, `tab:<tab>`, `pick:<item>`, `search:<text>`,
-`mode:straight|curve|freehand|grid`, `anarchy`, `hover:<item>` (shows the hover card above the item's card).
+`mode:straight|curve|grid|replace`, `anarchy`, `hover:<item>` (shows the hover card above the item's card).
 The terrain flags (`--flat`, `--load=`, `--cam=`, `--screenshot=`) come from the terrain package.
 
 ## Road checklist
@@ -137,6 +148,9 @@ Dimensions from the research doc "Small Two-Lane Road: Reference Dimensions"
 strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European white markings (0.12 m, centre 3 : 6).
 - The splines addon is now `packages/citysim_splines/` (symlinked as `addons/citysim_splines`). `RoadToolHost`
   (`ISplineToolHost`) drives its Draw and Edit tools from the tray pick and the options panel (`M` = Edit).
+  Edit shows in the panel as **Move**, a fifth button after the draw modes (2026-10-05): on, it lists the Edit
+  controls as tiles in place of the grid options; 1–4 or a mode button go back to Draw. Not on the bottom bar: it
+  only edits roads for now (`--ui=...,move` for a screenshot).
   `RoadProfiles` makes a `SplineProfile` per road type (the addon's kerb radius is at the back of the sidewalk, so
   it's 4 m minus the sidewalk).
 - `RoadType.StripWidth`: room between the outer lane and the kerb (gutter now, parking or a bike lane as a later
@@ -165,7 +179,7 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
   side slope until they meet the natural ground (nothing on flat ground). Same undo step as the road. Delete leaves the
   ground as it is.
 - Roads never move with the ground: a later terrain edit round a road is shaped back once the stroke ends (its own
-  terrain undo step). The roads experiment has no terrain tools yet, so `--demo-shape` stands in for one.
+  terrain undo step). `--demo-shape` scripts such an edit; the Terrain tools (R9) make it by hand.
 - Built in the splines addon as the first part of its S8 (`Vertical`, `GroundShaping`); see its README.
 - The road mesh sits 12 cm above the shaped ground (was 4 cm): the terrain renderer rounds a level junction into the
   slope beside it a few centimetres high and showed through the gutters.
@@ -330,6 +344,15 @@ like the TM:PE lane connector in CS1).
   turn follows its lane in (round the curve) to near the corner where the two lanes' lines meet, turns on a circle's arc
   and follows the lane out (`LaneLinks.Turn`): it starts where the lane is within 15° of its direction at that corner
   and never turns further than it has to, so no wide sweeps, loops past the kerb or hooks back into a lane. Square junctions draw as before. `--demo-bend-t[=<road>]` checks every link stays on the junction.
+- **Smooth turns, spread wear** (user report, 2026-10-05: on a road joined to a bend, turns ran on up the lane and
+  hooked back, a line no car drives). A turn is now one curve from mouth to mouth when it turns one way only, no
+  further than the lanes need, and stays in front of both mouths (`LaneLinks.Sweeps`); `LaneLinks.Turn` is only the
+  fallback. The root of the hook was that a 135° turn hit the U-turn test (cos < −0.7) and swung out as a bulb, which
+  the old check rejected; only a real U-turn link makes a bulb now (`Sweep` has no U-turn). Each turn's wear is five
+  ribbons on different drivers' lines (`LaneLinks.Lines`, handles × 0.75–1.25), meeting in the lanes at both ends and
+  spreading mid-turn, so turn wear is wider than a lane and fuzzier; they lay 1.5 × the turn's share (tyres scrub on a
+  turn). The chevrons keep off every line, so the 30° Y's triangle between the turns is driven over now (its kerb wedge
+  stays) and the bend T has no chevrons.
 - **U-turns** (user report, 2026-10-05: too sharp) swing round a 5 m radius (`LaneLinks.UTurnRadius`, most cars and vans
   in one go): out away from the turn, round a half circle centred between the lanes, back in (a "bulb").
 - For the play-test: is RMB-anywhere for the picked link right, or should it be RMB on the link? Are the dots big enough
@@ -383,6 +406,46 @@ strips, wider lanes; the same 24 m as CS's medium road). `MaxGrade` 8 %, `Ground
   different offsets taper too. `--demo-offset` checks it at z = 1250.
 - For the play-test: are 3.5 m lanes too wide next to the two-lane's 3 m? Solid or double centre line? Is 8 % right?
   Is a 20 m taper long enough, or should the kerbside lane end with a longer taper?
+
+### ⬜ R9: Terrain tools (built 2026-10-05, waiting for the user's play-test)
+The terrain experiment's game-mode tools on the build bar: a **Terrain** button (`content/build/terrain.tres`), one
+tab, five cards (`TerrainTool` items in `content/terrain/tools/`): Shift, Level, Smooth, Slope, Channel, and a Paint
+tab (below). Water stays in the Map Editor.
+- Card pictures, like the road cards: `--bake-terrain-thumbnails[=<id>]` (`TerrainThumbnailBaker`, the road baker's
+  studio, angle and size) renders what each tool makes on a 160 m patch, cut with the real sculpt ops: a mound with the
+  brush ring (Shift), a flat pad in hills (Level), a smoothed disc in rough ground (Smooth), a ramp off a plateau (Slope),
+  a winding channel with water (Channel), all with the 2 m contour lines (shifted half a line so flat ground
+  sits between them). PNGs in `content/terrain/thumbnails/`, linked as `Icon`. A tool with no Icon
+  shows its Tabler `Glyph` instead.
+- `Terraform/TerrainToolController`: ported from the terrain experiment's controller onto the stable
+  `Terrain.BeginEdit` API (one terrain edit per stroke). Round brush only for now (the textured brushes' masks live in
+  the terrain experiment). Same inputs: LMB/RMB per tool, `[ ]` / Shift+wheel size, Alt+wheel strength, `C` contours,
+  Ctrl+Z / Ctrl+Shift+Z.
+- `TerrainOptionsPanel` (the always-open panel, roads look): usage tiles, brush size and strength, Shift's max slope,
+  Level's height and Slope's start (with clear), Channel's shape (V, U, Flat, Box: own glyphs in the Tabler style),
+  width, depth, speed, Follow / Graded, Fill and the graded cut's grade, cut and fill. Contours toggle.
+- Roads hold: a stroke over a road is shaped back round it by the network once it ends (its own terrain step, now
+  announced by `SplineNetwork.GroundShapedBack`), and one undo takes back the stroke and that step together.
+- Splines addon: a ground change from outside now ends the network's undo history, since the network's undo would
+  otherwise pop the terrain tool's step instead of its own shaping.
+- Inputs made to match the road tools (2026-10-05): **LMB does the tool's thing, RMB backs out and never edits**
+  (cancels the stroke and puts the ground back, else clears the picked point), Esc the same and then goes on to the
+  HUD. Alt+LMB is the second action. Shift: **Raise · Lower** mode row (1–2), Alt flips it for one stroke. Level:
+  Alt+LMB picks the height, RMB back to Auto. Slope: LMB sets the start, then LMB-drag ramps; Alt+LMB a new start.
+  Graded Channel unchanged (Esc stepping back now works: keys moved to `_UnhandledKeyInput`, ahead of the HUD). A tag
+  by the mouse like the road tools': "RMB Cancel" during a stroke, Level's height, Slope's grade from the start,
+  Graded's A / B / cut and grade. The panel's usage only lists RMB where it clears something (Level, Slope, Channel).
+- **Paint** tab: one card per paintable material of the map's theme (`TerrainPaint`, made at run time with
+  `ContentLibrary.SetGenerated` whenever the theme or map changes; the theme's baked swatch is the picture), and an
+  **Erase** card first (`content/terrain/tools/erase.tres`): erasing is its own tool, back to the automatic ground, not
+  RMB. Paint strokes are `BeginEdit(paint: true)` edits, so undo is the same as sculpting.
+- Splines addon: a paint change also ends the network's undo history (a road undo after a paint stroke would have
+  undone the paint instead of its own shaping).
+- `--demo-terrain` also checks Lower and Alt, RMB mid-stroke (ground back, nothing recorded), Paint and Erase (paint
+  only, exact undo, road history ended).
+- For the play-test: should Terrain sit before Roads on the bar? Brush shapes (bring the masks into the terrain
+  package)? A shared undo across roads and terrain instead of the hand-off? Should Slope become click A, click B (like
+  Graded) instead of a brush drag? Water tools next?
 
 ### ⬜ Later
 - Upgrades content type and tab (looks + traffic), Intersections, Parking. Lane arrows painted from the lane links.

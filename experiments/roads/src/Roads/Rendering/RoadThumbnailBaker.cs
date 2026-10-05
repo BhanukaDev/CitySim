@@ -27,8 +27,10 @@ public partial class RoadThumbnailBaker : Node
     private const string ToolRoad = "two_lane"; // the road a tool's picture is shown on
     private const string StylePath = "res://content/roads/styles/default.tres";
     // Twice the card's picture (120 × 70), so it stays sharp when scaled down.
-    private static readonly Vector2I Size = new(240, 140);
-    private const float Length = 240f; // the road runs well past the frame, so no dead-end caps show
+    internal static readonly Vector2I Size = new(240, 140);
+    private const float Length = 240f;
+    /// <summary>The terrain package's default grass tint.</summary>
+    internal static readonly Color Grass = new(0.36f, 0.45f, 0.27f); // the road runs well past the frame, so no dead-end caps show
 
     private readonly string? _only;
 
@@ -69,7 +71,7 @@ public partial class RoadThumbnailBaker : Node
             return;
         }
 
-        var (viewport, stage, camera) = Studio();
+        var (viewport, stage, camera) = Studio(this);
         DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(Folder));
         string[] ids = allRoads.Select(r => r.Id).ToArray();
         var defs = allRoads.ToDictionary(r => r.Id, r => r.ToDef());
@@ -120,8 +122,9 @@ public partial class RoadThumbnailBaker : Node
         GetTree().Quit(code);
     }
 
-    /// <summary>A world of its own: a sun, a sky like the game's, a grass plane, a camera and a node the road goes in.</summary>
-    private (SubViewport, Node3D, Camera3D) Studio()
+    /// <summary>A world of its own under <paramref name="parent"/>: a sun, a sky like the game's, a grass plane (unless
+    /// the subject brings its own ground), a camera and a node the subject goes in. Shared with the terrain tools' pictures.</summary>
+    internal static (SubViewport, Node3D, Camera3D) Studio(Node parent, bool grass = true)
     {
         var viewport = new SubViewport
         {
@@ -130,7 +133,7 @@ public partial class RoadThumbnailBaker : Node
             Msaa3D = Viewport.Msaa.Msaa8X,
             RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
         };
-        AddChild(viewport);
+        parent.AddChild(viewport);
 
         var sky = new ProceduralSkyMaterial
         {
@@ -157,8 +160,8 @@ public partial class RoadThumbnailBaker : Node
         sun.RotationDegrees = new Vector3(-50, -35, 0);
 
         // The terrain package's default grass tint, flat: the road is the subject.
-        var grass = new StandardMaterial3D { AlbedoColor = new Color(0.36f, 0.45f, 0.27f), Roughness = 1 };
-        viewport.AddChild(new MeshInstance3D { Mesh = new PlaneMesh { Size = new Vector2(1000, 1000), Material = grass } });
+        if (grass)
+            viewport.AddChild(new MeshInstance3D { Mesh = new PlaneMesh { Size = new Vector2(1000, 1000), Material = new StandardMaterial3D { AlbedoColor = Grass, Roughness = 1 } } });
 
         var stage = new Node3D { Name = "Stage" };
         viewport.AddChild(stage);
@@ -168,7 +171,7 @@ public partial class RoadThumbnailBaker : Node
     }
 
     /// <summary>Looks down the road at a slant from one side, close enough that its width fills most of the frame.</summary>
-    private static void Frame(Camera3D camera, float width, Vector3 look)
+    internal static void Frame(Camera3D camera, float width, Vector3 look)
     {
         float distance = width * 1.9f + 4f;
         var from = Basis.FromEuler(new Vector3(Mathf.DegToRad(-48), Mathf.DegToRad(-28), 0)) * new Vector3(0, 0, distance);
@@ -244,7 +247,7 @@ public partial class RoadThumbnailBaker : Node
 
     /// <summary>Sets the road's Icon to the PNG in its .tres text, unless it already has an Icon that isn't a baked
     /// thumbnail. Edits the text so the rest of the file stays as written. False when it keeps its own Icon.</summary>
-    private static bool LinkIcon(string tresPath, string png)
+    internal static bool LinkIcon(string tresPath, string png)
     {
         string file = ProjectSettings.GlobalizePath(tresPath);
         var lines = File.ReadAllLines(file).ToList();

@@ -147,13 +147,21 @@ public static class LaneLinks
     /// <paramref name="d3"/>, square to the cuts. A turn is a cubic that follows a circle's arc between where the two
     /// lanes' lines meet (so it stays inside the corner they make, however hard the turn); straight on, or lanes that
     /// don't meet ahead, a cubic with a third of the chord for handles. A U-turn swings round
-    /// <see cref="UTurnRadius"/> (<see cref="UTurn"/>). None for a path under half a metre.
+    /// <see cref="UTurnRadius"/> (<see cref="UTurn"/>). None for a path under half a metre. <paramref name="wide"/>
+    /// scales a turn's handles: under 1 a driver cutting the corner, over 1 one swinging wide (<see cref="Lines"/>).
     /// </summary>
-    public static IEnumerable<(Vector2 P, Vector2 D)> Path(Vector2 p0, Vector2 d0, Vector2 p3, Vector2 d3, bool turn)
+    public static IEnumerable<(Vector2 P, Vector2 D)> Path(Vector2 p0, Vector2 d0, Vector2 p3, Vector2 d3, bool turn, float wide = 1)
+    {
+        if (Vector2.Dot(d0, d3) < -0.7f && Vector2.Distance(p0, p3) >= 0.5f) return UTurn(p0, d0, p3, d3);
+        return Sweep(p0, d0, p3, d3, turn, wide);
+    }
+
+    /// <summary><see cref="Path(Vector2, Vector2, Vector2, Vector2, bool, float)"/> with no U-turn: one cubic however
+    /// hard the turn (a 135° turn off a bend still sweeps round, not swing out as a bulb).</summary>
+    private static IEnumerable<(Vector2 P, Vector2 D)> Sweep(Vector2 p0, Vector2 d0, Vector2 p3, Vector2 d3, bool turn, float wide)
     {
         float chord = Vector2.Distance(p0, p3);
         if (chord < 0.5f) return Enumerable.Empty<(Vector2, Vector2)>();
-        if (Vector2.Dot(d0, d3) < -0.7f) return UTurn(p0, d0, p3, d3);
         float h0 = chord / 3, h3 = chord / 3;
         float angle = MathF.Acos(Math.Clamp(Vector2.Dot(d0, d3), -1f, 1f));
         // Where the lane in's line (on from p0) meets the lane out's (back from p3): t and s metres along them.
@@ -168,6 +176,7 @@ public static class LaneLinks
                 (h0, h3) = (MathF.Min(k * t, chord), MathF.Min(k * s, chord));
             }
             else (h0, h3) = (chord * 0.39f, chord * 0.39f);
+            (h0, h3) = (h0 * wide, h3 * wide);
         }
         return Cubic(p0, p0 + d0 * h0, p3 - d3 * h3, p3, d0);
     }
@@ -215,20 +224,55 @@ public static class LaneLinks
         foreach (var q in Cubic(c1, c1 - d0 * back, p3 - d3 * back, p3, -d0, first: false)) yield return q;
     }
 
-    /// <summary>A link's path: <see cref="Path(Vector2, Vector2, Vector2, Vector2, bool)"/>, or straight on through a
-    /// road that curves through the junction, along the road's own line (<see cref="Along"/>).</summary>
-    public static IEnumerable<(Vector2 P, Vector2 D)> Path(IReadOnlyList<ArmLanes> arms, LaneLink l) =>
-        Path(arms, l.From, l.FromLane, l.To, l.ToLane);
+    /// <summary>The lines drivers take through a turn, from cutting the corner to swinging wide (handle scales for
+    /// <see cref="Path(Vector2, Vector2, Vector2, Vector2, bool, float)"/>), and the wear each lays: they meet in the
+    /// lanes at both ends and spread apart mid-turn, so a turn's wear is wider than a lane. The wear adds up to more than
+    /// the turn's share, as tyres scrub harder on a turn than going straight.</summary>
+    public static readonly (float Wide, float Share)[] Lines = [(0.75f, 0.25f), (0.88f, 0.3f), (1f, 0.4f), (1.12f, 0.3f), (1.25f, 0.25f)];
 
-    public static IEnumerable<(Vector2 P, Vector2 D)> Path(IReadOnlyList<ArmLanes> arms, int from, int fromLane, int to, int toLane)
+    /// <summary>A link's path: <see cref="Path(Vector2, Vector2, Vector2, Vector2, bool, float)"/>, or straight on
+    /// through a road that curves through the junction, along the road's own line (<see cref="Along"/>).
+    /// <paramref name="wide"/>: the driver's line through a turn (<see cref="Lines"/>).</summary>
+    public static IEnumerable<(Vector2 P, Vector2 D)> Path(IReadOnlyList<ArmLanes> arms, LaneLink l, float wide = 1) =>
+        Path(arms, l.From, l.FromLane, l.To, l.ToLane, wide);
+
+    /// <summary>
+    /// A turn is one smooth curve from mouth to mouth where that works (it turns one way only, never further than the
+    /// lanes' directions need, and stays in front of both mouths), the way a car sweeps round however the arms curve
+    /// near the node (user report, 2026-10-05: turns off a bend's curved arms ran on up the lane and hooked back).
+    /// Otherwise it follows the lanes to near their corner (<see cref="Turn"/>).
+    /// </summary>
+    public static IEnumerable<(Vector2 P, Vector2 D)> Path(IReadOnlyList<ArmLanes> arms, int from, int fromLane, int to, int toLane,
+        float wide = 1)
     {
         var (a, b) = (arms[from], arms[to]);
         var move = MoveOf(a, b);
         if (move == Move.Straight && Vector2.Dot(-a.Heading, b.Heading) > 0.995f && Vector2.Dot(-a.Outward, b.Outward) < 0.995f)
             return Along(a, InAcross(a, a.In[fromLane]), b, OutAcross(b, b.Out[toLane]));
-        if (move is Move.Left or Move.Right && Turn(a, InAcross(a, a.In[fromLane]), b, OutAcross(b, b.Out[toLane])) is { } turn)
-            return turn;
-        return Path(a.In[fromLane], -a.Outward, b.Out[toLane], b.Outward, move != Move.Straight);
+        var (p0, d0, p3, d3) = (a.In[fromLane], -a.Outward, b.Out[toLane], b.Outward);
+        if (move is Move.Left or Move.Right)
+        {
+            var sweep = Sweep(p0, d0, p3, d3, turn: true, wide).ToList();
+            if (Sweeps(sweep, p0, d0, p3, d3, move == Move.Left)) return sweep;
+            if (Turn(a, InAcross(a, p0), b, OutAcross(b, p3), wide) is { } turn) return turn;
+        }
+        return Path(p0, d0, p3, d3, move != Move.Straight, wide);
+    }
+
+    /// <summary>Whether a mouth-to-mouth curve is one a car drives: it turns only <paramref name="left"/> (or only
+    /// right), through no more than the lanes' directions, and never behind either mouth.</summary>
+    private static bool Sweeps(List<(Vector2 P, Vector2 D)> path, Vector2 p0, Vector2 d0, Vector2 p3, Vector2 d3, bool left)
+    {
+        if (path.Count < 2) return false;
+        float net = MathF.Acos(Math.Clamp(Vector2.Dot(d0, d3), -1f, 1f));
+        if (Swept(path) > net + 0.1f) return false;
+        for (int i = 1; i < path.Count; i++)
+        {
+            // Turning right swings the heading toward its right (RightOf): a positive cross product.
+            float c = Cross(path[i - 1].D, path[i].D);
+            if (left ? c > 1e-3f : c < -1e-3f) return false;
+        }
+        return path.All(x => Vector2.Dot(x.P - p0, d0) > -0.05f && Vector2.Dot(x.P - p3, d3) < 0.05f);
     }
 
     /// <summary>
@@ -238,7 +282,7 @@ public static class LaneLinks
     /// allows, so it's as wide as fits. With straight arms that's the arc from mouth to mouth, as before. Null when the
     /// lines don't meet.
     /// </summary>
-    private static List<(Vector2 P, Vector2 D)>? Turn(ArmLanes a, float from, ArmLanes b, float to)
+    private static List<(Vector2 P, Vector2 D)>? Turn(ArmLanes a, float from, ArmLanes b, float to, float wide = 1)
     {
         const float run = 100f; // the lines run on this far past the node
         var inLane = a.Spine.Select(x => x.P + x.Right * from).ToList();
@@ -256,7 +300,7 @@ public static class LaneLinks
             var (p0, d0) = At(inLane, sa - back);
             var (p3, d3) = At(outLane, sb + back);
             if (Vector2.Dot(d0, inAtCorner) < LaneStraight || Vector2.Dot(d3, outAtCorner) < LaneStraight) continue;
-            var arc = Path(p0, d0, p3, d3, turn: true).ToList();
+            var arc = Path(p0, d0, p3, d3, turn: true, wide).ToList();
             if (Swept(arc) > MathF.Acos(Math.Clamp(Vector2.Dot(d0, d3), -1f, 1f)) + 0.1f) continue;
             var pts = Part(inLane, 0, sa - back).ToList();
             pts.AddRange(arc.Skip(1));

@@ -24,6 +24,7 @@ profiled hot paths.
 - `experiments/roads/`: the game's build UI (bar, tray, options panel) with road types read from `.tres` content files
   (mods drop files in `user://mods/`), then roads drawn with the splines addon. **Read `experiments/roads/ROADMAP.md`
   first**, then `README.md` (the content format).
+  Road tools are Straight, Curve, Grid and Replace (no Freehand); try every new road feature with all four.
 
 ## Working conventions
 - Verify visual changes yourself before handing off: `dotnet build`, a headless run, then the

@@ -96,6 +96,7 @@ public partial class UiDemo : Node
                 case "search": hud.Tray.SetSearch(value); break;
                 case "mode": hud.RoadOptions.SetMode(Enum.Parse<RoadDrawMode>(value, ignoreCase: true)); break;
                 case "anarchy": hud.RoadOptions.ToggleAnarchy(); break;
+                case "move": GetTree().Root.FindChildren("*", "", true, false).OfType<CitySim.Roads.RoadToolHost>().FirstOrDefault()?.SetTool(CitySim.Splines.SplineTool.Edit); break;
                 case "hover": hover = value; break;
                 case "tooltip": tooltip = value; break;
                 default: GD.PushError($"--ui: unknown part \"{part}\""); break;

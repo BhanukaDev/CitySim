@@ -160,10 +160,24 @@ public sealed partial class RoadVisual
                 Move.Left => 1 - MathF.Max(0, System.Numerics.Vector2.Dot(-a.Outward, b.Outward)),
                 _ => 1,
             };
-            var path = new TrackPath(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward), a.LaneWidth / 2, turn,
-                LaneLinks.Path(arms, l).Select(x => (G(x.P), G(x.D))).ToList());
-            if (ribbons) Ribbon(rm, path, rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)]);
-            paths.Add(path);
+            TrackPath PathOf(float wide) => new(G(a.In[l.FromLane]), G(-a.Outward), G(b.Out[l.ToLane]), G(b.Outward),
+                a.LaneWidth / 2, turn, LaneLinks.Path(arms, l, wide).Select(x => (G(x.P), G(x.D))).ToList());
+            float share = rm.Wear * Share(l.Move) / total[(l.From, l.FromLane)];
+            // Drivers take a turn on different lines, so its wear spreads mid-turn (LaneLinks.Lines); the chevrons
+            // keep off all of them.
+            if (l.Move is Move.Left or Move.Right)
+                foreach (var (wide, part) in LaneLinks.Lines)
+                {
+                    var line = PathOf(wide);
+                    if (ribbons) Ribbon(rm, line, share * part);
+                    paths.Add(line);
+                }
+            else
+            {
+                var path = PathOf(1);
+                if (ribbons) Ribbon(rm, path, share);
+                paths.Add(path);
+            }
         }
         return paths;
     }

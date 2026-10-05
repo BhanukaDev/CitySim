@@ -21,8 +21,8 @@ Needs the terrain package (`citysim_terrain`) in the same project.
   `GridLayout`, `Geometry/` (`Alignment`, `Curve`, segments, `FreehandFit`, `RibbonGeometry`), `Snapping/`,
   `Graph/` (`SplineGraph`, `Junctions`, `Validation`, `Vertical`, `GroundShaping`).
 - `icons/`: Tabler icons the overlay draws in place of symbols in tag text (∡ ↔ ↗ ↘ ⤓ ⤒; `SplineOverlay.Icons`). Core
-  writes the symbols, so its wording stays engine-free. Also the mouse and keycap icons (`mouse-*`, `key-*`) that
-  `KeyGlyphs` draws for an input string (`"Shift+wheel"`, `"RMB"`, `"[ ] · Shift+[ ]"`): the overlay's mouse hints
+  writes the symbols, so its wording stays engine-free. Also the mouse icons (`mouse-*`) and named keycaps
+  (`Del`, `Shift`, `Ctrl`; the old `key-*` icons read as the wrong key) that `KeyGlyphs` draws for an input string (`"Shift+wheel"`, `"RMB"`, `"[ ] · Shift+[ ]"`): the overlay's mouse hints
   use it, and consumers can too (`KeyGlyphs.Draw` on any `CanvasItem`, `KeyGlyphs.Append` into a `RichTextLabel`).
 - `src/Godot/`: `SplineProfile` (the `.tres` per network type), `SplineNetwork` (the built graph, undo, issues,
   footprints, visuals), `SplineDrawTool`, `SplineEditTool`, `RibbonRenderer` (draw previews and the placeholder
@@ -42,7 +42,10 @@ junctions change: **splines never move with the ground**.
 Profiles with `Shaping = Section` then shape the ground round what changed (`GroundShaping`): level under the corridor
 and one grid cell beside it, then `CutSlope` / `FillSlope` (run per rise) back to the natural ground, and a level disc
 round each junction. It's one terrain edit, undone with the spline change. When anything else edits the ground (a terrain
-tool, a script), the ground round the splines there is shaped back once the stroke ends, as its own terrain undo step.
+tool, a script), the ground round the splines there is shaped back once the stroke ends, as its own terrain undo step
+(`SplineNetwork.GroundShapedBack` says so, so a terrain tool can undo its stroke and that step together). Such a change
+also ends the splines' undo history: it sits on top of the terrain's history, so a spline undo would undo it instead.
+A paint stroke ends it the same way (it's a terrain step too), though nothing is shaped back for it.
 `Validation` marks red (Invalid): `grade` where an edge's ends are too far apart in height for `MaxGrade`, and `cut` /
 `fill` where its line runs deeper into or higher above the ground than `MaxCut` / `MaxFill` (measured when the line was
 made). The tools call `SplineNetwork.Conform(trial)` before validating a trial so previews show these, and the Draw tool's leg

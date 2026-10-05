@@ -47,6 +47,7 @@ public partial class BuildTray : PanelContainer
     public BuildTray(ContentLibrary lib)
     {
         _lib = lib;
+        _lib.Changed += () => { if (_category is not null) Reopen(); };
         Name = "BuildTray";
         CustomMinimumSize = new Vector2(TrayWidth, 0);
         SizeFlagsVertical = SizeFlags.ShrinkEnd;
@@ -121,6 +122,14 @@ public partial class BuildTray : PanelContainer
         }
         string open = _openTab.GetValueOrDefault(category.Id) ?? tabs.FirstOrDefault()?.Id ?? "";
         OpenTab(open);
+    }
+
+    /// <summary>The open category again (its items changed), keeping the search.</summary>
+    private void Reopen()
+    {
+        string query = _search.Text;
+        Open(_category!);
+        if (query != "") SetSearch(query);
     }
 
     public void OpenTab(string tabId)

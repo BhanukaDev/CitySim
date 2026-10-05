@@ -11,7 +11,8 @@ namespace CitySim.Roads;
 /// <summary>
 /// Connects the build UI to the splines addon's tools (<see cref="ISplineToolHost"/>): the road picked in the tray is
 /// the profile drawn with, the options panel gives the mode, snaps, grid blocks and Anarchy. Registers a profile per
-/// road type with the network and hands it the <see cref="RoadVisual"/>. <c>M</c> switches between Draw and Edit. The
+/// road type with the network and hands it the <see cref="RoadVisual"/>. <c>M</c> (or the panel's Move button) switches
+/// between Draw and Edit, and the panel shows which. The
 /// tools only work while the Roads tray is open: closing it leaves Edit and gives Draw no profile, so both idle.
 /// </summary>
 public partial class RoadToolHost : Node, ISplineToolHost
@@ -59,6 +60,11 @@ public partial class RoadToolHost : Node, ISplineToolHost
         Hud.CategoryOpened += c => { if (c?.Id != "roads" && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
         // A road tool (Crossings) takes the mouse: Edit stands down, and Draw idles with no road picked.
         Hud.Tray.ItemPicked += item => { if (item is RoadTool && Tool != SplineTool.Draw) SetTool(SplineTool.Draw); };
+        Hud.RoadOptions.MoveRequested += on =>
+        {
+            var tool = on ? SplineTool.Edit : SplineTool.Draw;
+            if (Tool != tool) SetTool(tool);
+        };
         _mode = Options!.Mode;
         Hud.RoadOptions.OptionsChanged += o =>
         {
@@ -79,6 +85,7 @@ public partial class RoadToolHost : Node, ISplineToolHost
     public void SetTool(SplineTool tool)
     {
         Tool = tool;
+        Hud?.RoadOptions.SetMoving(tool == SplineTool.Edit);
         GD.Print($"Roads: tool {tool}");
     }
 
@@ -94,7 +101,6 @@ public partial class RoadToolHost : Node, ISplineToolHost
     {
         RoadDrawMode.Straight => DrawMode.Draw,
         RoadDrawMode.Curve => DrawMode.Curve,
-        RoadDrawMode.Freehand => DrawMode.Freehand,
         RoadDrawMode.Replace => DrawMode.Replace,
         _ => DrawMode.Grid,
     };
