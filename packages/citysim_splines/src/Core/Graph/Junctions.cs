@@ -85,11 +85,13 @@ public readonly record struct ArmCut(int EdgeId, bool AtStart, float CutBack);
 /// outline polygon (each arm's curved sides, its cut end and the curbs, in order round the node). The outline isn't
 /// always star-shaped around <see cref="Centre"/> when arms curve, so triangulate it rather than fanning.
 /// <see cref="Continuous"/>: not a junction but one road running on (a width transition), so markings along the arms,
-/// such as a centre line, carry on through it to the node.
+/// such as a centre line, carry on through it to the node. <see cref="Bend"/>: not a junction but one road turning a
+/// corner at a node (<see cref="Junctions.IsBend"/>): a kerb round the inside, the outside rounded.
 /// </summary>
 public sealed record JunctionFootprint(int NodeId, Vector2 Centre, IReadOnlyList<ArmCut> Cuts, IReadOnlyList<Curb> Curbs, IReadOnlyList<Vector2> Outline)
 {
     public bool Continuous { get; init; }
+    public bool Bend { get; init; }
 
     public float CutBack(int edgeId, bool atStart) =>
         Cuts.FirstOrDefault(c => c.EdgeId == edgeId && c.AtStart == atStart).CutBack;
@@ -205,9 +207,16 @@ public static class Junctions
     }
 
     /// <summary>Whether a node with these arms gets a footprint: a <see cref="JunctionKind.Node"/> junction with three
-    /// or more arms, or a <see cref="IsTransition"/>.</summary>
+    /// or more arms, a <see cref="IsTransition"/> or a <see cref="IsBend"/>.</summary>
     private static bool HasFootprint(IReadOnlyList<Arm> arms) =>
-        (arms.Count >= 3 && KindOf(arms) == JunctionKind.Node) || IsTransition(arms);
+        (arms.Count >= 3 && KindOf(arms) == JunctionKind.Node) || IsTransition(arms) || IsBend(arms);
+
+    /// <summary>Two arms of one width meeting at an angle at a <see cref="JunctionKind.Node"/> node (a grid's corner,
+    /// two profiles, what a delete leaves): fitted like a junction, so the inside gets a kerb and both roads are cut
+    /// back to it instead of running square into each other.</summary>
+    public static bool IsBend(IReadOnlyList<Arm> arms) =>
+        arms.Count == 2 && KindOf(arms) == JunctionKind.Node && !IsTransition(arms)
+        && Sorted(arms).Min(x => x.Gap) < StraightGapDegrees;
 
     /// <summary>Two arms of different widths running on into each other (an avenue becoming a street): the wider one
     /// tapers down to the narrower over a short stretch instead of ending in a step.</summary>
@@ -216,7 +225,8 @@ public static class Junctions
         && MathF.Abs(arms[0].Rules.Width - arms[1].Rules.Width) > 0.01f;
 
     /// <summary>
-    /// The footprint of a <see cref="JunctionKind.Node"/> junction with three or more arms: between each pair of
+    /// The footprint of a <see cref="JunctionKind.Node"/> junction with three or more arms, or of a
+    /// <see cref="IsBend"/> (one curb on the inside, the outside rounded as for arms running on): between each pair of
     /// neighbouring arms, a curb arc tangent to their facing sides, with the narrower arm's
     /// <see cref="ProfileRules.KerbRadius"/>; each arm is cut back to where its curbs start. Arms are followed along
     /// their real curves (not their direction at the node), so a junction on a curve meets the ribbons exactly: a
@@ -252,6 +262,9 @@ public static class Junctions
         // them because they run on (straight through, or the outside of a gap wider than that) are joined along their
         // own sides in to the node and round the outside of it, so a junction on a curve keeps the curve on its far
         // side and the outside of a wide gap isn't cut off by a chord between the cut ends.
+        // A bend with a kerb inside: the outside is that kerb pushed out by the road's width (concentric for a round
+        // one), from the cut on one arm to the cut on the other, so the road turns the corner at its own width.
+        bool bend = n == 2 && curbs.Any(c => c is not null);
         var outline = new List<Vector2>();
         for (int i = 0; i < n; i++)
         {
@@ -265,14 +278,15 @@ public static class Junctions
                 outline.AddRange(paths[i].TaperRun(-1, 0, Half(prev), taper[i], w));
                 outline.AddRange(paths[i].SideRun(-1, w, taper[i], cut[i]));
             }
-            else outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : RunsOn(prev) ? 0 : cut[i], cut[i]));
+            else outline.AddRange(paths[i].SideRun(-1, w, prevFits ? curbAt[prev].To : RunsOn(prev) && !bend ? 0 : cut[i], cut[i]));
             if (RunsOn(i) && Tapers(i, i))
             {
                 outline.AddRange(paths[i].SideRun(+1, w, cut[i], taper[i]));
                 outline.AddRange(paths[i].TaperRun(+1, taper[i], w, 0, Half(next)));
             }
-            else outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : RunsOn(i) ? 0 : cut[i]));
+            else outline.AddRange(paths[i].SideRun(+1, w, cut[i], nextFits ? curbAt[i].From : RunsOn(i) && !bend ? 0 : cut[i]));
             if (nextFits && curbs[i] is { } curb) outline.AddRange(ArcPoints(curb));
+            else if (bend && curbs[next] is { } inside) outline.AddRange(Outside(inside, w + Half(next)));
             else if (RunsOn(i))
             {
                 // Round the outside at the narrower width when the pair tapers (the wider one is down to it by the node).
@@ -287,7 +301,8 @@ public static class Junctions
             bool Tapers(int k, int a) => taper[a] > 0 && Half(a) > Half(a == k ? (k + 1) % n : k) + 0.01f;
         }
         var cuts = f.Sorted.Select((x, i) => new ArmCut(x.Arm.EdgeId, x.Arm.AtStart, cut[i])).ToList();
-        return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline));
+        return new JunctionFootprint(nodeId, g.Node(nodeId).Position, cuts, curbs.Where(c => c is not null).Select(c => c!.Value).ToList(), Dedupe(outline))
+            { Bend = n == 2 };
     }
 
     /// <summary>A Node junction's curbs and cut-backs, round the node: <c>Curbs[i]</c> and <c>CurbAt[i]</c> are between
@@ -298,11 +313,11 @@ public static class Junctions
     private sealed record Layout(List<(Arm Arm, float Gap)> Sorted, ArmPath[] Paths, float[] Cut, Curb?[] Curbs, (float From, float To)[] CurbAt, bool[] Corner,
         (float XA, float XB, float TanHalf)?[] Legs);
 
-    /// <summary>The curbs and cut-backs of a <see cref="JunctionKind.Node"/> junction with three or more arms (see
-    /// <see cref="Footprint"/>), null for any other node.</summary>
+    /// <summary>The curbs and cut-backs of a <see cref="JunctionKind.Node"/> junction with three or more arms, or a
+    /// <see cref="IsBend"/> (see <see cref="Footprint"/>), null for any other node.</summary>
     private static Layout? Fit(SplineGraph g, int nodeId, IReadOnlyList<Arm> arms)
     {
-        if (arms.Count < 3 || KindOf(arms) != JunctionKind.Node) return null;
+        if ((arms.Count < 3 || KindOf(arms) != JunctionKind.Node) && !IsBend(arms)) return null;
         var sorted = Sorted(arms);
         int n = sorted.Count;
         var paths = sorted.Select(x => new ArmPath(g, x.Arm)).ToArray();
@@ -730,12 +745,12 @@ public static class Junctions
     /// The fill for a bend where exactly two arms meet at an angle (two profiles that can't be one edge, or what a
     /// delete leaves): the outside of the bend, where the arms' square ends leave a notch, as an arc from one arm's
     /// outer side to the other's (its radius going from one half width to the other). A fan from the node fills it.
-    /// Null for other nodes and for two arms running straight through.
+    /// Null for other nodes, for two arms running straight through and for a <see cref="IsBend"/> (it has a footprint).
     /// </summary>
     public static IReadOnlyList<Vector2>? BendFill(SplineGraph g, int nodeId, int n = 12)
     {
         var arms = g.Arms(nodeId);
-        if (arms.Count != 2) return null;
+        if (arms.Count != 2 || IsBend(arms)) return null;
         var sorted = Sorted(arms);
         int i = sorted[0].Gap >= sorted[1].Gap ? 0 : 1; // the outside is the wider gap
         var (a, gap) = sorted[i];
@@ -830,6 +845,23 @@ public static class Junctions
         var pts = new List<Vector2>(n + 1);
         for (int k = 0; k <= n; k++) pts.Add(c.Centre + SplineMath.Direction(a0 + sweep * k / n) * c.Radius);
         return pts;
+    }
+
+    /// <summary>A bend's outside: its inside kerb pushed out by <paramref name="width"/> (away from the kerb's centre),
+    /// run the other way, from the kerb's second arm to its first.</summary>
+    private static List<Vector2> Outside(Curb c, float width)
+    {
+        var pts = ArcPoints(c);
+        var result = new List<Vector2>(pts.Count);
+        for (int k = 0; k < pts.Count; k++)
+        {
+            var t = Vector2.Normalize(pts[Math.Min(k + 1, pts.Count - 1)] - pts[Math.Max(k - 1, 0)]);
+            var normal = new Vector2(-t.Y, t.X);
+            if (Vector2.Dot(normal, pts[k] - c.Centre) < 0) normal = -normal;
+            result.Add(pts[k] + normal * width);
+        }
+        result.Reverse();
+        return result;
     }
 
     /// <summary>The unit normal on the side of an arm where the next arm (by heading) lies.</summary>

@@ -74,6 +74,7 @@ public sealed partial class RoadVisual
             });
         }
         Hatching(rm, cores, paths);
+        if (f.Bend) BendLines(rm, g, f);
         foreach (var top in Geometry2D.IntersectPolygons(kerbBack, outline))
             foreach (var kerb in Geometry2D.ClipPolygons(top, kerbLine))
                 Fill(rm, SurfaceKind.Kerb, kerb, kh);
@@ -239,6 +240,84 @@ public sealed partial class RoadVisual
             rm.Quad(SurfaceKind.Sidewalk, Point(ta, kh), Point(tb, kh), Point(b, kh), Point(a, kh), Vector3.Up);
             rm.Quad(SurfaceKind.Sidewalk, Point(a, kh), Point(b, kh), Point(b, -_sectionStyle.SkirtDepth), Point(a, -_sectionStyle.SkirtDepth),
                 new Vector3(-inward.X, 0, -inward.Y));
+        }
+    }
+
+    /// <summary>
+    /// A road turning a corner at a node (<see cref="JunctionFootprint.Bend"/>): its lines carried on round the corner
+    /// from one cut to the other, each a cubic curve leaving and joining its line square to the cuts (a circle's arc
+    /// for straight arms), dashes stretched to whole ones. Only when both arms are the same road and neither has a
+    /// crossing set there.
+    /// </summary>
+    private void BendLines(RoadMesh rm, SplineGraph g, JunctionFootprint f)
+    {
+        if (f.Cuts.Count != 2) return;
+        var (ca, cb) = (f.Cuts[0], f.Cuts[1]);
+        var (ea, eb) = (g.Edge(ca.EdgeId), g.Edge(cb.EdgeId));
+        if (ea.Rules.Id != eb.Rules.Id || Marks.ContainsKey((ea.Id, ca.AtStart)) || Marks.ContainsKey((eb.Id, cb.AtStart))) return;
+        var sec = SectionOf(ea);
+        var (pa, outA, leftA, _) = CutFrame(g, ca);
+        var (pb, outB, leftB, _) = CutFrame(g, cb);
+        // Left of the way from arm a round to arm b, at each cut: an edge's left is against that way where it runs
+        // the other way (away from the node at a, into it at b).
+        var (la, lb) = (ca.AtStart ? -leftA : leftA, cb.AtStart ? leftB : -leftB);
+        float turn = MathF.Acos(Math.Clamp((-outA).Dot(outB), -1f, 1f));
+        foreach (var line in sec.Lines)
+        {
+            float t = ca.AtStart ? -line.Offset : line.Offset;
+            Vector2 p0 = pa + la * t, p3 = pb + lb * t;
+            float chord = p0.DistanceTo(p3);
+            if (chord < 0.1f) continue;
+            // Handles of a cubic that follows a circle's arc through the turn: (4/3) tan(θ/4) R, with R from the chord.
+            float h = turn < 0.01f ? chord / 3 : chord * 2 / 3 * MathF.Tan(turn / 4) / MathF.Sin(turn / 2);
+            Vector2 p1 = p0 - outA * h, p2 = p3 - outB * h;
+            var pts = new List<Vector2>();
+            int n = Math.Max(8, (int)MathF.Ceiling(chord * 2));
+            for (int i = 0; i <= n; i++)
+            {
+                float k = i / (float)n, u = 1 - k;
+                pts.Add(u * u * u * p0 + 3 * u * u * k * p1 + 3 * u * k * k * p2 + k * k * k * p3);
+            }
+            var at = new float[pts.Count];
+            for (int i = 1; i < pts.Count; i++) at[i] = at[i - 1] + pts[i].DistanceTo(pts[i - 1]);
+            float len = at[^1];
+            if (line.Dash <= 0)
+            {
+                BendPaint(rm, sec, pts, at, 0, len, line);
+                continue;
+            }
+            float period = line.Dash + line.Gap;
+            int dashes = Math.Max(1, (int)MathF.Round(len / period));
+            float p = len / dashes, on = p * line.Dash / period;
+            for (int k = 0; k < dashes; k++)
+            {
+                float d = k * p + (p - on) / 2;
+                BendPaint(rm, sec, pts, at, d, d + on, line);
+            }
+        }
+    }
+
+    /// <summary>A painted strip along a polyline (<paramref name="at"/>: metres along it at each point) from
+    /// <paramref name="a"/> to <paramref name="b"/>, on the junction's flat asphalt, with the UVs <see cref="Paint"/> gives.</summary>
+    private void BendPaint(RoadMesh rm, RoadSection sec, List<Vector2> pts, float[] at, float a, float b, SectionLine line)
+    {
+        float half = line.Width / 2, height = sec.CarriagewayHeight(0, 0) + PaintLift;
+        var stations = new List<float> { a };
+        stations.AddRange(at.Where(x => x > a && x < b));
+        stations.Add(b);
+        RoadMesh.Vertex? l0 = null, r0 = null;
+        foreach (float s in stations)
+        {
+            int i = Math.Clamp(Array.FindIndex(at, x => x >= s), 1, pts.Count - 1);
+            var d = (pts[i] - pts[i - 1]).Normalized();
+            float k = at[i] > at[i - 1] ? (s - at[i - 1]) / (at[i] - at[i - 1]) : 0;
+            var c = pts[i - 1].Lerp(pts[i], k);
+            var side = new Vector2(-d.Y, d.X) * half;
+            var ends = new Vector2(s - a, b - s);
+            var l1 = new RoadMesh.Vertex(Point(c + side, height), new Vector2(half, half), ends);
+            var r1 = new RoadMesh.Vertex(Point(c - side, height), new Vector2(half, -half), ends);
+            if (l0 is { } pl && r0 is { } pr) rm.Quad(SurfaceKind.Paint, pl, pr, r1, l1, Vector3.Up);
+            (l0, r0) = (l1, r1);
         }
     }
 

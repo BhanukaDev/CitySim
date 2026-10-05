@@ -292,13 +292,14 @@ public partial class JunctionDemo : Node
         Check("arc merge: corner PI", back.Pis[1].Position, V(100, 0));
         Check("arc merge: radius", back.EffectiveRadius(1), 40f);
 
-        // Not straight through: a corner node stays when the branch goes, and its bend is filled.
+        // Not straight through: a corner node stays when the branch goes, and gets a bend footprint (a kerb inside).
         var k = new SplineGraph();
         k.AddSpline(Line(V(0, 0), V(200, 0)), Street);
         var stem = k.AddSpline(Line(V(100, 0), V(100, 100)), Street);
         k.RemoveEdge(k.Edges.First(e => Vector2.Distance(e.Alignment.Pis[^1].Position, V(200, 0)) < 0.01f).Id);
         Check("corner node stays", k.EdgeCount, 2);
-        Check("corner node: bend fill", Junctions.BendFill(k, stem.Nodes[0]) is not null);
+        Check("corner node: bend footprint", Junctions.Footprint(k, stem.Nodes[0]) is { Bend: true, Curbs.Count: 1 });
+        Check("corner node: no bend fill", Junctions.BendFill(k, stem.Nodes[0]) is null);
     }
 
     /// <summary>Drawing on from a dead end of the same profile makes one road, the joint a corner with every drawn

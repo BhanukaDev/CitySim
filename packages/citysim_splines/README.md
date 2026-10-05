@@ -58,8 +58,9 @@ pills show each leg's slope. Ends too far apart in height for `MaxGrade` get one
 - **`INetworkVisual`**: your meshes for the built network. Set `SplineNetwork.Visual` and its `SetNetwork(graph,
   footprints, issues, hidden)` is called after every change, undo, redo and Edit trial, in place of the flat ribbons.
   Draw each edge between `Junctions.CutBacks(edge, footprints)`, and fill each `JunctionFootprint` (its `Outline` runs
-  round the corridor edge: each arm's sides, its cut end and the curbs). Two-arm hard corners have
-  `Junctions.BendFill`. Leave `hidden` edges out. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
+  round the corridor edge: each arm's sides, its cut end and the curbs). A 2-arm Node-kind corner of one width is a
+  footprint too, with `Bend` set (`Junctions.IsBend`: a kerb inside, the outside that kerb pushed out by the road's
+  width); other 2-arm hard corners (Join / Turnout kinds) have `Junctions.BendFill`. Leave `hidden` edges out. Draw previews stay flat ribbons. The roads experiment's `RoadVisual`
   is an example. Build on the stored heights, not the ground: `edge.Heights.At(s)` (level across, so no roll) and
   `node.Height` for junctions. Either is null only before the network has conformed that graph.
 - **Per-end data**: `GraphEdge.DataStart` / `DataEnd` hold the consumer's own data for each end of an edge (the roads

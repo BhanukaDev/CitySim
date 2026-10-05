@@ -276,11 +276,15 @@ public partial class ModesDemo : Node
         Click(4000, 4000);
         Click(4000 + 230, 4000);
         Click(4100, 4000 + 150);
-        Check("3 × 2 grid: 9 + 8 edges", network.Graph.EdgeCount, before + 17);
-        Check("12 nodes", network.Graph.Nodes.Count() - nodesBefore, 12);
+        // The outline is one loop round its corners (rounded, as the Draw tool makes them), split by the 6 Ts.
+        Check("3 × 2 grid: 6 + 7 edges", network.Graph.EdgeCount, before + 13);
+        Check("8 nodes", network.Graph.Nodes.Count() - nodesBefore, 8);
         var arms = Enumerable.Range(0, 4).SelectMany(c => Enumerable.Range(0, 3).Select(r => Arms(4000 + c * 230f / 3, 4000 + r * 75f))).ToList();
-        Check("far corner on the cursor's outline", Arms(4230, 4150), 2);
-        Check("4 square corners", arms.Count(n => n == 2), 4);
+        Check("far side on the cursor's outline", Arms(4230, 4075), 3);
+        Check("4 rounded corners, no nodes", arms.Count(n => n == 0), 4);
+        Check("corners at the default radius", network.Graph.Edges.SelectMany(e => e.Alignment.Pis.Skip(1).SkipLast(1))
+            .Count(p => p.Position.X is >= 3999 and <= 4231 && p.Position.Y is >= 3999 and <= 4151
+                && MathF.Abs(p.Radius - Testbed.Profile.ToRules().DefaultRadius) < 0.01f), 4);
         Check("6 T-junctions", arms.Count(n => n == 3), 6);
         Check("2 four-ways", arms.Count(n => n == 4), 2);
         Check("not drawing after the third click", !DrawTool!.IsDrawing);
@@ -320,7 +324,7 @@ public partial class ModesDemo : Node
         Click(4100, 5150);
         Check("on a street: no overlap, nothing red", !network.Issues.Any(i => i.Severity == Severity.Invalid));
         Check("on a street: 4 Ts along it", Enumerable.Range(0, 4).Count(c => Arms(4000 + c * 230f / 3, 5000) == 3), 4);
-        Check("on a street: 5 + 6 + 8 edges", network.Graph.EdgeCount, before + 19);
+        Check("on a street: 5 + 5 + 7 edges", network.Graph.EdgeCount, before + 17);
         network.Undo();
         Check("one undo keeps the street", network.Graph.EdgeCount, before + 1);
         network.Undo();

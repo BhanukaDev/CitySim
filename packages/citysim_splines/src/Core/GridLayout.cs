@@ -154,22 +154,90 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
         BlockSize(c, r) is var (a, b) && MathF.Min(a, b) < MinLots * Lot - 0.01f));
 
     /// <summary>
-    /// The roads: every row line full width and every column line full depth, straight, less any stretch that lies
-    /// on a built road in <paramref name="built"/> (that road is reused; the grid's lines end on it and join it).
-    /// Added to a graph one by one, their crossings become the junctions. With no rows it's just the first edge.
+    /// The roads: the outline as roads turning its corners on arcs of the profile's default radius (as the Draw tool
+    /// makes a corner, so each has its bend slider, not a node), and every inner row and column line straight across
+    /// to it, less any stretch that lies on a built road in <paramref name="built"/> (that road is reused; the grid's
+    /// lines end on it and join it, and the outline breaks there). Added to a graph one by one, their crossings become
+    /// the junctions. With no rows it's just the first edge.
     /// </summary>
     public List<Alignment> Lines(SplineGraph? built = null, ProfileRules? rules = null)
     {
         var lines = new List<Alignment>();
-        for (int r = 0; r <= Rows; r++) Add(Point(0, r), Point(Cols, r));
-        if (Rows > 0)
-            for (int c = 0; c <= Cols; c++) Add(Point(c, 0), Point(c, Rows));
+        if (Rows == 0)
+        {
+            foreach (var (s0, s1) in Kept(Point(0, 0), Point(Cols, 0)))
+                lines.Add(Line(Point(0, 0), Point(Cols, 0), s0, s1));
+            return lines;
+        }
+
+        // The outline, corner by corner round the ring; a run of kept pieces that passes a corner turns it there.
+        float radius = rules?.DefaultRadius ?? 0;
+        var corners = new[] { Point(0, 0), Point(Cols, 0), Point(Cols, Rows), Point(0, Rows) };
+        var runs = new List<List<Pi>>();
+        List<Pi>? open = null;
+        for (int k = 0; k < 4; k++)
+        {
+            Vector2 a = corners[k], b = corners[(k + 1) % 4];
+            float length = Vector2.Distance(a, b);
+            var dir = (b - a) / length;
+            var kept = Kept(a, b);
+            if (kept.Count == 0) open = null;
+            foreach (var (s0, s1) in kept)
+            {
+                if (s0 > 0 || open is null)
+                {
+                    open = new List<Pi> { new(a + dir * s0) };
+                    runs.Add(open);
+                }
+                else open[^1] = new Pi(a, radius); // on round the corner
+                open.Add(new Pi(a + dir * s1));
+                if (s1 < length) open = null;
+            }
+        }
+        var first = runs.FirstOrDefault();
+        if (runs.Count == 1 && open is not null && Vector2.Distance(first![0].Position, corners[0]) < SplineGraph.NodeTolerance)
+        {
+            // The whole ring unbroken: one loop, closed on the first side (where the first column meets it, a T anyway)
+            // so every corner is a bend.
+            var mid = Cols > 1 ? Point(1, 0) : (corners[0] + corners[1]) / 2;
+            var loop = new List<Pi> { new(mid) };
+            loop.AddRange(first.Skip(1).Take(first.Count - 2)); // corners 1, 2, 3
+            loop.Add(new Pi(corners[0], radius));
+            loop.Add(new Pi(mid));
+            lines.Add(new Alignment(loop));
+        }
+        else
+        {
+            // A run ending on corner 0 goes on into one starting there.
+            if (runs.Count > 1 && open is not null && Vector2.Distance(first![0].Position, corners[0]) < SplineGraph.NodeTolerance)
+            {
+                open[^1] = new Pi(corners[0], radius);
+                open.AddRange(first.Skip(1));
+                runs.RemoveAt(0);
+            }
+            lines.AddRange(runs.Select(r => new Alignment(r)));
+        }
+
+        for (int r = 1; r < Rows; r++) Add(Point(0, r), Point(Cols, r));
+        for (int c = 1; c < Cols; c++) Add(Point(c, 0), Point(c, Rows));
         return lines;
 
         void Add(Vector2 a, Vector2 b)
         {
+            foreach (var (s0, s1) in Kept(a, b)) lines.Add(Line(a, b, s0, s1));
+        }
+
+        Alignment Line(Vector2 a, Vector2 b, float s0, float s1)
+        {
+            var dir = Vector2.Normalize(b - a);
+            return new Alignment(new[] { new Pi(a + dir * s0), new Pi(a + dir * s1) });
+        }
+
+        // The stretches of a to b not on a built road, as distances from a.
+        List<(float, float)> Kept(Vector2 a, Vector2 b)
+        {
+            var kept = new List<(float, float)>();
             float length = Vector2.Distance(a, b), s = 0;
-            var dir = (b - a) / length;
             if (built is not null && rules is not null)
                 foreach (var (from, to, _) in built.RunsAlong(a, b, rules))
                 {
@@ -177,11 +245,11 @@ public sealed record GridLayout(Vector2 Corner, Vector2 Along, Vector2 Across, f
                     s = to;
                 }
             Piece(s, length);
+            return kept;
 
             void Piece(float s0, float s1)
             {
-                if (s1 - s0 > SplineGraph.NodeTolerance)
-                    lines.Add(new Alignment(new[] { new Pi(a + dir * s0), new Pi(a + dir * s1) }));
+                if (s1 - s0 > SplineGraph.NodeTolerance) kept.Add((s0, s1));
             }
         }
     }

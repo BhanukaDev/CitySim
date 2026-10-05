@@ -198,8 +198,9 @@ One Draw tool with four modes and one Edit tool. Camera keys are unchanged from 
    (`SplineGraph.RunsAlong`): that stretch isn't added, the grid's lines end on it as Ts, the blocks beside it are
    measured from its own kerb, and a far side on a road stays put (Even on that axis), as does one whose click
    snapped onto a built road or node, so a grid ends on what it was placed against. Makes full-length straight
-   rows and columns, exactly square; their crossings become `Node` junctions and the corners stay square (no
-   continuing). One undo step.
+   rows and columns, exactly square; their crossings become `Node` junctions. The outline's corners are bends at the
+   profile's `DefaultRadius`, as the Draw tool makes them (one road round each corner, so each has its bend slider),
+   not nodes (changed 2026-10-05 from square corners at a node, which drew as a seam and had no slider). One undo step.
 
 **Road points**: every corner has a point on the road: the PI itself where the road passes through it (a joint between
 chained curves, a sharp or hard corner), else the middle of its arc (where the Edit tool's radius knob sits). In every

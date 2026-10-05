@@ -17,6 +17,7 @@ namespace CitySim.Demos;
 /// <c>--cam</c> to look at it; run headless with <c>--quit-after</c> for the checks alone.
 /// <c>--demo-shape</c>: a road over a hill and a dip (<see cref="RunShape"/>). <c>--demo-slope</c>: a draw left open up a
 /// steep hill, for a screenshot of the slope pills and the red grade (<see cref="RunSlope"/>).
+/// <c>--demo-grid</c>: a 3 × 2 grid as Grid mode builds it, for its 90° corners and Ts (<see cref="RunGrid"/>).
 /// <c>--demo-crossings</c>: crossings and the Crossings tool (<see cref="RunCrossings"/>).
 /// <c>--road-age=&lt;0..1&gt;</c>: every road that old, to look at cracks (the game sets age, not the player).
 /// <c>--bake-road-thumbnails[=&lt;road id&gt;]</c>: renders the road cards' pictures (<see cref="RoadThumbnailBaker"/>) and quits.
@@ -43,6 +44,7 @@ public partial class RoadDemo : Node
                 Callable.From(() => Run(id)).CallDeferred();
             }
             else if (arg == "--demo-shape") Callable.From(RunShape).CallDeferred();
+            else if (arg == "--demo-grid") Callable.From(RunGrid).CallDeferred();
             else if (arg == "--demo-crossings")
             {
                 var at = OS.GetCmdlineUserArgs().FirstOrDefault(x => x.StartsWith("--crossing-cursor="))?["--crossing-cursor=".Length..].Split(',');
@@ -110,5 +112,22 @@ public partial class RoadDemo : Node
 
         foreach (var p in problems) GD.PrintErr($"Demo road: {p}");
         GD.Print(problems.Count == 0 ? "Demo road: all ok" : $"Demo road: {problems.Count} problem(s)");
+    }
+
+    /// <summary>A 3 × 2 grid at (600, 500), built the way Grid mode builds one: its outer corners are two roads meeting
+    /// square at a node, its sides Ts.</summary>
+    private void RunGrid()
+    {
+        if (Host?.ProfileFor("two_lane") is not { } profile || Network is null)
+        {
+            GD.PrintErr("Demo grid: no two_lane road or network");
+            return;
+        }
+        var rules = profile.ToRules();
+        if (GridLayout.From(new NumVector2(600, 500), new NumVector2(780, 500), new NumVector2(600, 620), 3, 2, GridFit.Even, rules) is not { } grid)
+            return;
+        var lines = grid.Lines(Network.Graph, rules);
+        Network.Apply(g => { foreach (var line in lines) g.AddSpline(line, rules, Ends.None); return true; });
+        GD.Print($"Demo grid: {Network.Graph.EdgeCount} edges, {Network.Footprints.Count} junctions, {Network.Issues.Count} issues");
     }
 }

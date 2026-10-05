@@ -41,6 +41,7 @@ $G --headless --path . --quit-after 300 -- --flat --demo-crossings   # auto rule
 $G --path . -- --flat --demo-crossings --crossing-cursor=760,503 --cam=640,500,190,70,0 --screenshot=screenshots/crossings_overview.png
 $G --path . -- --flat --demo-crossings --crossing-cursor=699.5,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_midblock.png
 $G --path . -- --flat --demo-crossings --crossing-cursor=708,501 --cam=700,500,35,45,25 --screenshot=screenshots/crossings_refused.png
+$G --path . -- --flat --demo-grid --cam=600,500,40,60,30 --screenshot=screenshots/grid_corner.png       # a grid's 90° corner
 $G --path . -- --flat --ui=open:roads,pick:two_lane --demo-slope --cam=440,560,180,35,30 --screenshot=screenshots/slope_preview.png  # slope pills, red grade
 ```
 
@@ -260,6 +261,14 @@ strip 2 | sidewalk 3, kerb 0.15 m, crown 2 %, corner kerb radius 4 m, European w
 - Options panel text cut down to four mouse hints; the description is one line.
 - Card picture: a real render (a two-lane road with a crossing, closer in than the road cards), made by `--bake-road-thumbnails[=crossings]`, which now
   also renders the cards in `content/roads/tools/`.
+- **Grid corners** (user report, 2026-10-05): a grid's outer corners were two roads meeting square at a node, which drew
+  as two roads running into each other. Now Grid mode rounds them like the Straight tool (splines addon, `GridLayout.Lines`):
+  one road round each corner at the default radius, same surface as the road (no junction seam), with the bend dot
+  and its magnet slider. `--demo-grid` builds a 3 × 2 grid.
+- Two roads still meeting at an angle at a node (what a delete leaves) get a footprint in the addon
+  (`JunctionFootprint.Bend`): a kerb inside, the outside concentric with it, both roads cut back. `RoadVisual.BendLines`
+  carries the lines round it; no stop lines or crossings there (`Crossings.AtJunction` skips bends). It's junction
+  asphalt, so it still shows the junction's wear and scuffing.
 - For the play-test: is 25 m the right "too close"? Should Auto also skip crossings on very short side roads, or on
   junctions of small roads only? Should the tool show every arm's place, not just junctions' (now: on hover)?
 

@@ -43,9 +43,9 @@ public static class Crossings
 {
     public static CrossingMode ModeOf(GraphEdge e, bool atStart) => e.DataAt(atStart) is RoadEnd r ? r.Crossing : CrossingMode.Auto;
 
-    /// <summary>Whether the arm is at a junction (a footprint, not just a change of road width).</summary>
+    /// <summary>Whether the arm is at a junction (a footprint, not just a change of road width or a corner).</summary>
     public static bool AtJunction(GraphEdge e, bool atStart, IReadOnlyDictionary<int, JunctionFootprint> footprints) =>
-        footprints.TryGetValue(atStart ? e.Start : e.End, out var f) && !f.Continuous;
+        footprints.TryGetValue(atStart ? e.Start : e.End, out var f) && !f.Continuous && !f.Bend;
 
     /// <summary>Where the road starts at an arm's end (the junction's cut-back, else the node).</summary>
     public static float CutOf(GraphEdge e, bool atStart, IReadOnlyDictionary<int, JunctionFootprint> footprints)

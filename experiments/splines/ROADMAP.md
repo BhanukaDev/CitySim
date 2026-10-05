@@ -205,7 +205,9 @@ The first pass (2026-09-30) had the snapping logic but not the storyboard's look
     the old corners are pinned (`AlignmentOps.Pinned`). `AddResult` gained `Alignment` (the whole added road) and
     `Continued` (the edges taken). A draw back onto the same edge's other end closes a loop on one node.
   - `Junctions.BendFill`: the outside of a 2-arm bend that stays a node (two profiles, or left by a delete), drawn by
-    `RibbonRenderer`.
+    `RibbonRenderer`. Superseded for Node-kind profiles of one width (2026-10-05, the roads experiment's grid corners
+    overlapped): such a bend is a footprint with `Bend` set (`Junctions.IsBend`), a kerb inside and the outside
+    concentric with it, so both roads are cut back to the turn. BendFill is left for Join / Turnout kinds.
   - Draw tool: `continue · <profile>` snap tag; the ghost is the whole road it becomes and the old edge is hidden
     (`SplineNetwork.Hide`); the overlay gets the old road's leg (half of it when it ends in a corner, to clamp the
     same) so the joint has its `∡` and radius pills; `DrawSession.StartIsCorner` makes the start the live corner for
@@ -506,6 +508,11 @@ snapping, trials, refusal, flashes and undo. Changing mode ends the chain (`Spli
   (`--cam=560,515,420,89,0`).
 - For the play-test: does the grid feel right now (count, fit toggle, placing on a road)? Is a freehand stroke kept
   close enough (6 points for the storyboard's S, against its 5)?
+
+- **Grid corners rounded** (2026-10-05, roads play-test): the outline is one road round its corners
+  (`GridLayout.Lines`), each a bend at the profile's `DefaultRadius` with its bend slider, instead of two roads meeting
+  square at a node. The whole ring is one loop closed at the first column's T; a side on a built road breaks it there.
+  `--demo-modes` grid counts updated (6 + 7 edges, 8 nodes, 4 corners at the default radius).
 
 ### ⬜ S7: Transition spirals and speed
 - Clothoid in/out at each arc (profile `SpiralLength`), clamped with the arc.
